@@ -36,7 +36,7 @@ void pump(int ms) {
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI gui;
-    const juce::File dir = argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
+    const juce::File dir = argc > 1 && juce::String(argv[1]) != "--demo" ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
                                     : juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots");
     dir.createDirectory();
 
@@ -82,6 +82,19 @@ int main(int argc, char** argv) {
         hub.processBlock(buf, midi);
     } };
     gAudio(200);
+
+    // --demo <seconds>: keep the Hub and Tracks running (bus "Snapshot") so the OBS control dock
+    // can be tried live: http://127.0.0.1:47621/?bus=Snapshot
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (juce::String(argv[i]) == "--demo") {
+            const int seconds = juce::String(argv[i + 1]).getIntValue();
+            std::printf("demo running for %d s on bus \"Snapshot\"\n", seconds);
+            std::fflush(stdout);
+            pump(seconds * 1000);
+            gAudio = nullptr;
+            return 0;
+        }
+    }
 
     for (int lang = 0; lang < 2; ++lang) {
         for (int dark = 0; dark < 2; ++dark) {

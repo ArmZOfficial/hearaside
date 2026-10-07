@@ -34,8 +34,62 @@ void pump(int ms) {
 
 } // namespace
 
+// --test-mastering [plug-in name]: hosts a real VST3 in the Hub's mastering chain, runs audio
+// through it, saves and restores the chain. Exit code 0 = ok.
+static int testMastering(const juce::String& wanted) {
+    MasteringChain chain;
+    chain.prepare(48000.0, 512);
+    const auto files = MasteringChain::findPluginFiles();
+    std::printf("found %d VST3 files\n", files.size());
+    int failures = 0;
+    auto check = [&](bool ok, const char* what) { std::printf("[%s] %s\n", ok ? " ok " : "FAIL", what); failures += ok ? 0 : 1; };
+    check(files.size() > 0, "VST3 folder scan (files only, nothing loaded)");
+
+    juce::File pick;
+    for (const auto& f : files)
+        if (wanted.isEmpty() ? f.getFileNameWithoutExtension().containsIgnoreCase("limiter") : f.getFileNameWithoutExtension().containsIgnoreCase(wanted)) { pick = f; break; }
+    if (pick == juce::File()) { std::printf("no matching plug-in to test with\n"); return failures; }
+    std::printf("testing with %s\n", pick.getFileName().toRawUTF8());
+
+    auto types = chain.typesIn(pick);
+    check(types.size() > 0, "plug-in types read from the file");
+    if (types.isEmpty()) return failures + 1;
+    const auto err = chain.add(*types[0]);
+    std::printf("  add -> '%s'\n", err.toRawUTF8());
+    check(err.isEmpty() && chain.size() == 1, "plug-in loaded into the chain");
+
+    std::vector<float> l(512), r(512);
+    float peakIn = 0, peakOut = 0;
+    bool finite = true;
+    for (int b = 0; b < 200; ++b) {
+        for (int i = 0; i < 512; ++i) l[size_t(i)] = r[size_t(i)] = 0.5f * std::sin(float(b * 512 + i) * 0.0628f);
+        for (int i = 0; i < 512; ++i) peakIn = std::max(peakIn, std::abs(l[size_t(i)]));
+        chain.processStream(l.data(), r.data(), 512);
+        for (int i = 0; i < 512; ++i) { peakOut = std::max(peakOut, std::abs(l[size_t(i)])); finite &= std::isfinite(l[size_t(i)]); }
+    }
+    std::printf("  in %.3f -> out %.3f, latency %d frames\n", peakIn, peakOut, chain.totalLatencyFrames());
+    check(finite && peakOut > 0.0f, "audio runs through the hosted plug-in");
+
+    chain.setBypassed(0, true);
+    for (int i = 0; i < 512; ++i) l[size_t(i)] = r[size_t(i)] = 0.25f;
+    chain.processStream(l.data(), r.data(), 512);
+    check(l[100] == 0.25f, "bypass passes audio untouched");
+
+    const auto xml = chain.toXml();
+    MasteringChain restored;
+    restored.prepare(48000.0, 512);
+    restored.fromXml(*xml);
+    check(restored.size() == 1 && restored.isBypassed(0) && restored.name(0) == chain.name(0), "chain saved and restored with the project");
+    chain.remove(0);
+    check(chain.size() == 0, "plug-in removed");
+    std::printf("%s\n", failures == 0 ? "MASTERING TEST PASSED" : "MASTERING TEST FAILED");
+    return failures;
+}
+
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String(argv[1]) == "--test-mastering")
+        return testMastering(argc > 2 ? juce::String(argv[2]) : juce::String()) == 0 ? 0 : 1;
     const juce::File dir = argc > 1 && juce::String(argv[1]) != "--demo" ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
                                     : juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots");
     dir.createDirectory();

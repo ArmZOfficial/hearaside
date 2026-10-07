@@ -35,6 +35,9 @@ enum class Str {
     TrackColours, ColoursFromDaw, ColoursMono, BusName, SyncSafety, SyncSafetyHint, Ceiling, StemNames, Blocks,
     // headphone level / viewers delay
     HeadphoneLevel, HeadphoneTip, HeadphoneMaster, HeadphoneMasterTip, ViewersDelay, DelayTip, SaveAsNewScene, Approx, SceneHint,
+    // mastering for viewers
+    Mastering, MasteringNone, MasteringCount, Manage, AddPlugin, SearchPlugins, PluginLoadFailed, PluginInstrument,
+    MasteringFull, MasteringHint, Bypass, NoPluginsFound, Loading,
     Count
 };
 

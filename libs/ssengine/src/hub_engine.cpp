@@ -126,7 +126,9 @@ void HubEngine::process(float* const* io, int numCh, int n, const HubParams& p,
     h.hubSampleRate.store(sr, std::memory_order_relaxed);
     h.hubBlockSize.store(uint32_t(n), std::memory_order_relaxed);
     syncSafety_ = std::clamp(p.syncSafety, 0, 2);
-    h.hubLatencyFrames.store(uint32_t(syncSafety_ * n + limiters_[0].latency()), std::memory_order_relaxed);
+    StreamInsert* ins = insert_.load(std::memory_order_acquire);
+    h.hubLatencyFrames.store(uint32_t(syncSafety_ * n + limiters_[0].latency() + (ins ? std::max(0, ins->latencyFrames()) : 0)),
+                             std::memory_order_relaxed);
     const uint32_t flags = (p.preview ? kHubPreview : 0u) | (p.panic ? kHubPanic : 0u)
                          | (offline ? kHubOffline : 0u) | (p.bypassed ? kHubBypassed : 0u)
                          | (p.limiterOn ? kHubLimiter : 0u);
@@ -339,6 +341,9 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         if (used[size_t(o)]) {
             if (!outUsed_[size_t(o)]) limiters_[size_t(o)].reset();
             for (int j = 0; j < n; ++j) { l[j] *= mg[j]; r[j] *= mg[j]; }
+            if (o == 0) {
+                if (StreamInsert* ins = insert_.load(std::memory_order_acquire)) ins->processStream(l, r, n);
+            }
             limiters_[size_t(o)].setCeiling(ceiling);
             limiters_[size_t(o)].process(l, r, n, p.limiterOn);
         }

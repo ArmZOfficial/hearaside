@@ -84,7 +84,15 @@ hearaside_add_plugin(HearasideHub
     DESCRIPTION  "Master-bus hub: builds the viewers' mix and sends it to OBS"
     SOURCES
         hub/HubProcessor.cpp
-        hub/HubEditor.cpp)
+        hub/HubEditor.cpp
+        hub/MasteringChain.cpp
+        hub/MasteringPanel.cpp)
+# the Hub hosts mastering plug-ins for the viewers' mix
+target_compile_definitions(HearasideHub PUBLIC JUCE_PLUGINHOST_VST3=1)
+if(HEARASIDE_VST2_SDK)
+    target_compile_definitions(HearasideHub PUBLIC JUCE_PLUGINHOST_VST=1)
+    target_include_directories(HearasideHub PUBLIC "${HEARASIDE_VST2_SDK}")
+endif()
 
 # ui-snapshot: renders both editors to PNG (design QA without a DAW)
 if(HEARASIDE_BUILD_TOOLS)
@@ -92,11 +100,11 @@ if(HEARASIDE_BUILD_TOOLS)
     target_sources(hearaside_ui_snapshot PRIVATE
         ${CMAKE_SOURCE_DIR}/tools/ui-snapshot/main.cpp
         track/TrackProcessor.cpp track/TrackEditor.cpp
-        hub/HubProcessor.cpp hub/HubEditor.cpp
+        hub/HubProcessor.cpp hub/HubEditor.cpp hub/MasteringChain.cpp hub/MasteringPanel.cpp
         ${hearaside_common_sources})
     target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hearaside_ui_snapshot PRIVATE
-        HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
+        HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
         HEARASIDE_VERSION="${PROJECT_VERSION}")
     target_link_libraries(hearaside_ui_snapshot PRIVATE
         hearaside_assets ssengine juce::juce_audio_utils juce::juce_gui_extra

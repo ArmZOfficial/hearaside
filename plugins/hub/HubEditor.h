@@ -102,11 +102,13 @@ private:
     LevelSlider masterSlider_, headphoneSlider_;
     Switch limiter_;
     PrimaryButton preview_ { icons::Icon::Headphones };
+    juce::TextButton masteringButton_;
+    FnChangeListener masteringListener_;
     std::unique_ptr<DbSliderLink> masterLink_, headphoneLink_;
 
     // painted geometry
     juce::Rectangle<float> header_, wordmark_, tracksCard_, tracksTitle_, columns_, emptyArea_;
-    juce::Rectangle<float> streamCard_, streamTitle_, lufsBox_, meterLabels_, masterLabel_, limiterText_;
+    juce::Rectangle<float> streamCard_, streamTitle_, lufsBox_, meterLabels_, masterLabel_, limiterText_, masteringText_;
     juce::Rectangle<float> summaryCard_, summaryTitle_, youBox_, youText_, hpLabel_, viewersBox_, latencyBox_;
     juce::Rectangle<float> messageCard_;
     bool lastPreview_ = false, lastPanic_ = false, lastLimiter_ = false;

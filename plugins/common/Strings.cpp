@@ -155,6 +155,20 @@ Table build() {
     s(Str::Approx, "ประมาณ", "about");
     s(Str::SceneHint, "ซีนนี้ยังไม่ได้บันทึก คลิกขวาเพื่อบันทึกค่าปัจจุบันลงซีนนี้",
       "This scene is empty. Right-click it to save the current setup.");
+    s(Str::Mastering, "Mastering ฝั่งคนดู", "Viewers mastering");
+    s(Str::MasteringNone, "ยังไม่มีปลั๊กอิน", "No plug-ins");
+    s(Str::MasteringCount, "%d ปลั๊กอิน · หน่วง %d ms", "%d plug-ins · %d ms latency");
+    s(Str::Manage, "จัดการ", "Manage");
+    s(Str::AddPlugin, "+ เพิ่มปลั๊กอิน", "+ Add plug-in");
+    s(Str::SearchPlugins, "ค้นหาปลั๊กอิน", "Search plug-ins");
+    s(Str::PluginLoadFailed, "เปิดปลั๊กอินนี้ไม่ได้", "Could not load this plug-in");
+    s(Str::PluginInstrument, "ปลั๊กอินนี้เป็นเครื่องดนตรี ใช้ทำ mastering ไม่ได้", "This is an instrument, not an effect");
+    s(Str::MasteringFull, "ใส่ได้สูงสุด 8 ปลั๊กอิน", "Up to 8 plug-ins");
+    s(Str::MasteringHint, "ปลั๊กอินตรงนี้มีผลกับเสียงคนดูเท่านั้น (ต่อจากระดับรวม ก่อนกันเสียงพีค) ส่วนปลั๊กอินบน Master ของ DAW มีผลกับหูฟังของคุณ",
+      "These plug-ins only affect what viewers hear (after the stream level, before peak protection). Plug-ins on your DAW master affect your headphones.");
+    s(Str::Bypass, "ข้าม", "Bypass");
+    s(Str::NoPluginsFound, "ไม่พบปลั๊กอิน VST3 ในเครื่อง", "No VST3 plug-ins found");
+    s(Str::Loading, "กำลังเปิด...", "Loading...");
     return t;
 }
 

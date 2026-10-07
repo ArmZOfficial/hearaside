@@ -58,6 +58,7 @@ HubProcessor::HubProcessor()
     lastConnect_ = juce::Time::getMillisecondCounter();
     engine_.connect(busName_.toStdString());
     engine_.prepare(sampleRate_, maxBlock_);
+    engine_.setStreamInsert(&mastering_);
     pushStemNames();
     startTimerHz(20);
 }
@@ -65,6 +66,7 @@ HubProcessor::HubProcessor()
 HubProcessor::~HubProcessor() {
     stopTimer();
     apvts_.removeParameterListener(hubparam::Scene, this);
+    engine_.setStreamInsert(nullptr);
     engine_.disconnect();
 }
 
@@ -78,6 +80,7 @@ void HubProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     maxBlock_ = juce::jmax(16, samplesPerBlock);
     engine_.prepare(sampleRate_, maxBlock_);
+    mastering_.prepare(sampleRate_, maxBlock_);
     headphoneGain_.reset(sampleRate_, 0.020);
     headphoneGain_.setCurrentAndTargetValue(ssdsp::dbToGain(headphones_->load()));
     setLatencySamples(0);   // the master output itself is never delayed
@@ -110,6 +113,7 @@ void HubProcessor::run(juce::AudioBuffer<float>& buffer, bool bypassed) {
     hp.syncSafety = juce::roundToInt(sync_->load());
     hp.bypassed = bypassed;
     const bool offline = isNonRealtime();
+    mastering_.setPlayHead(getPlayHead());
     engine_.process(buffer.getArrayOfWritePointers(), numCh, n, hp, time, playing, offline);
     if (bypassed) return;
 
@@ -322,6 +326,7 @@ void HubProcessor::timerCallback() {
     }
     if (now - lastMaintain_ >= 500) {
         lastMaintain_ = now;
+        mastering_.refreshLatency();   // hosted plug-ins may change their latency at any time
         const auto before = engine_.role();
         engine_.maintain();
         if (engine_.role() != before) { if (engine_.role() == HubEngine::Role::Owner) pushStemNames(); stateChanged.sendChangeMessage(); }
@@ -415,6 +420,7 @@ void HubProcessor::getStateInformation(juce::MemoryBlock& dest) {
     for (int i = 0; i < ssbus::kMaxStems; ++i) stems.setProperty("s" + juce::String(i), stemNames_[size_t(i)], nullptr);
     state.removeChild(state.getChildWithName("STEMS"), nullptr);
     state.appendChild(stems, nullptr);
+    if (auto m = mastering_.toXml()) state.setProperty("mastering", m->toString(juce::XmlElement::TextFormat().singleLine()), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -443,7 +449,17 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     const auto stems = state.getChildWithName("STEMS");
     for (int i = 0; i < ssbus::kMaxStems; ++i) stemNames_[size_t(i)] = stems.getProperty("s" + juce::String(i), "").toString();
 
+    const juce::String masteringXml = state.getProperty("mastering", "").toString();
+    state.removeProperty("mastering", nullptr);
     apvts_.replaceState(state);
+    if (auto m = juce::parseXML(masteringXml)) {
+        // hosted plug-ins must be created on the message thread
+        if (juce::MessageManager::getInstance()->isThisTheMessageThread()) mastering_.fromXml(*m);
+        else {
+            std::shared_ptr<juce::XmlElement> shared(m.release());
+            juce::MessageManager::callAsync([this, shared] { mastering_.fromXml(*shared); });
+        }
+    }
     pendingScene_.store(0);   // loading a project restores each Track's own state; never re-apply a scene
     const int sceneParam = juce::roundToInt(apvts_.getRawParameterValue(hubparam::Scene)->load());
     activeScene_ = sceneParam > 0 ? sceneParam - 1 : -1;

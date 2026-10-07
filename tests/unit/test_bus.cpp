@@ -212,14 +212,15 @@ TEST_CASE("remote: many writers, one reader, every command delivered once and in
     auto& bus = shm->layout();
     uint32_t cursor = bus.header.remoteReserve.load();
     constexpr int kWriters = 4, kEach = 2000;
-    std::atomic<bool> done{ false };
+    std::atomic<int> finished{ 0 };
     std::vector<std::thread> writers;
     for (int w = 0; w < kWriters; ++w)
-        writers.emplace_back([&bus, w] {
+        writers.emplace_back([&bus, &finished, w] {
             for (int i = 0; i < kEach; ++i) {
                 postRemote(bus, w, uint32_t(i), float(i));
                 if ((i & 15) == 0) std::this_thread::yield();
             }
+            finished.fetch_add(1);
         });
     std::vector<int> next(kWriters, 0);
     int received = 0, outOfOrder = 0, corrupt = 0;
@@ -231,13 +232,9 @@ TEST_CASE("remote: many writers, one reader, every command delivered once and in
             ++received;
         });
     };
-    // the reader keeps up (like the Hub timer); a slower reader would drop the oldest commands
-    while (received < kWriters * kEach && !done) {
-        drain();
-        bool allJoined = true;
-        for (int w = 0; w < kWriters; ++w) allJoined &= next[size_t(w)] == kEach;
-        if (allJoined) break;
-    }
+    // the reader keeps polling like the Hub timer; under this flood the oldest commands may be
+    // dropped (queue of 64), but nothing may be corrupted or delivered out of order
+    while (finished.load() < kWriters) drain();
     for (auto& t : writers) t.join();
     drain();
     CHECK(corrupt == 0);

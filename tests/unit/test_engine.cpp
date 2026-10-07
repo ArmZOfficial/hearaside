@@ -406,3 +406,44 @@ TEST_CASE("e2e: hub -> consumer (OBS side) at 44.1k -> 48k with drift, no underr
     CHECK_NEAR(pk, 0.5, 0.02);
     CHECK_LT(maxStep, 0.5 * 2 * 3.14159265 * 441.0 / 48000.0 * 1.2);   // no clicks
 }
+
+TEST_CASE("insert: mastering hook processes the Stream Mix only and reports its latency") {
+    struct Half : ssengine::StreamInsert {
+        int calls = 0;
+        void processStream(float* l, float* r, int n) noexcept override {
+            ++calls;
+            for (int i = 0; i < n; ++i) { l[i] *= 0.5f; r[i] *= 0.5f; }
+        }
+        int latencyFrames() const noexcept override { return 100; }
+    } half;
+
+    const std::string bus = uniqueBus("insert");
+    HubEngine hub;
+    hub.connect(bus);
+    hub.prepare(48000, 256);
+    hub.maintain();
+    TrackPublisher tr;
+    tr.connect(bus, "", 48000, 1);
+    tr.prepare(48000, 1);
+    tr.mirror({ true, true, false, 0.0f, 0.0f, 0.0f, 0.0f, 0 });   // also feeds stem 1
+    hub.setStreamInsert(&half);
+    std::vector<float> in(256, 0.4f), l(256), r(256);
+    for (int b = 0; b < 40; ++b) {
+        const float* ch[1] = { in.data() };
+        tr.process(ch, 1, 256, int64_t(b) * 256, true, false, false);
+        float* io[2] = { l.data(), r.data() };
+        hub.process(io, 2, 256, HubParams{}, int64_t(b) * 256, true, false);
+    }
+    auto* L = hub.bus();
+    std::vector<float> a(256), c(256);
+    float* d[2] = { a.data(), c.data() };
+    const uint64_t w = L->streamHeader.writePos[0].load();
+    ssbus::ringReadAt(L->streamAudio[0], L->streamHeader.writePos[0], w - 256, d, 256);
+    CHECK_NEAR(a[100], 0.2f, 0.001f);   // Stream Mix halved by the insert
+    const uint64_t ws = L->streamHeader.writePos[1].load();
+    ssbus::ringReadAt(L->streamAudio[1], L->streamHeader.writePos[1], ws - 256, d, 256);
+    CHECK_NEAR(a[100], 0.4f, 0.001f);   // stem untouched
+    CHECK(half.calls >= 40);
+    CHECK(L->header.hubLatencyFrames.load() == uint32_t(hub.latencyFrames() + 100));
+    hub.setStreamInsert(nullptr);
+}

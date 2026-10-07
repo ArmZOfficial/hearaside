@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Settings.h"
+#include "MasteringChain.h"
 #include "ssengine/engine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -56,7 +57,7 @@ public:
     ~HubProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { mastering_.release(); }
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -78,6 +79,7 @@ public:
     // ---- message thread API for the editor --------------------------------------------------
     juce::AudioProcessorValueTreeState& params() noexcept { return apvts_; }
     ssengine::HubEngine& engine() noexcept { return engine_; }
+    MasteringChain& mastering() noexcept { return mastering_; }
     bool connected() const noexcept { return engine_.bus() != nullptr; }
     juce::String busName() const { return busName_; }
     void setBusName(const juce::String&);
@@ -115,6 +117,7 @@ private:
     void applyRemote(int target, uint32_t paramId, float value);
 
     juce::AudioProcessorValueTreeState apvts_;
+    MasteringChain mastering_;
     ssengine::HubEngine engine_;
     std::atomic<float>* master_ = nullptr;
     std::atomic<float>* limiter_ = nullptr;

@@ -1,4 +1,5 @@
 #include "HubEditor.h"
+#include "MasteringPanel.h"
 #include "ui/SettingsPanel.h"
 
 namespace hearaside {
@@ -347,10 +348,10 @@ void TrackRow::showMenu() {
 // =============================================================================================
 // HubEditor
 
-HubEditor::HubEditor(HubProcessor& p) : EditorShell(p, 1040, 740, 880, 700), proc_(p) {
+HubEditor::HubEditor(HubProcessor& p) : EditorShell(p, 1040, 790, 880, 750), proc_(p) {
     for (juce::Component* c : std::initializer_list<juce::Component*> { &scenes_, &obsChip_, &mute_, &settingsButton_, &previewBanner_,
                                                                         &panicBanner_, &viewport_, &meterL_, &meterR_, &masterSlider_,
-                                                                        &limiter_, &preview_, &headphoneSlider_ })
+                                                                        &limiter_, &preview_, &headphoneSlider_, &masteringButton_ })
         content_.addAndMakeVisible(c);
     viewport_.setViewedComponent(&list_, false);
     viewport_.setScrollBarsShown(true, false);
@@ -363,6 +364,14 @@ HubEditor::HubEditor(HubProcessor& p) : EditorShell(p, 1040, 740, 880, 700), pro
     preview_.onClick = [this] { toggleParam(hubparam::Preview); };
     limiter_.onClick = [this] { toggleParam(hubparam::LimiterOn); };
     settingsButton_.onClick = [this] { showSettings(); };
+    masteringButton_.onClick = [this] {
+        auto panel = std::make_unique<MasteringPanel>(proc_.mastering());
+        panel->setLookAndFeel(&lnf_);
+        auto& box = juce::CallOutBox::launchAsynchronously(std::move(panel), masteringButton_.getScreenBounds(), nullptr);
+        box.setLookAndFeel(&lnf_);
+    };
+    masteringListener_.fn = [this] { content_.repaint(masteringText_.toNearestInt().expanded(2)); content_.repaint(summaryCard_.toNearestInt()); };
+    proc_.mastering().changed.addChangeListener(&masteringListener_);
     masterLink_ = std::make_unique<DbSliderLink>(masterSlider_, *proc_.params().getParameter(hubparam::Master));
     headphoneLink_ = std::make_unique<DbSliderLink>(headphoneSlider_, *proc_.params().getParameter(hubparam::Headphones));
 
@@ -375,7 +384,10 @@ HubEditor::HubEditor(HubProcessor& p) : EditorShell(p, 1040, 740, 880, 700), pro
     startTimerHz(30);
 }
 
-HubEditor::~HubEditor() { proc_.stateChanged.removeChangeListener(&procListener_); }
+HubEditor::~HubEditor() {
+    proc_.stateChanged.removeChangeListener(&procListener_);
+    proc_.mastering().changed.removeChangeListener(&masteringListener_);
+}
 
 bool HubEditor::paramOn(const char* id) const { return proc_.params().getRawParameterValue(id)->load() > 0.5f; }
 
@@ -401,6 +413,9 @@ void HubEditor::refreshTexts() {
     headphoneSlider_.setTooltip(tr(Str::HeadphoneMasterTip));
     settingsButton_.setTooltip(tr(Str::Settings));
     settingsButton_.setTitle(tr(Str::Settings));
+    masteringButton_.setButtonText(tr(Str::Manage));
+    masteringButton_.setTitle(tr(Str::Mastering));
+    masteringButton_.setTooltip(tr(Str::MasteringHint));
     previewBanner_.set(Banner::Style::Dark, icons::Icon::Headphones, tr(Str::BannerPreview));
     panicBanner_.set(Banner::Style::Outline, icons::Icon::SpeakerOff, tr(Str::BannerPanic));
 }
@@ -551,7 +566,7 @@ void HubEditor::layout() {
 
     const bool showMain = proc_.connected() && proc_.engine().role() != ssengine::HubEngine::Role::Secondary;
     for (juce::Component* c : std::initializer_list<juce::Component*> { &viewport_, &meterL_, &meterR_, &masterSlider_, &limiter_,
-                                                                        &preview_, &headphoneSlider_ })
+                                                                        &preview_, &headphoneSlider_, &masteringButton_ })
         c->setVisible(showMain);
     if (!showMain) {
         previewBanner_.setVisible(false);
@@ -588,7 +603,7 @@ void HubEditor::layout() {
 
     // stream card
     {
-        streamCard_ = right.removeFromTop(300.0f);
+        streamCard_ = right.removeFromTop(352.0f);
         auto c = streamCard_.reduced(18.0f);
         auto top = c.removeFromTop(56.0f);
         lufsBox_ = top.removeFromRight(118.0f);
@@ -607,6 +622,10 @@ void HubEditor::layout() {
         auto limRow = c.removeFromTop(36.0f);
         limiter_.setBounds(limRow.removeFromRight(50.0f).withSizeKeepingCentre(50.0f, 30.0f).toNearestInt());
         limiterText_ = limRow;
+        c.removeFromTop(14.0f);
+        auto mRow = c.removeFromTop(38.0f);
+        masteringButton_.setBounds(mRow.removeFromRight(84.0f).withSizeKeepingCentre(84.0f, 32.0f).toNearestInt());
+        masteringText_ = mRow;
         c.removeFromTop(14.0f);
         preview_.setBounds(c.removeFromTop(48.0f).toNearestInt());
     }
@@ -749,6 +768,21 @@ void HubEditor::paintContent(juce::Graphics& g) {
         g.setColour(p.graphite);
         g.setFont(uiFont(11.0f));
         g.drawText(tr(Str::LimiterCaption), lt, juce::Justification::centredLeft, true);
+
+        auto mt = masteringText_;
+        auto& chain = proc_.mastering();
+        g.setColour(p.ink);
+        g.setFont(uiFont(13.0f));
+        g.drawText(tr(Str::Mastering), mt.removeFromTop(18.0f), juce::Justification::centredLeft, true);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(11.0f));
+        juce::String cap = tr(Str::MasteringNone);
+        if (chain.size() > 0) {
+            const double ms = chain.totalLatencyFrames() * 1000.0 / juce::jmax(8000.0, proc_.getSampleRate() > 0 ? proc_.getSampleRate() : 48000.0);
+            cap = tr(Str::MasteringCount).replaceFirstOccurrenceOf("%d", juce::String(chain.size()))
+                                         .replaceFirstOccurrenceOf("%d", juce::String(juce::roundToInt(ms)));
+        }
+        g.drawText(cap, mt, juce::Justification::centredLeft, true);
     }
 
     // ---- summary card ------------------------------------------------------------------------

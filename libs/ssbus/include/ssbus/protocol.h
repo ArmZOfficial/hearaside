@@ -14,6 +14,11 @@
 #include <cstring>
 #include <type_traits>
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324)   // padding from alignas(64) is intended (cache-line separation)
+#endif
+
 namespace ssbus {
 
 constexpr uint32_t kMagic           = 0x53535031; // 'SSP1'
@@ -239,3 +244,7 @@ inline uint32_t floatBits(float f) noexcept { uint32_t u; static_assert(sizeof u
 inline float    bitsFloat(uint32_t u) noexcept { float f; std::memcpy(&f, &u, 4); return f; }
 
 } // namespace ssbus
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif

@@ -1,0 +1,46 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+index 40d8a74..b9cd7b7 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -1140,6 +1140,20 @@ public:
+     //==============================================================================
+     tresult PLUGIN_API setChannelContextInfos (Vst::IAttributeList* list) override
+     {
++        // HEARASIDE patch: some hosts (Studio One) send the channel context before the processor is
++        // connected; keep it and apply it in installAudioProcessor() instead of dropping it.
++        if (getPluginInstance() == nullptr && list != nullptr)
++        {
++            AudioProcessor::TrackProperties early;
++            Vst::String128 earlyName;
++            if (list->getString (Vst::ChannelContext::kChannelNameKey, earlyName, sizeof (earlyName)) == kResultTrue)
++                early.name = std::make_optional (toString (earlyName));
++            Steinberg::int64 earlyColour;
++            if (list->getInt (Vst::ChannelContext::kChannelColorKey, earlyColour) == kResultTrue)
++                early.colourARGB.emplace ((uint32) earlyColour);
++            pendingTrackProperties = early;
++        }
++
+         if (auto* instance = getPluginInstance())
+         {
+             if (list != nullptr)
+@@ -1605,6 +1619,7 @@ private:
+     //==============================================================================
+     ScopedRunLoop scopedRunLoop;
+     VSTComSmartPtr<JuceAudioProcessor> audioProcessor;
++    std::optional<AudioProcessor::TrackProperties> pendingTrackProperties;   // HEARASIDE patch
+ 
+     struct MidiController
+     {
+@@ -1720,6 +1735,12 @@ private:
+ 
+         if (auto* pluginInstance = getPluginInstance())
+         {
++            if (pendingTrackProperties.has_value())   // HEARASIDE patch, see setChannelContextInfos()
++            {
++                pluginInstance->updateTrackProperties (*pendingTrackProperties);
++                pendingTrackProperties.reset();
++            }
++
+             lastLatencySamples = pluginInstance->getLatencySamples();
+ 
+             pluginInstance->addListener (this);

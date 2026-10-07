@@ -16,6 +16,14 @@ try {
     if (-not (Test-Path speexdsp)) {
         git clone --depth 1 https://github.com/xiph/speexdsp.git speexdsp
     }
+    # Local fixes to third-party code (idempotent: skipped when already applied)
+    foreach ($patch in Get-ChildItem (Join-Path $PSScriptRoot 'patches') -Filter 'juce-*.patch' -ErrorAction SilentlyContinue) {
+        git -C JUCE apply --reverse --check $patch.FullName 2>$null
+        if ($LASTEXITCODE -eq 0) { continue }
+        git -C JUCE apply $patch.FullName
+        if ($LASTEXITCODE) { throw "could not apply $($patch.Name)" }
+        "applied $($patch.Name)"
+    }
     # Fonts (Anuphan, SIL OFL) are committed in external/fonts.
 } finally {
     Pop-Location

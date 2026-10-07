@@ -77,9 +77,21 @@ struct HubParams {
     bool  bypassed    = false;
 };
 
+// Optional processing on the Stream Mix only (e.g. mastering plug-ins hosted by the Hub). Runs on
+// the audio thread after the stream master gain and before the safety limiter.
+class StreamInsert {
+public:
+    virtual ~StreamInsert() = default;
+    virtual void processStream(float* left, float* right, int numFrames) noexcept = 0;
+    virtual int  latencyFrames() const noexcept { return 0; }
+};
+
 class HubEngine {
 public:
     enum class Role { Disconnected, Owner, Secondary };
+
+    // The insert must outlive its registration; pass nullptr before destroying it.
+    void setStreamInsert(StreamInsert* insert) noexcept { insert_.store(insert, std::memory_order_release); }
 
     HubEngine();
     ~HubEngine();
@@ -132,6 +144,7 @@ private:
     std::string busName_;
     uint64_t token_ = 0;
     std::atomic<Role> role_{ Role::Disconnected };
+    std::atomic<StreamInsert*> insert_{ nullptr };
     std::atomic<uint32_t> gen_{ 0 };   // bumped on (re)connect so the audio thread resets slot state
     uint32_t seenGen_ = ~0u;
 

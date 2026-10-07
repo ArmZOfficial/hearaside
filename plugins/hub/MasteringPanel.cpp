@@ -46,6 +46,7 @@ MasteringPanel::MasteringPanel(MasteringChain& chain) : chain_(chain) {
     list_.setColour(juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
     for (juce::Component* c : std::initializer_list<juce::Component*> { &addButton_, &backButton_, &chooseButton_, &search_, &list_ })
         addChildComponent(c);
+    addButton_.setVisible(true);   // the list page is shown first
     chain_.changed.addChangeListener(this);
     rebuild();
 }

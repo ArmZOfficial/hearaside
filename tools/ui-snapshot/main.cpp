@@ -4,6 +4,8 @@
 #include "track/TrackProcessor.h"
 #include "hub/HubProcessor.h"
 #include "Settings.h"
+#include "hub/MasteringPanel.h"
+#include "ui/LookAndFeel.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -167,6 +169,38 @@ int main(int argc, char** argv) {
             }
         }
     }
+    // mastering panel (list page with one plug-in, and the picker page)
+    {
+        settings->setLanguage(Language::Thai);
+        settings->setThemeMode(ThemeMode::Dark);
+        hearaside::LookAndFeel lnf;
+        lnf.setDark(true);
+        for (const auto& f : MasteringChain::findPluginFiles()) {
+            if (!f.getFileNameWithoutExtension().containsIgnoreCase("limiter")) continue;
+            auto types = hub.mastering().typesIn(f);
+            if (!types.isEmpty()) hub.mastering().add(*types[0]);
+            break;
+        }
+        {
+            MasteringPanel panel(hub.mastering());
+            panel.setLookAndFeel(&lnf);
+            pump(200);
+            juce::Component bg;
+            bg.setSize(panel.getWidth(), panel.getHeight());
+            save(panel, dir.getChildFile("mastering-list.png"));
+            panel.setLookAndFeel(nullptr);
+        }
+        {
+            MasteringPanel panel(hub.mastering());
+            panel.setLookAndFeel(&lnf);
+            if (auto* add = dynamic_cast<juce::Button*>(panel.getChildComponent(0))) add->triggerClick();
+            pump(300);
+            save(panel, dir.getChildFile("mastering-picker.png"));
+            panel.setLookAndFeel(nullptr);
+        }
+        while (hub.mastering().size() > 0) hub.mastering().remove(0);
+    }
+
     // preview + panic state (Thai, light)
     settings->setLanguage(Language::Thai);
     settings->setThemeMode(ThemeMode::Light);

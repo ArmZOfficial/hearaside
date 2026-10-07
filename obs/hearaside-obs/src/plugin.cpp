@@ -3,15 +3,28 @@
 #include <obs-module.h>
 #include <util/platform.h>
 
+#include "http_server.h"
+#include "remote.h"
 #include "ssbus/bus.h"
 #include "ssdsp/consumer.h"
 
+#include "dock_page.inc"
+
 #include <atomic>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <random>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_AUTHOR("HEARASIDE")
@@ -23,6 +36,65 @@ bool thai() {
     return loc != nullptr && std::strncmp(loc, "th", 2) == 0;
 }
 const char* T(const char* en, const char* th) { return thai() ? th : en; }
+
+// ---- control dock server (one per OBS process) ------------------------------------------------
+
+constexpr uint16_t kDockPort = 47621;
+hearaside::HttpServer gServer;
+std::string gToken;
+
+std::string makeToken() {
+    std::random_device rd;
+    std::string t;
+    const char* hex = "0123456789abcdef";
+    for (int i = 0; i < 32; ++i) t += hex[rd() & 15u];
+    return t;
+}
+
+std::string dockUrl(const std::string& bus) {
+    if (gServer.port() == 0) return {};
+    std::string url = "http://127.0.0.1:" + std::to_string(gServer.port()) + "/";
+    if (!bus.empty() && bus != "Main") url += "?bus=" + bus;
+    return url;
+}
+
+hearaside::HttpResponse handleRequest(const hearaside::HttpRequest& req) {
+    // DNS-rebinding guard: only answer requests addressed to the loopback name we serve
+    const std::string port = std::to_string(gServer.port());
+    if (req.host != "127.0.0.1:" + port && req.host != "localhost:" + port) return { 403, "text/plain", "forbidden" };
+
+    if (req.path == "/" || req.path == "/dock") {
+        std::string page(reinterpret_cast<const char*>(hearaside::kDockPage), hearaside::kDockPageSize);
+        auto replace = [&](const std::string& key, const std::string& value) {
+            for (size_t pos = page.find(key); pos != std::string::npos; pos = page.find(key, pos + value.size()))
+                page.replace(pos, key.size(), value);
+        };
+        replace("%TOKEN%", gToken);
+        replace("%LANG%", thai() ? "th" : "en");
+        return { 200, "text/html; charset=utf-8", page };
+    }
+    // The API needs the per-session token that is only embedded in the page above, so other web
+    // pages open in a browser on this machine cannot drive the Hub (they cannot read our page).
+    const auto tok = req.query.find("token");
+    if (tok == req.query.end() || tok->second != gToken) return { 403, "text/plain", "forbidden" };
+    const auto busIt = req.query.find("bus");
+    const std::string bus = busIt != req.query.end() && !busIt->second.empty() ? busIt->second : "Main";
+
+    if (req.path == "/api/state")
+        return { 200, "application/json; charset=utf-8", hearaside::BusClient::instance().stateJson(bus, thai() ? "th" : "en") };
+    if (req.path == "/api/cmd" && req.method == "POST") {
+        const auto t = req.query.find("t"), p = req.query.find("p"), v = req.query.find("v");
+        if (t == req.query.end() || p == req.query.end() || v == req.query.end()) return { 400, "text/plain", "missing t/p/v" };
+        const int target = std::atoi(t->second.c_str());
+        const long pid = std::atol(p->second.c_str());
+        const float value = float(std::atof(v->second.c_str()));
+        if (target < -1 || target >= ssbus::kMaxSlots || pid < 1 || pid > 32 || !std::isfinite(value))
+            return { 400, "text/plain", "bad command" };
+        const bool ok = hearaside::BusClient::instance().post(bus, target, uint32_t(pid), value);
+        return { ok ? 204 : 404, "text/plain", "" };
+    }
+    return { 404, "text/plain", "not found" };
+}
 
 struct Config {
     std::string bus = "Main";
@@ -41,6 +113,15 @@ struct Source {
 
     std::mutex statusMutex;
     ssdsp::ConsumerStatus status;
+
+    struct SceneHotkey { Source* owner; int index; };
+    std::vector<obs_hotkey_id> hotkeys;
+    std::vector<std::unique_ptr<SceneHotkey>> sceneKeys;
+
+    std::string bus() {
+        std::lock_guard<std::mutex> lk(cfgMutex);
+        return cfg.bus;
+    }
 
     void run() {
         ssdsp::StreamConsumer consumer;
@@ -124,16 +205,41 @@ void ss_update(void* data, obs_data_t* settings) {
     s->cfgDirty = true;
 }
 
+void hk_panic(void* data, obs_hotkey_id, obs_hotkey_t*, bool pressed) {
+    if (pressed) hearaside::BusClient::instance().togglePanic(static_cast<Source*>(data)->bus());
+}
+void hk_preview(void* data, obs_hotkey_id, obs_hotkey_t*, bool pressed) {
+    if (pressed) hearaside::BusClient::instance().togglePreview(static_cast<Source*>(data)->bus());
+}
+void hk_scene(void* data, obs_hotkey_id, obs_hotkey_t*, bool pressed) {
+    if (!pressed) return;
+    auto* k = static_cast<Source::SceneHotkey*>(data);
+    hearaside::BusClient::instance().recallScene(k->owner->bus(), k->index);
+}
+
 void* ss_create(obs_data_t* settings, obs_source_t* source) {
     auto* s = new Source();
     s->source = source;
     ss_update(s, settings);
     s->thread = std::thread([s] { s->run(); });
+
+    // hotkeys (Settings > Hotkeys, also usable from Stream Deck); OBS saves them with the source
+    s->hotkeys.push_back(obs_hotkey_register_source(source, "hearaside.mute_stream",
+        T("HEARASIDE: Mute / unmute stream", "HEARASIDE: ตัด / คืนเสียงคนดู"), hk_panic, s));
+    s->hotkeys.push_back(obs_hotkey_register_source(source, "hearaside.preview",
+        T("HEARASIDE: Hear viewers' mix on / off", "HEARASIDE: ฟังแบบคนดู เปิด / ปิด"), hk_preview, s));
+    for (int i = 0; i < ssbus::kMaxScenes; ++i) {
+        s->sceneKeys.push_back(std::make_unique<Source::SceneHotkey>(Source::SceneHotkey { s, i }));
+        const std::string name = "hearaside.scene" + std::to_string(i + 1);
+        const std::string desc = std::string(T("HEARASIDE: Scene ", "HEARASIDE: ซีน ")) + std::to_string(i + 1);
+        s->hotkeys.push_back(obs_hotkey_register_source(source, name.c_str(), desc.c_str(), hk_scene, s->sceneKeys.back().get()));
+    }
     return s;
 }
 
 void ss_destroy(void* data) {
     auto* s = static_cast<Source*>(data);
+    for (auto id : s->hotkeys) obs_hotkey_unregister(id);
     s->running.store(false);
     if (s->thread.joinable()) s->thread.join();
     delete s;
@@ -146,6 +252,14 @@ void ss_defaults(obs_data_t* settings) {
 }
 
 bool ss_refresh(obs_properties_t*, obs_property_t*, void*) { return true; }   // re-creates the properties (status)
+
+bool ss_open_dock(obs_properties_t*, obs_property_t*, void* data) {
+    const std::string url = dockUrl(data ? static_cast<Source*>(data)->bus() : std::string());
+#ifdef _WIN32
+    if (!url.empty()) ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#endif
+    return false;
+}
 
 obs_properties_t* ss_properties(void* data) {
     auto* s = static_cast<Source*>(data);
@@ -192,6 +306,19 @@ obs_properties_t* ss_properties(void* data) {
                                               "ตั้ง Audio Monitoring ของ source นี้เป็น \"Monitor Off\" เพราะคุณฟังจาก DAW อยู่แล้ว "
                                               "และถ้า DAW เล่นเสียงผ่าน Desktop Audio ด้วย ให้ปิด Desktop Audio ไม่งั้นคนดูจะได้ยินซ้ำ 2 ชั้น"));
     obs_properties_add_button(props, "refresh", T("Refresh status", "อัปเดตสถานะ"), ss_refresh);
+
+    // control panel for the Hub inside OBS
+    const std::string url = dockUrl(bus);
+    if (!url.empty()) {
+        const std::string text = std::string(T("Hub control panel: ", "หน้าควบคุม Hub: ")) + url;
+        obs_property_t* dock = obs_properties_add_text(props, "dock_info", text.c_str(), OBS_TEXT_INFO);
+        obs_property_set_long_description(dock,
+            T("Docks > Custom Browser Docks... > add this URL to control the Hub (tracks, scenes, mute stream, preview, levels) "
+              "without leaving OBS. Hotkeys: Settings > Hotkeys > HEARASIDE.",
+              "เมนู Docks > Custom Browser Docks... > ใส่ URL นี้ เพื่อคุม Hub (แทร็ก ซีน ตัดเสียงคนดู ฟังแบบคนดู ระดับเสียง) ได้ใน OBS "
+              "และตั้ง hotkey ได้ที่ Settings > Hotkeys > HEARASIDE"));
+        obs_properties_add_button(props, "open_dock", T("Open control panel in browser", "เปิดหน้าควบคุมในเบราว์เซอร์"), ss_open_dock);
+    }
     return props;
 }
 
@@ -210,8 +337,19 @@ bool obs_module_load(void) {
     info.get_properties = ss_properties;
     info.icon_type = OBS_ICON_TYPE_AUDIO_INPUT;
     obs_register_source(&info);
+
+    gToken = makeToken();
+    if (gServer.start(kDockPort, 10, handleRequest))
+        blog(LOG_INFO, "[HEARASIDE] control dock at http://127.0.0.1:%u/", unsigned(gServer.port()));
+    else
+        blog(LOG_WARNING, "[HEARASIDE] no free local port for the control dock (%u-%u)", unsigned(kDockPort), unsigned(kDockPort + 9));
     blog(LOG_INFO, "[HEARASIDE] OBS source loaded (version %s)", HEARASIDE_VERSION);
     return true;
+}
+
+void obs_module_unload(void) {
+    gServer.stop();
+    hearaside::BusClient::instance().releaseAll();
 }
 
 const char* obs_module_name(void) { return "HEARASIDE"; }

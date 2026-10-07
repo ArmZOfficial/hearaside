@@ -17,7 +17,7 @@
 namespace ssbus {
 
 constexpr uint32_t kMagic           = 0x53535031; // 'SSP1'
-constexpr uint32_t kProtocolVersion = 1;
+constexpr uint32_t kProtocolVersion = 2;   // v2: remote-control queue + Hub state mirror in BusHeader
 constexpr int      kMaxSlots        = 64;
 constexpr int      kMaxStems        = 8;
 constexpr int      kNumStreamOuts   = 1 + kMaxStems;   // [0] = Stream Mix, [1..8] = stems
@@ -29,6 +29,8 @@ constexpr int      kMailboxSize     = 32;
 constexpr int      kTagRingSize     = 512;             // timeline tags per slot (one per processed block)
 constexpr int      kNameBytes       = 64;              // UTF-8, NUL terminated
 constexpr int      kUuidBytes       = 40;
+constexpr int      kRemoteQueueSize = 64;              // remote commands (OBS dock / hotkeys -> Hub)
+constexpr int      kMaxScenes       = 8;
 
 static_assert((kRingFrames & kRingMask) == 0, "kRingFrames must be a power of two");
 static_assert(std::atomic<uint64_t>::is_always_lock_free, "need lock-free 64-bit atomics");
@@ -45,6 +47,23 @@ enum HubFlags : uint32_t {
     kHubOffline  = 1u << 3,   // host is rendering offline (export/bounce)
     kHubLimiter  = 1u << 4,
 };
+
+// Remote control (OBS dock, hotkeys, any consumer) -> Hub. target = -1 addresses the Hub itself
+// (paramId is a RemoteParam), target = 0..63 a Track slot (paramId is a ParamId; the Hub forwards
+// it through that Track's mailbox so the Track's host still sees the change).
+enum class RemoteParam : uint32_t {
+    Panic = 1, Preview, MasterDb, LimiterOn, HeadphonesDb, RecallScene, SyncSafety,
+};
+
+// Multi-writer entry: writers claim an index with fetch_add on remoteReserve, fill the entry and
+// publish it by storing seq = index + 1 (release). The Hub (single reader) consumes in order.
+struct RemoteCommand {
+    std::atomic<uint32_t> seq;
+    std::atomic<int32_t>  target;
+    std::atomic<uint32_t> paramId;
+    std::atomic<uint32_t> valueBits;
+};
+static_assert(sizeof(RemoteCommand) == 16, "RemoteCommand size");
 
 struct alignas(64) BusHeader {
     std::atomic<uint32_t> magic;            // written last during init (release)
@@ -66,7 +85,23 @@ struct alignas(64) BusHeader {
     std::atomic<uint32_t> consumerCount;    // best-effort, refreshed by heartbeat
     std::atomic<uint32_t> consumerBufferMs; // buffer target of the most recent consumer
 
-    char                  pad[4096 - 72];
+    // ---- v2: remote control queue -------------------------------------------------------------
+    std::atomic<uint32_t> remoteReserve;    // number of commands ever claimed
+    uint32_t              reserved1;
+    RemoteCommand         remote[kRemoteQueueSize];
+
+    // ---- v2: Hub state mirror for remote UIs (Hub message thread writes, seqlock: odd = writing)
+    std::atomic<uint32_t> hubStateSeq;
+    std::atomic<uint32_t> hubMasterBits;     // dB
+    std::atomic<uint32_t> hubHeadphonesBits; // dB
+    std::atomic<uint32_t> hubCeilingBits;    // dBFS
+    std::atomic<int32_t>  hubActiveScene;    // -1 = custom
+    std::atomic<uint32_t> hubSceneMask;      // bit i = scene i is shown
+    std::atomic<uint32_t> hubSyncSafety;
+    uint32_t              reserved2;
+    char                  sceneNames[kMaxScenes][kNameBytes];   // UTF-8
+
+    char                  pad[4096 - 72 - 8 - kRemoteQueueSize * 16 - 32 - kMaxScenes * kNameBytes];
 };
 static_assert(sizeof(BusHeader) == 4096, "BusHeader must stay 4 KB");
 

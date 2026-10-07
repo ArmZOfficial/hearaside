@@ -330,9 +330,57 @@ void HubProcessor::timerCallback() {
             stateChanged.sendChangeMessage();
         }
     }
+    serviceRemote();
     const int pending = pendingScene_.exchange(0);
     // parameter notifications caused by loading a project may arrive late: never treat them as a recall
     if (pending > 0 && now - stateLoadMs_ > 1000) applyScene(pending - 1);
+}
+
+// ---------------------------------------------------------------------------------------------
+// remote control (OBS dock, OBS hotkeys)
+
+void HubProcessor::serviceRemote() {
+    auto* bus = engine_.bus();
+    if (bus == nullptr || engine_.role() != HubEngine::Role::Owner) { remoteBus_ = nullptr; return; }
+    if (bus != remoteBus_) {   // new bus or just became the owner: ignore commands queued before
+        remoteBus_ = bus;
+        remoteCursor_ = bus->header.remoteReserve.load(std::memory_order_acquire);
+    }
+    ssbus::pollRemote(*bus, remoteCursor_, [this](int target, uint32_t pid, float v) { applyRemote(target, pid, v); });
+
+    ssbus::HubStateView st;
+    st.masterDb = master_->load();
+    st.headphonesDb = headphones_->load();
+    st.ceilingDb = ceiling_->load();
+    st.activeScene = activeScene_;
+    st.syncSafety = uint32_t(juce::roundToInt(sync_->load()));
+    for (int i = 0; i < kNumScenes && i < ssbus::kMaxScenes; ++i) {
+        if (i < 3 || scene(i).saved() || scene(i).name.isNotEmpty()) st.sceneMask |= 1u << i;
+        st.sceneNames[i] = sceneName(i).toStdString();
+    }
+    ssbus::publishHubState(*bus, st);
+}
+
+void HubProcessor::applyRemote(int target, uint32_t pid, float v) {
+    using ssbus::RemoteParam;
+    if (target >= 0) {   // forwarded to a Track: the Track applies it through its host
+        if (pid >= uint32_t(ssbus::ParamId::Mon) && pid <= uint32_t(ssbus::ParamId::StemIndex))
+            send(target, static_cast<ssbus::ParamId>(pid), v);
+        return;
+    }
+    switch (static_cast<RemoteParam>(pid)) {
+        case RemoteParam::Panic:        setParam(hubparam::Panic, v > 0.5f ? 1.0f : 0.0f); break;
+        case RemoteParam::Preview:      setParam(hubparam::Preview, v > 0.5f ? 1.0f : 0.0f); break;
+        case RemoteParam::LimiterOn:    setParam(hubparam::LimiterOn, v > 0.5f ? 1.0f : 0.0f); break;
+        case RemoteParam::MasterDb:     setParam(hubparam::Master, juce::jlimit(-60.0f, 12.0f, v)); break;
+        case RemoteParam::HeadphonesDb: setParam(hubparam::Headphones, juce::jlimit(-60.0f, 6.0f, v)); break;
+        case RemoteParam::SyncSafety:   setParam(hubparam::SyncSafety, float(juce::jlimit(0, 2, juce::roundToInt(v)))); break;
+        case RemoteParam::RecallScene: {
+            const int i = juce::roundToInt(v);
+            if (i >= 0 && i < kNumScenes) recallScene(i);
+            break;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

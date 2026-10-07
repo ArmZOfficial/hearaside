@@ -255,3 +255,53 @@ TagHit findTimelinePosition(const SlotHeader& slot, const SlotTags& tags, int64_
 }
 
 } // namespace ssbus
+
+namespace ssbus {
+
+void postRemote(BusLayout& bus, int target, uint32_t paramId, float value) noexcept {
+    auto& h = bus.header;
+    const uint32_t idx = h.remoteReserve.fetch_add(1, std::memory_order_acq_rel);
+    RemoteCommand& e = h.remote[idx % kRemoteQueueSize];
+    e.seq.store(0, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    e.target.store(int32_t(target), std::memory_order_relaxed);
+    e.paramId.store(paramId, std::memory_order_relaxed);
+    e.valueBits.store(floatBits(value), std::memory_order_relaxed);
+    e.seq.store(idx + 1, std::memory_order_release);
+}
+
+void publishHubState(BusLayout& bus, const HubStateView& s) noexcept {
+    auto& h = bus.header;
+    const uint32_t seq = h.hubStateSeq.load(std::memory_order_relaxed) | 1u;
+    h.hubStateSeq.store(seq, std::memory_order_relaxed);   // odd: writing
+    std::atomic_thread_fence(std::memory_order_release);
+    h.hubMasterBits.store(floatBits(s.masterDb), std::memory_order_relaxed);
+    h.hubHeadphonesBits.store(floatBits(s.headphonesDb), std::memory_order_relaxed);
+    h.hubCeilingBits.store(floatBits(s.ceilingDb), std::memory_order_relaxed);
+    h.hubActiveScene.store(s.activeScene, std::memory_order_relaxed);
+    h.hubSceneMask.store(s.sceneMask, std::memory_order_relaxed);
+    h.hubSyncSafety.store(s.syncSafety, std::memory_order_relaxed);
+    for (int i = 0; i < kMaxScenes; ++i) copyName(h.sceneNames[i], s.sceneNames[i], kNameBytes);
+    h.hubStateSeq.store(seq + 1, std::memory_order_release);   // even: stable
+}
+
+bool readHubState(const BusLayout& bus, HubStateView& out) noexcept {
+    const auto& h = bus.header;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const uint32_t s1 = h.hubStateSeq.load(std::memory_order_acquire);
+        if (s1 & 1u) continue;
+        HubStateView v;
+        v.masterDb = bitsFloat(h.hubMasterBits.load(std::memory_order_relaxed));
+        v.headphonesDb = bitsFloat(h.hubHeadphonesBits.load(std::memory_order_relaxed));
+        v.ceilingDb = bitsFloat(h.hubCeilingBits.load(std::memory_order_relaxed));
+        v.activeScene = h.hubActiveScene.load(std::memory_order_relaxed);
+        v.sceneMask = h.hubSceneMask.load(std::memory_order_relaxed);
+        v.syncSafety = h.hubSyncSafety.load(std::memory_order_relaxed);
+        for (int i = 0; i < kMaxScenes; ++i) v.sceneNames[i] = readCString(h.sceneNames[i], kNameBytes);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (h.hubStateSeq.load(std::memory_order_relaxed) == s1) { out = std::move(v); return true; }
+    }
+    return false;
+}
+
+} // namespace ssbus

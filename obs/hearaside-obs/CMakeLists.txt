@@ -48,9 +48,22 @@ file(WRITE "${obsconfig_dir}/obsconfig.h"
     "#pragma once\n#define OBS_DATA_PATH \"../../data\"\n#define OBS_PLUGIN_PATH \"../../obs-plugins/64bit\"\n"
     "#define OBS_PLUGIN_DESTINATION \"obs-plugins/64bit\"\n#define OBS_RELEASE_CANDIDATE 0\n#define OBS_BETA 0\n")
 
-add_library(hearaside-obs MODULE src/plugin.cpp)
-target_include_directories(hearaside-obs PRIVATE ${SS_EXTERNAL}/obs-studio/libobs "${obsconfig_dir}")
+# control dock page, embedded as bytes (served on 127.0.0.1 by the plug-in)
+set(dock_inc "${CMAKE_CURRENT_BINARY_DIR}/generated/dock_page.inc")
+add_custom_command(
+    OUTPUT "${dock_inc}"
+    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/src/dock.html -DOUT=${dock_inc} -DNAME=kDockPage
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+    DEPENDS src/dock.html embed.cmake
+    COMMENT "Embedding the HEARASIDE OBS control dock")
+
+add_library(hearaside-obs MODULE src/plugin.cpp src/http_server.cpp src/remote.cpp "${dock_inc}")
+target_include_directories(hearaside-obs PRIVATE ${SS_EXTERNAL}/obs-studio/libobs "${obsconfig_dir}"
+                           "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(hearaside-obs PRIVATE ssdsp hearaside_libobs)
+if(WIN32)
+    target_link_libraries(hearaside-obs PRIVATE ws2_32 shell32)
+endif()
 target_compile_definitions(hearaside-obs PRIVATE HEARASIDE_VERSION="${PROJECT_VERSION}")
 set_target_properties(hearaside-obs PROPERTIES PREFIX "")
 if(MSVC)

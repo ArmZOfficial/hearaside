@@ -111,6 +111,8 @@ private:
     void pushStemNames();
     bool sceneMatches(int i) const;
     void run(juce::AudioBuffer<float>&, bool bypassed);
+    void serviceRemote();                                   // OBS dock / hotkeys -> Hub
+    void applyRemote(int target, uint32_t paramId, float value);
 
     juce::AudioProcessorValueTreeState apvts_;
     ssengine::HubEngine engine_;
@@ -132,6 +134,8 @@ private:
     int activeScene_ = -1;
     juce::uint32 sceneRecallMs_ = 0, stateLoadMs_ = 0;
     juce::uint32 lastMaintain_ = 0, lastConnect_ = 0;
+    uint32_t remoteCursor_ = 0;
+    ssbus::BusLayout* remoteBus_ = nullptr;   // bus the cursor belongs to
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HubProcessor)
 };

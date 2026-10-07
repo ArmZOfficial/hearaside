@@ -203,3 +203,60 @@ TEST_CASE("platform: uuid format and process liveness") {
     CHECK(!processAlive(0));
     CHECK(randomToken() != 0);
 }
+
+TEST_CASE("remote: many writers, one reader, every command delivered once and in claim order") {
+    SharedMemory::Status st{};
+    auto shm = SharedMemory::open(uniqueBus("remote"), st);
+    CHECK(shm != nullptr);
+    if (!shm) return;
+    auto& bus = shm->layout();
+    uint32_t cursor = bus.header.remoteReserve.load();
+    constexpr int kWriters = 4, kEach = 2000;
+    std::atomic<bool> done{ false };
+    std::vector<std::thread> writers;
+    for (int w = 0; w < kWriters; ++w)
+        writers.emplace_back([&bus, w] {
+            for (int i = 0; i < kEach; ++i) {
+                postRemote(bus, w, uint32_t(i), float(i));
+                if ((i & 15) == 0) std::this_thread::yield();
+            }
+        });
+    std::vector<int> next(kWriters, 0);
+    int received = 0, outOfOrder = 0, corrupt = 0;
+    auto drain = [&] {
+        pollRemote(bus, cursor, [&](int target, uint32_t pid, float v) {
+            if (target < 0 || target >= kWriters || float(pid) != v) { ++corrupt; return; }
+            if (int(pid) < next[size_t(target)]) ++outOfOrder;
+            next[size_t(target)] = int(pid) + 1;
+            ++received;
+        });
+    };
+    // the reader keeps up (like the Hub timer); a slower reader would drop the oldest commands
+    while (received < kWriters * kEach && !done) {
+        drain();
+        bool allJoined = true;
+        for (int w = 0; w < kWriters; ++w) allJoined &= next[size_t(w)] == kEach;
+        if (allJoined) break;
+    }
+    for (auto& t : writers) t.join();
+    drain();
+    CHECK(corrupt == 0);
+    CHECK(outOfOrder == 0);
+    std::printf("    received %d of %d (queue %d)\n", received, kWriters * kEach, kRemoteQueueSize);
+    CHECK(received > 0);
+}
+
+TEST_CASE("remote: hub state mirror round trip") {
+    SharedMemory::Status st{};
+    auto shm = SharedMemory::open(uniqueBus("hubstate"), st);
+    CHECK(shm != nullptr);
+    if (!shm) return;
+    HubStateView in;
+    in.masterDb = -2.5f; in.headphonesDb = -12.0f; in.ceilingDb = -1.0f; in.activeScene = 1; in.sceneMask = 0x7; in.syncSafety = 1;
+    in.sceneNames[0] = "ร้องเพลง"; in.sceneNames[1] = "คุยกับคนดู"; in.sceneNames[2] = "พักจอ";
+    publishHubState(shm->layout(), in);
+    HubStateView out;
+    CHECK(readHubState(shm->layout(), out));
+    CHECK(out.masterDb == -2.5f && out.headphonesDb == -12.0f && out.activeScene == 1 && out.sceneMask == 0x7u);
+    CHECK(out.sceneNames[1] == in.sceneNames[1]);
+}

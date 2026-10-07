@@ -31,15 +31,17 @@
 | `plugins/track` | **HEARASIDE Track** (VST3 + VST2): คุณได้ยิน / คนดูได้ยิน, **ระดับในหูฟัง** (ลดเสียงที่คุณได้ยินโดยคนดูยังได้ยินเท่าเดิม ไม่ต้องแตะ fader), ระดับฝั่งคนดู, **หน่วงเวลาฝั่งคนดู 0–500 ms** (เหมือน Sync Offset ของ OBS แต่ทำทีละแทร็ก เช่น ชดเชยปลั๊กอินร้องที่หน่วง), pan / stem / solo / ชื่อ / bus ในแผงตั้งค่าละเอียด, ชื่อ+สีแทร็กจาก DAW (VST3), รับคำสั่งจาก Hub ผ่าน host (undo / automation / save ได้) |
 | `plugins/hub` | **HEARASIDE Hub** (VST3 + VST2): หน้าจอตาม mock-up (`StreamSplit Plugin UI.html`), รีโมตทุกแทร็ก (ปุ่มได้ยิน/ไม่ได้ยิน + สไลเดอร์ระดับหูฟัง/คนดูในแต่ละแถว), ซีน 8 ช่อง (บันทึก / เปลี่ยนชื่อ / automate ผ่านพารามิเตอร์ `scene`), **ระดับหูฟังรวม** (ไม่มีผลกับคนดูและตอน export), ตัดเสียงคนดู, ฟังแบบคนดู, กันเสียงพีค, LUFS, สถานะ OBS + ความหน่วงถึง OBS, ตั้งค่า bus / sync safety / ชื่อ stem |
 | `plugins/common` | UI "Frosted Studio" แบบ native JUCE: กระจกขุ่น pre-render, ธีมสว่าง/มืด/ตามระบบ, ไทย/อังกฤษ, ฟอนต์ Anuphan ฝังในปลั๊กอิน, ขนาด 100–200 %, ลดการเคลื่อนไหว; design tokens จาก `design/tokens.json` → `Theme.h` |
-| `obs/hearaside-obs` | **OBS Source** (OBS 32): เลือก bus / Stream Mix หรือ Stem 1–8 / buffer 15–60 ms, แสดงสถานะ (DAW rate, buffer, drift, underrun), ชดเชย drift + แปลง sample rate, ไม่พึ่ง DLL อื่นนอกจาก `obs.dll` |
+| `obs/hearaside-obs` | **OBS Source** (OBS 32): เลือก bus / Stream Mix หรือ Stem 1–8 / buffer 15–60 ms, แสดงสถานะ (DAW rate, buffer, drift, underrun), ชดเชย drift + แปลง sample rate, ไม่พึ่ง DLL อื่นนอกจาก `obs.dll`; **หน้าควบคุม Hub ใน OBS** (Custom Browser Dock ที่ `http://127.0.0.1:47621/`: แทร็ก คุณได้ยิน/คนดูได้ยิน ระดับหูฟัง/คนดู หน่วงเวลา solo, ซีน, ตัดเสียงคนดู, ฟังแบบคนดู, ระดับรวม, ระดับหูฟังรวม, LUFS) และ **hotkey** (ตัด/คืนเสียงคนดู, ฟังแบบคนดู, ซีน 1–8 ใช้กับ Stream Deck ได้) — คำสั่งจาก OBS ส่งผ่าน Hub ไปที่แทร็ก DAW จึงยัง undo / automate / save ได้ |
 | `tools/` | `bus-inspector` (ดู bus แบบ real-time), `ui-snapshot` (เรนเดอร์หน้าจอปลั๊กอินเป็น PNG), `plugin-host-test` (โหลด VST3/VST2 ที่ build แล้วแบบ DAW แล้วตรวจ end-to-end) |
 | `installer/windows/install.ps1` | ติดตั้ง VST3 / VST2 / OBS plugin ลงโฟลเดอร์มาตรฐาน (และ `-Uninstall`) |
 
-### ผลทดสอบล่าสุด (`.\build.ps1 -Test`): 5/5 ผ่าน
+### ผลทดสอบล่าสุด (`.\build.ps1 -Test`): 6/6 ผ่าน
 
 - ✅ **unit** 40 ชุด (ผ่านทั้ง Release และ AddressSanitizer) รวม e2e Hub → OBS consumer 44.1k → 48k + drift 150 ppm ไม่มี underrun / เสียงคลิก
 - ✅ **ipc** ข้ามโปรเซส 242,944 frames ตรงทุก sample, คืน slot ของโปรเซสที่ถูก kill ได้
 - ✅ **plugin_host_vst3 / plugin_host_vst2** โหลดไฟล์ปลั๊กอินจริงแบบ DAW: null test (เหลือ −240 dBFS), ระดับในหูฟัง −20 dB ลดเฉพาะเสียงออก DAW (คนดูยังได้ 100 %), ปิด "คุณได้ยิน" แล้วคนดูยังได้ยิน, หน่วง 40 ms ตรงกับสำเนาที่ช้า 1920 sample พอดี, คำสั่งจาก Hub เปลี่ยนพารามิเตอร์ที่ host เห็น, save/restore state
+- ✅ **dock** หน้าควบคุมใน OBS: state JSON (ชื่อไทย, สี, สวิตช์), ส่งคำสั่งเข้า queue, HTTP server (ปฏิเสธ Host แปลกปลอม)
+- ✅ host test ส่วนคำสั่งจาก OBS: ตัดเสียงคนดู → stream เงียบ, ระดับรวม −6 dB + ระดับแทร็ก −6 dB ถึง Stream Mix ตรงค่า
 - ✅ **design_tokens_in_sync**
 
 ### ⏳ ยังไม่ได้ทำ
@@ -69,6 +71,14 @@ Steinberg เปลี่ยน license เป็น MIT เฉพาะ **VST3*
 .\installer\windows\install.ps1  # (Administrator) ติดตั้ง VST3 / VST2 / OBS plugin
 .\build\Release\tools\bus-inspector\bus-inspector.exe Main
 ```
+
+### คุม Hub จากใน OBS
+
+1. เพิ่ม Source **HEARASIDE** (ต้องมีอย่างน้อย 1 ตัว ปลั๊กอินจะเปิดหน้าควบคุมที่ `http://127.0.0.1:47621/` ให้เอง ดู URL จริงได้ใน Properties ของ source)
+2. เมนู **Docks → Custom Browser Docks...** ตั้งชื่อ `HEARASIDE` แล้วใส่ URL นั้น → ได้แผงควบคุม Hub เป็น dock ใน OBS
+3. ตั้ง hotkey ได้ที่ **Settings → Hotkeys → HEARASIDE** (ตัด/คืนเสียงคนดู, ฟังแบบคนดู, ซีน 1–8)
+
+หน้าควบคุมรับคำสั่งเฉพาะจากเครื่องตัวเอง (127.0.0.1) และต้องมี token ที่ฝังในหน้าเท่านั้น เว็บอื่นในเบราว์เซอร์จึงสั่ง Hub ไม่ได้
 
 ใน OBS: เพิ่ม Source ชื่อ **HEARASIDE** แล้วตั้ง Audio Monitoring เป็น "Monitor Off" (ฟังจาก DAW อยู่แล้ว) และถ้า DAW เล่นผ่าน Desktop Audio ให้ปิด Desktop Audio ไม่งั้นคนดูได้ยินซ้ำ
 

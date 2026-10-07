@@ -94,6 +94,47 @@ int pollCommands(SlotHeader& slot, uint32_t& readCursor, Fn&& fn) {
 }
 
 void requestRename(SlotHeader& slot, const std::string& name) noexcept;
+
+// ---------------------------------------------------------------------------------------------
+// Remote control (any process -> Hub). Thread / process safe for any number of writers.
+
+void postRemote(BusLayout& bus, int target, uint32_t paramId, float value) noexcept;
+inline void postRemote(BusLayout& bus, RemoteParam p, float value) noexcept { postRemote(bus, -1, uint32_t(p), value); }
+
+// Hub side (single reader). Delivers complete commands in order; returns the number delivered.
+// An entry still being written stops delivery until the next call.
+template <typename Fn>
+int pollRemote(BusLayout& bus, uint32_t& cursor, Fn&& fn) {
+    auto& h = bus.header;
+    const uint32_t reserve = h.remoteReserve.load(std::memory_order_acquire);
+    if (reserve - cursor > uint32_t(kRemoteQueueSize)) cursor = reserve - uint32_t(kRemoteQueueSize);   // dropped oldest
+    int count = 0;
+    while (cursor != reserve) {
+        RemoteCommand& e = h.remote[cursor % kRemoteQueueSize];
+        const uint32_t s = e.seq.load(std::memory_order_acquire);
+        if (s == cursor + 1) {
+            const int32_t target = e.target.load(std::memory_order_relaxed);
+            const uint32_t pid = e.paramId.load(std::memory_order_relaxed);
+            const float v = bitsFloat(e.valueBits.load(std::memory_order_relaxed));
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (e.seq.load(std::memory_order_relaxed) == s) { fn(int(target), pid, v); ++count; }
+        } else if (int32_t(s - (cursor + 1)) <= 0) {
+            break;   // claimed but not published yet: try again next time
+        }
+        ++cursor;    // delivered, or overwritten by a newer command (queue overflow)
+    }
+    return count;
+}
+
+// Hub state mirror for remote UIs.
+struct HubStateView {
+    float masterDb = 0, headphonesDb = 0, ceilingDb = -1;
+    int   activeScene = -1;
+    uint32_t sceneMask = 0, syncSafety = 0;
+    std::string sceneNames[kMaxScenes];
+};
+void publishHubState(BusLayout& bus, const HubStateView& s) noexcept;
+bool readHubState(const BusLayout& bus, HubStateView& out) noexcept;
 // Returns true and fills `name` if a new rename request arrived since lastSeq.
 bool pollRename(const SlotHeader& slot, uint32_t& lastSeq, std::string& name) noexcept;
 

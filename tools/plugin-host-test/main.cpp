@@ -177,6 +177,34 @@ int main(int argc, char** argv) {
         check(P(*rig.a, kMon)->getValue() > 0.5f, "...and the host sees the parameter change");
     }
 
+    // ---- remote control from OBS (dock / hotkeys): remote queue -> Hub -> Track -------------------
+    {
+        ssbus::HubStateView hs;
+        check(ssbus::readHubState(L, hs) && (hs.sceneMask & 7u) == 7u && !hs.sceneNames[0].empty(),
+              "Hub publishes its state (scenes, levels) for OBS");
+        ssbus::postRemote(L, ssbus::RemoteParam::Panic, 1.0f);
+        pump(300);
+        for (int i = 0; i < 40; ++i) rig.block(0.5f, 0.0f);
+        check((L.header.hubFlags.load() & ssbus::kHubPanic) != 0, "OBS command: mute stream reaches the Hub");
+        check(streamPeak(L, 2048) < 1e-6f, "...and the stream goes silent");
+        ssbus::postRemote(L, ssbus::RemoteParam::Panic, 0.0f);
+        ssbus::postRemote(L, ssbus::RemoteParam::MasterDb, -6.0f);
+        if (slotA >= 0) ssbus::postRemote(L, slotA, uint32_t(ssbus::ParamId::StrGainDb), -6.0f);
+        pump(400);
+        for (int i = 0; i < 60; ++i) rig.block(0.5f, 0.0f);
+        ssbus::readHubState(L, hs);
+        check(std::abs(hs.masterDb + 6.0f) < 0.05f, "OBS command: stream level -6 dB applied by the Hub");
+        check(slotA >= 0 && std::abs(ssbus::bitsFloat(L.slots[slotA].strGainBits.load()) + 6.0f) < 0.05f,
+              "OBS command: track viewers level forwarded to the Track");
+        const float pk = streamPeak(L, 4096);
+        std::printf("  stream after -6 / -6 dB: %.3f (expected %.3f)\n", pk, 0.5f * std::pow(10.0f, -12.0f / 20.0f));
+        check(std::abs(pk - 0.5f * std::pow(10.0f, -12.0f / 20.0f)) < 0.01f, "...both gains reach the Stream Mix");
+        ssbus::postRemote(L, ssbus::RemoteParam::MasterDb, 0.0f);
+        if (slotA >= 0) ssbus::postRemote(L, slotA, uint32_t(ssbus::ParamId::StrGainDb), 0.0f);
+        pump(300);
+        rig.block(0.5f, 0.0f);
+    }
+
     // ---- state round trip --------------------------------------------------------------------------
     juce::MemoryBlock saved;
     rig.a->getStateInformation(saved);

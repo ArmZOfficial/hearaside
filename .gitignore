@@ -1,0 +1,16 @@
+# build output
+/build/
+out.txt
+err.txt
+
+# third-party sources are fetched by scripts/fetch-deps.ps1 (see README)
+/external/JUCE/
+/external/obs-studio/
+/external/speexdsp/
+/external/fonts/Anuphan-VF.ttf
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user

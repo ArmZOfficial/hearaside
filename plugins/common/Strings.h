@@ -38,6 +38,7 @@ enum class Str {
     // mastering for viewers
     Mastering, MasteringNone, MasteringCount, Manage, AddPlugin, SearchPlugins, PluginLoadFailed, PluginInstrument,
     MasteringFull, MasteringHint, Bypass, NoPluginsFound, Loading,
+    DawBuffer, Samples, LatencyTip,
     Count
 };
 

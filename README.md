@@ -73,6 +73,11 @@ Steinberg เปลี่ยน license เป็น MIT เฉพาะ **VST3*
 .\build\Release\tools\bus-inspector\bus-inspector.exe Main
 ```
 
+### Latency
+
+- **DAW:** Hub แสดงบัฟเฟอร์ของ DAW ที่หัวจอ (เช่น `DAW 256 · 5.3 ms`) และในกล่องสรุปแยกเป็น DAW + Hub + Mastering + OBS = รวม; Track แสดงบัฟเฟอร์ DAW ที่ท้ายหน้าต่าง; แผงใน OBS แสดงเหมือนกัน (latency ของ audio interface เองปลั๊กอินมองไม่เห็น)
+- **OBS Source:** buffer ค่าเริ่มต้นเป็น **อัตโนมัติ** วัดจังหวะจริงของ DAW ทุก 2 วินาทีแล้วลดลงเท่าที่ปลอดภัย (เหลือ headroom ~3 ms ในจังหวะที่แย่ที่สุด) ถ้ามี underrun จะเพิ่มเอง 5 ms ทันที — ทดสอบที่ DAW buffer 256 ได้ ~11 ms (เดิมคงที่ 30 ms) อ่านทุก 5 ms และส่ง timestamp ที่ทำให้ OBS ไม่ต้องเพิ่ม audio buffering ของตัวเอง
+
 ### คุม Hub จากใน OBS
 
 1. เพิ่ม Source **HEARASIDE** (ต้องมีอย่างน้อย 1 ตัว ปลั๊กอินจะเปิดหน้าควบคุมที่ `http://127.0.0.1:47621/` ให้เอง ดู URL จริงได้ใน Properties ของ source)

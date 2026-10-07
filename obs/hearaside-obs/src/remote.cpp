@@ -109,9 +109,12 @@ std::string BusClient::stateJson(const std::string& busName, const std::string& 
         out += ",\"peakL\":" + num(bitsFloat(L.streamHeader.peakBits[0][0].load(std::memory_order_relaxed)), 4);
         out += ",\"peakR\":" + num(bitsFloat(L.streamHeader.peakBits[0][1].load(std::memory_order_relaxed)), 4);
         const double sr = rate > 0 ? double(rate) : 48000.0;
-        const double latency = double(h.hubLatencyFrames.load(std::memory_order_relaxed) + h.hubBlockSize.load(std::memory_order_relaxed)) * 1000.0 / sr
-                             + double(h.consumerBufferMs.load(std::memory_order_relaxed));
-        out += ",\"latencyMs\":" + num(latency, 0);
+        const double dawMs = double(h.hubBlockSize.load(std::memory_order_relaxed)) * 1000.0 / sr;
+        const double hubMs = double(h.hubLatencyFrames.load(std::memory_order_relaxed)) * 1000.0 / sr;
+        const double obsMs = double(h.consumerBufferMs.load(std::memory_order_relaxed));
+        out += ",\"latencyMs\":" + num(dawMs + hubMs + obsMs, 0);
+        out += ",\"dawBlock\":" + std::to_string(h.hubBlockSize.load(std::memory_order_relaxed));
+        out += ",\"dawMs\":" + num(dawMs) + ",\"hubMs\":" + num(hubMs) + ",\"obsMs\":" + num(obsMs);
 
         struct Row { uint32_t seq; std::string json; };
         std::vector<Row> rows;

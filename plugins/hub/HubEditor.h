@@ -89,6 +89,7 @@ private:
     SceneBar scenes_;
     std::vector<int> sceneIndex_;   // SceneBar position -> scene slot
     StatusChip obsChip_ { 36.0f };
+    StatusChip dawChip_ { 36.0f };
     MuteButton mute_;
     IconButton settingsButton_ { icons::Icon::Sliders };
 

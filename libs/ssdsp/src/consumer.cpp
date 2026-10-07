@@ -82,7 +82,10 @@ void StreamConsumer::configure(const std::string& busName, int outputIndex, doub
     const bool busChanged = busName != busName_;
     busName_ = busName.empty() ? std::string("Main") : busName;
     output_ = std::clamp(outputIndex, 0, ssbus::kNumStreamOuts - 1);
-    bufferMs_ = std::clamp(bufferMs, 5.0, 500.0);
+    auto_ = bufferMs <= 0.0;
+    bufferMs_ = auto_ ? 20.0 : std::clamp(bufferMs, 5.0, 500.0);
+    autoMs_ = 20.0;
+    st_.autoBuffer = auto_;
     if (outRate != outRate_) rs_.reset();
     outRate_ = outRate;
     if (busChanged) shm_.reset();
@@ -106,7 +109,11 @@ void StreamConsumer::resync(uint32_t dawRate) {
     dawRate_ = dawRate;
 
     const double hubBlock = L.header.hubBlockSize.load(std::memory_order_relaxed);
-    const double target = std::max(bufferMs_ * 0.001 * dawRate, hubBlock * 1.5 + 0.012 * dawRate);
+    const double target = auto_ ? std::max(autoMs_ * 0.001 * dawRate, hubBlock * 1.25)
+                                : std::max(bufferMs_ * 0.001 * dawRate, hubBlock * 1.5 + 0.012 * dawRate);
+    minMargin_ = 1.0e9;
+    windowSec_ = 0.0;
+    lowerVotes_ = 0;
     drift_.reset(target);
     const uint64_t w = L.streamHeader.writePos[output_].load(std::memory_order_acquire);
     cursor_ = w > uint64_t(target) ? w - uint64_t(target) : 0;
@@ -127,7 +134,7 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
     auto& L = shm_->layout();
     const uint64_t nowNs = ssbus::nowNs();
     L.header.consumerHeartbeatNs.store(nowNs, std::memory_order_relaxed);
-    L.header.consumerBufferMs.store(uint32_t(bufferMs_), std::memory_order_relaxed);
+    L.header.consumerBufferMs.store(uint32_t(std::lround(auto_ ? autoMs_ : bufferMs_)), std::memory_order_relaxed);
 
     const bool hubOk = ssbus::hubAlive(L, 500000000ull)
                     && L.streamHeader.active.load(std::memory_order_acquire) != 0;
@@ -166,6 +173,7 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
     const double c = drift_.update(fill, dtSec);
     rs_->setCorrectionPpm(int(std::lround(c * 1.0e6)));
     fillFiltered_ += (fill - fillFiltered_) * (1.0 - std::exp(-dtSec / 0.5));
+    if (auto_) adapt(fill - double(rs_->inputFor(frames)), dtSec);
 
     // Resample until the block is full. One pass is normally enough; a second one covers the
     // fractional phase of the resampler. Never pad with zeros mid-stream (= audible click).
@@ -189,6 +197,7 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
     if (made < frames) {
         // Not enough data: the DAW stalled or the buffer is too small. Rebuild the buffer.
         ++st_.underruns;
+        if (auto_) autoMs_ = std::min(120.0, autoMs_ + 5.0);   // be safer from now on
         needResync_ = true;
         silence();
         st_.streaming = false;
@@ -222,6 +231,36 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
             if (L.streamHeader.nameSeq.load(std::memory_order_acquire) == s1) st_.outputName = buf;
         }
     }
+}
+
+// Adaptive buffer: every 2 s look at the worst margin (fill minus what the next read needs) and
+// move the target so that this worst case keeps ~3 ms of headroom. Up immediately, down by at
+// most 2 ms per window and only once the fill has settled on the current target.
+void StreamConsumer::adapt(double marginFrames, double dtSec) {
+    minMargin_ = std::min(minMargin_, marginFrames);
+    windowSec_ += dtSec;   // stream time, not wall time
+    if (windowSec_ < 2.0) return;
+
+    const double fpm = std::max(8.0, double(dawRate_) * 0.001);   // frames per ms
+    const double marginMs = minMargin_ / fpm;
+    const double fillMs = fillFiltered_ / fpm;
+    constexpr double kSafetyMs = 3.0;
+    double next = autoMs_;
+    if (marginMs < kSafetyMs) {
+        next = std::max(autoMs_, fillMs + (kSafetyMs - marginMs) + 1.0);
+        lowerVotes_ = 0;
+    } else if (marginMs > kSafetyMs + 1.0 && std::abs(fillMs - autoMs_) < 1.5) {
+        if (++lowerVotes_ >= 3) next = std::max(fillMs - (marginMs - kSafetyMs), autoMs_ - 2.0);
+    } else {
+        lowerVotes_ = 0;
+    }
+    next = std::clamp(next, 4.0, 120.0);
+    if (std::abs(next - autoMs_) > 0.05) {
+        autoMs_ = next;
+        drift_.setTarget(autoMs_ * fpm);
+    }
+    minMargin_ = 1.0e9;
+    windowSec_ = 0.0;
 }
 
 ConsumerStatus StreamConsumer::status() const { return st_; }

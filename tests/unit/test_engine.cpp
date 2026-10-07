@@ -447,3 +447,46 @@ TEST_CASE("insert: mastering hook processes the Stream Mix only and reports its 
     CHECK(L->header.hubLatencyFrames.load() == uint32_t(hub.latencyFrames() + 100));
     hub.setStreamInsert(nullptr);
 }
+
+TEST_CASE("e2e: adaptive buffer settles low (5 ms ticks, 256-frame DAW blocks) without underruns") {
+    const std::string bus = uniqueBus("auto");
+    HubEngine hub;
+    hub.connect(bus);
+    hub.prepare(48000, 256);
+    hub.maintain();
+    TrackPublisher tr;
+    tr.connect(bus, "", 48000, 1);
+    tr.prepare(48000, 1);
+    ssdsp::StreamConsumer cons;
+    cons.configure(bus, 0, 0.0, 48000);   // 0 = adaptive
+    const double dawRate = 48000.0 * (1.0 - 80e-6);
+    const int block = 256;
+    double tDaw = 0, tObs = 0;
+    int64_t timeline = 0;
+    std::vector<float> in(block), l(block), r(block), ol(240), orr(240);
+    uint64_t underAtWarm = 0;
+    const double end = 180.0;
+    while (tObs < end) {
+        if (tDaw <= tObs) {
+            for (int i = 0; i < block; ++i) in[size_t(i)] = 0.3f * float(std::sin(double((timeline + i) % 100) * 2.0 * 3.14159265358979 / 100.0));
+            const float* ch[1] = { in.data() };
+            tr.process(ch, 1, block, timeline, true, false, false);
+            float* io[2] = { l.data(), r.data() };
+            hub.process(io, 2, block, HubParams{}, timeline, true, false);
+            timeline += block;
+            tDaw += block / dawRate;
+            continue;
+        }
+        float* o[2] = { ol.data(), orr.data() };
+        cons.pull(o, 240, 0.005);
+        if (tObs < 100.0 && tObs + 0.005 >= 100.0) underAtWarm = cons.status().underruns;
+        tObs += 0.005;
+    }
+    const auto st = cons.status();
+    std::printf("    adaptive target %.1f ms, fill %.1f ms, underruns %llu (at 100 s: %llu)\n", st.targetMs, st.bufferMs,
+                (unsigned long long)st.underruns, (unsigned long long)underAtWarm);
+    CHECK(st.autoBuffer);
+    CHECK(st.underruns == underAtWarm);
+    CHECK_LT(st.targetMs, 18.0);
+    CHECK_NEAR(st.bufferMs, st.targetMs, 2.0);
+}

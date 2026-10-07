@@ -106,6 +106,10 @@ if(HEARASIDE_BUILD_TOOLS)
     target_compile_definitions(hearaside_ui_snapshot PRIVATE
         HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
         HEARASIDE_VERSION="${PROJECT_VERSION}")
+    if(HEARASIDE_VST2_SDK)
+        target_compile_definitions(hearaside_ui_snapshot PRIVATE JUCE_PLUGINHOST_VST=1)
+        target_include_directories(hearaside_ui_snapshot PRIVATE "${HEARASIDE_VST2_SDK}")
+    endif()
     target_link_libraries(hearaside_ui_snapshot PRIVATE
         hearaside_assets ssengine juce::juce_audio_utils juce::juce_gui_extra
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)

@@ -262,6 +262,12 @@ public:
         correction_ = std::clamp(kKp * filtered_ + kKi * integral_, -kMaxCorrection, kMaxCorrection);
         return correction_;
     }
+    // Moves the target without resetting the controller (used by the adaptive buffer).
+    void setTarget(double targetFrames) noexcept {
+        const double t = std::max(1.0, targetFrames);
+        filtered_ *= target_ / t;   // keep the absolute error continuous
+        target_ = t;
+    }
     double correction() const noexcept { return correction_; }
     double filteredError() const noexcept { return filtered_; }
     double target() const noexcept { return target_; }

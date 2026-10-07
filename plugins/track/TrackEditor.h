@@ -12,7 +12,7 @@ public:
     explicit TrackEditor(TrackProcessor&);
     ~TrackEditor() override;
 
-    static constexpr int kWidth = 380, kHeight = 640;
+    static constexpr int kWidth = 380, kHeight = 664;
 
 private:
     struct Content : juce::Component {
@@ -46,6 +46,7 @@ private:
     LevelSlider headphoneSlider_, viewersSlider_;
     juce::Slider delaySlider_ { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Label delayValue_;
+    juce::Label footer_;
     std::unique_ptr<DbSliderLink> headphoneLink_, viewersLink_;
     std::unique_ptr<juce::SliderParameterAttachment> delayAttachment_;
 

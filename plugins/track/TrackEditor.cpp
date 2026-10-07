@@ -86,7 +86,7 @@ TrackEditor::TrackEditor(TrackProcessor& p) : EditorShell(p, kWidth, kHeight), p
                          { { 180.0f, float(kHeight) - 240.0f, 300.0f, 300.0f }, false } });
 
     for (juce::Component* c : std::initializer_list<juce::Component*> { &chip_, &fineButton_, &banner_, &inputMeter_, &monRow_, &strRow_,
-                                                                        &headphoneSlider_, &viewersSlider_, &delaySlider_, &delayValue_ })
+                                                                        &headphoneSlider_, &viewersSlider_, &delaySlider_, &delayValue_, &footer_ })
         content_.addAndMakeVisible(c);
     banner_.setVisible(false);
 
@@ -106,6 +106,8 @@ TrackEditor::TrackEditor(TrackProcessor& p) : EditorShell(p, kWidth, kHeight), p
     delayValue_.setEditable(true, true, false);
     delayValue_.setJustificationType(juce::Justification::centredRight);
     delayValue_.setFont(uiFont(12.0f));
+    footer_.setFont(uiFont(11.0f));
+    footer_.setJustificationType(juce::Justification::centredLeft);
     delayValue_.onTextChange = [this] {
         const double ms = juce::jlimit(0.0, 500.0, delayValue_.getText().retainCharacters("0123456789.").getDoubleValue());
         delaySlider_.setValue(ms, juce::sendNotificationSync);
@@ -155,6 +157,7 @@ void TrackEditor::refreshTexts() {
     delaySlider_.setTitle(tr(Str::ViewersDelay));
     delaySlider_.setTooltip(tr(Str::DelayTip));
     delayValue_.setTooltip(tr(Str::DelayTip));
+    footer_.setTooltip(tr(Str::LatencyTip));
 }
 
 void TrackEditor::refreshStatus() {
@@ -202,6 +205,15 @@ void TrackEditor::timerCallback() {
     if (!delayValue_.isBeingEdited()) delayValue_.setText(msText(delaySlider_.getValue()), juce::dontSendNotification);
     delayValue_.setColour(juce::Label::textColourId, str ? lnf_.pal().ink : lnf_.pal().muted);
     inputMeter_.setLevel(meterPosition(juce::jmax(proc_.inputPeak(0), proc_.inputPeak(1))));
+    {
+        const int blk = proc_.lastBlockSize();
+        const double sr = proc_.currentSampleRate();
+        const juce::String t = blk > 0 ? tr(Str::DawBuffer) + " " + juce::String(blk) + " " + tr(Str::Samples) + " = "
+                                             + juce::String(blk * 1000.0 / juce::jmax(8000.0, sr), 1) + " ms  ·  " + juce::String(sr / 1000.0, 1) + " kHz"
+                                       : juce::String();
+        if (footer_.getText() != t) footer_.setText(t, juce::dontSendNotification);
+        footer_.setColour(juce::Label::textColourId, lnf_.pal().graphite);
+    }
 
     const auto name = proc_.displayName();
     if (name != lastName_) { lastName_ = name; content_.repaint(nameRow_.toNearestInt().expanded(4)); }
@@ -251,6 +263,8 @@ void TrackEditor::layout() {
     r.removeFromTop(16.0f);
 
     // bottom group (anchored to the bottom of the card)
+    footer_.setBounds(r.removeFromBottom(16.0f).toNearestInt());
+    r.removeFromBottom(8.0f);
     auto bottom = r.removeFromBottom(46.0f * 3.0f + 28.0f);
     auto place = [&](juce::Rectangle<float>& label, juce::Component& slider) {
         auto blk = bottom.removeFromTop(46.0f);

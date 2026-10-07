@@ -98,6 +98,23 @@ juce::Array<juce::File> MasteringChain::findPluginFiles() {
             if (!out.contains(f)) out.add(f);
         }
     }
+#if JUCE_PLUGINHOST_VST && JUCE_WINDOWS
+    // VST2: plain .dll files in the usual folders (only the chosen one is ever loaded)
+    juce::StringArray vst2Roots { "C:/Program Files/VSTPlugins", "C:/Program Files/Steinberg/VSTPlugins",
+                                  "C:/Program Files/Common Files/VST2", "C:/Program Files/Common Files/Steinberg/VST2" };
+    for (const auto& extra : juce::StringArray::fromTokens(juce::SystemStats::getEnvironmentVariable("VST_PATH", {}), ";", ""))
+        if (extra.isNotEmpty()) vst2Roots.add(extra);
+    vst2Roots.removeDuplicates(true);
+    for (const auto& r : vst2Roots) {
+        const juce::File dir(r);
+        if (!dir.isDirectory()) continue;
+        for (const auto& entry : juce::RangedDirectoryIterator(dir, true, "*.dll", juce::File::findFiles)) {
+            const auto f = entry.getFile();
+            if (f.getFileName().containsIgnoreCase("HEARASIDE")) continue;
+            if (!out.contains(f)) out.add(f);
+        }
+    }
+#endif
     struct ByName { static int compareElements(const juce::File& a, const juce::File& b) {
         return a.getFileNameWithoutExtension().compareIgnoreCase(b.getFileNameWithoutExtension()); } };
     ByName cmp;

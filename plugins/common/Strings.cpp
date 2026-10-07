@@ -169,6 +169,10 @@ Table build() {
     s(Str::Bypass, "ข้าม", "Bypass");
     s(Str::NoPluginsFound, "ไม่พบปลั๊กอิน VST3 ในเครื่อง", "No VST3 plug-ins found");
     s(Str::Loading, "กำลังเปิด...", "Loading...");
+    s(Str::DawBuffer, "บัฟเฟอร์ DAW", "DAW buffer");
+    s(Str::Samples, "sample", "samples");
+    s(Str::LatencyTip, "DAW = buffer ของ DAW, Hub = sync safety + กันเสียงพีค, Mastering = ปลั๊กอินฝั่งคนดู, OBS = buffer ของ HEARASIDE ใน OBS (ไม่รวม latency ของ audio interface ที่ปลั๊กอินมองไม่เห็น)",
+      "DAW = DAW buffer, Hub = sync safety + peak protection, Mastering = viewers' plug-ins, OBS = HEARASIDE buffer in OBS (audio-interface latency is invisible to plug-ins)");
     return t;
 }
 

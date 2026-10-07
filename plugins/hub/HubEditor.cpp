@@ -349,7 +349,7 @@ void TrackRow::showMenu() {
 // HubEditor
 
 HubEditor::HubEditor(HubProcessor& p) : EditorShell(p, 1040, 790, 880, 750), proc_(p) {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &scenes_, &obsChip_, &mute_, &settingsButton_, &previewBanner_,
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &scenes_, &obsChip_, &dawChip_, &mute_, &settingsButton_, &previewBanner_,
                                                                         &panicBanner_, &viewport_, &meterL_, &meterR_, &masterSlider_,
                                                                         &limiter_, &preview_, &headphoneSlider_, &masteringButton_ })
         content_.addAndMakeVisible(c);
@@ -358,7 +358,12 @@ HubEditor::HubEditor(HubProcessor& p) : EditorShell(p, 1040, 790, 880, 750), pro
     previewBanner_.setVisible(false);
     panicBanner_.setVisible(false);
 
-    scenes_.onPick = [this](int pos) { if (pos >= 0 && pos < int(sceneIndex_.size())) proc_.recallScene(sceneIndex_[size_t(pos)]); };
+    scenes_.onPick = [this](int pos) {
+        if (pos < 0 || pos >= int(sceneIndex_.size())) return;
+        const int i = sceneIndex_[size_t(pos)];
+        if (proc_.scene(i).saved()) proc_.recallScene(i);
+        else sceneMenu(i);   // empty scene: offer to save the current setup into it
+    };
     scenes_.onContextMenu = [this](int pos) { if (pos >= 0 && pos < int(sceneIndex_.size())) sceneMenu(sceneIndex_[size_t(pos)]); };
     mute_.onClick = [this] { toggleParam(hubparam::Panic); };
     preview_.onClick = [this] { toggleParam(hubparam::Preview); };
@@ -532,6 +537,13 @@ void HubEditor::timerCallback() {
     if (++slowTick_ % 6 == 0) {   // ~5 Hz: chip, LUFS, summary text
         const bool obs = proc_.obsConnected();
         obsChip_.set(obs ? tr(Str::ObsConnected) : tr(Str::ObsNotConnected), obs ? StatusChip::Dot::Solid : StatusChip::Dot::None);
+        {
+            // DAW latency as plug-ins can see it: the host buffer (audio-interface latency is not exposed)
+            const auto li = proc_.latency();
+            dawChip_.set(li.block > 0 ? "DAW " + juce::String(li.block) + " · " + juce::String(li.dawMs, 1) + " ms" : juce::String("DAW –"),
+                         StatusChip::Dot::None);
+            if (dawChip_.idealWidth() != dawChip_.getWidth()) layout();
+        }
         content_.repaint(lufsBox_.toNearestInt().expanded(2));
         content_.repaint(summaryCard_.toNearestInt());
         content_.repaint(masterLabel_.toNearestInt());
@@ -559,6 +571,9 @@ void HubEditor::layout() {
         h.removeFromRight(8.0f);
         const float cw = float(obsChip_.idealWidth());
         obsChip_.setBounds(h.removeFromRight(cw).withSizeKeepingCentre(cw, 36.0f).toNearestInt());
+        h.removeFromRight(8.0f);
+        const float dw = float(dawChip_.idealWidth());
+        dawChip_.setBounds(h.removeFromRight(dw).withSizeKeepingCentre(dw, 36.0f).toNearestInt());
         h.removeFromRight(12.0f);
         const float sw = juce::jmin(float(scenes_.idealWidth()), h.getWidth());
         scenes_.setBounds(h.withSizeKeepingCentre(sw, 44.0f).toNearestInt());
@@ -829,15 +844,33 @@ void HubEditor::paintContent(juce::Graphics& g) {
         if (latencyBox_.getHeight() > 30.0f) {
             drawInset(g, latencyBox_, theme::radius::small, p);
             auto lt = latencyBox_.reduced(14.0f, 8.0f);
-            if (proc_.obsConnected()) {
+            const auto li = proc_.latency();
+            auto ms = [](double v) { return juce::String(v, v < 10.0 ? 1 : 0); };
+            auto line1 = lt.removeFromTop(lt.getHeight() * 0.5f);
+            if (li.obs) {
                 g.setColour(p.graphite);
                 g.setFont(uiFont(12.0f));
-                g.drawText(tr(Str::LatencyToObs), lt, juce::Justification::centredLeft, true);
+                g.drawText(tr(Str::LatencyToObs), line1, juce::Justification::centredLeft, true);
                 g.setColour(p.ink);
                 g.setFont(uiFont(13.0f, Weight::SemiBold));
-                g.drawText(juce::String(juce::roundToInt(proc_.latencyToObsMs())) + " ms", lt, juce::Justification::centredRight, false);
+                g.drawText(ms(li.total()) + " ms", line1, juce::Justification::centredRight, false);
+                juce::String parts = "DAW " + ms(li.dawMs) + " + Hub " + ms(li.hubMs);
+                if (li.masteringMs > 0.05) parts << " + Mastering " << ms(li.masteringMs);
+                parts << " + OBS " << ms(li.obsMs);
+                g.setColour(p.graphite);
+                g.setFont(uiFont(11.0f));
+                g.drawFittedText(parts, lt.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
             } else {
-                drawTextBlock(g, tr(Str::ObsHint), uiFont(12.0f), p.graphite, lt, 1.0f);
+                g.setColour(p.graphite);
+                g.setFont(uiFont(12.0f));
+                g.drawText(tr(Str::DawBuffer), line1, juce::Justification::centredLeft, true);
+                g.setColour(p.ink);
+                g.setFont(uiFont(12.0f, Weight::SemiBold));
+                g.drawText(juce::String(li.block) + " " + tr(Str::Samples) + " = " + ms(li.dawMs) + " ms", line1,
+                           juce::Justification::centredRight, false);
+                g.setColour(p.graphite);
+                g.setFont(uiFont(11.0f));
+                g.drawFittedText(tr(Str::ObsHint), lt.toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
             }
         }
     }

@@ -58,6 +58,8 @@ public:
     void setStemIndex(int);
     bool isBypassedNow() const noexcept { return bypassed_.load(std::memory_order_relaxed); }
     float inputPeak(int ch) const noexcept { return peak_[juce::jlimit(0, 1, ch)].load(std::memory_order_relaxed); }
+    int lastBlockSize() const noexcept { return lastBlock_.load(std::memory_order_relaxed); }
+    double currentSampleRate() const noexcept { return sampleRate_; }
 
     // Notifies the editor (message thread) that identity / connection changed.
     juce::ChangeBroadcaster stateChanged;
@@ -84,6 +86,7 @@ private:
     std::atomic<int> stem_ { -1 };
     std::atomic<bool> bypassed_ { false };
     std::atomic<float> peak_[2] {};
+    std::atomic<int> lastBlock_ { 0 };
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> monitorGain_;
     double sampleRate_ = 48000.0;

@@ -40,10 +40,10 @@ static int testMastering(const juce::String& wanted) {
     MasteringChain chain;
     chain.prepare(48000.0, 512);
     const auto files = MasteringChain::findPluginFiles();
-    std::printf("found %d VST3 files\n", files.size());
+    std::printf("found %d plug-in files (VST3 + VST2)\n", files.size());
     int failures = 0;
     auto check = [&](bool ok, const char* what) { std::printf("[%s] %s\n", ok ? " ok " : "FAIL", what); failures += ok ? 0 : 1; };
-    check(files.size() > 0, "VST3 folder scan (files only, nothing loaded)");
+    check(files.size() > 0, "plug-in folder scan (files only, nothing loaded)");
 
     juce::File pick;
     for (const auto& f : files)
@@ -103,9 +103,9 @@ int main(int argc, char** argv) {
     hub.setBusName("Snapshot");
     hub.prepareToPlay(48000, 256);
     struct T { const char* name; bool mon, str; float db, trim; };
-    const T demo[] = { { "ดนตรี (Backing)", true, true, -3.0f, 0.0f }, { "เสียงร้อง", false, true, 0.0f, 0.0f },
-                       { "กีตาร์", true, true, -2.0f, -6.0f }, { "เมโทรนอม / ไกด์", true, false, -6.0f, -10.0f },
-                       { "ไมค์พูด", false, false, 0.0f, 0.0f } };
+    const T demo[] = { { "à¸”à¸™à¸•à¸£à¸µ (Backing)", true, true, -3.0f, 0.0f }, { "à¹€à¸ªà¸µà¸¢à¸‡à¸£à¹‰à¸­à¸‡", false, true, 0.0f, 0.0f },
+                       { "à¸à¸µà¸•à¸²à¸£à¹Œ", true, true, -2.0f, -6.0f }, { "à¹€à¸¡à¹‚à¸—à¸£à¸™à¸­à¸¡ / à¹„à¸à¸”à¹Œ", true, false, -6.0f, -10.0f },
+                       { "à¹„à¸¡à¸„à¹Œà¸žà¸¹à¸”", false, false, 0.0f, 0.0f } };
     std::vector<std::unique_ptr<TrackProcessor>> tracks;
     for (const auto& d : demo) {
         auto t = std::make_unique<TrackProcessor>();

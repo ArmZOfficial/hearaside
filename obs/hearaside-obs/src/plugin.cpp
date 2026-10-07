@@ -126,9 +126,9 @@ struct Source {
     void run() {
         ssdsp::StreamConsumer consumer;
         const uint32_t rate = audio_output_get_sample_rate(obs_get_audio());
-        const uint32_t frames = rate / 100;   // 10 ms per tick
+        const uint32_t frames = rate / 200;   // 5 ms per tick: less waiting between DAW block and OBS
         std::vector<float> left(frames), right(frames);
-        const uint64_t tick = 10000000ull;
+        const uint64_t tick = 5000000ull;
         uint64_t next = os_gettime_ns();
         uint64_t last = next;
         uint64_t ts = next;
@@ -161,11 +161,16 @@ struct Source {
             a.speakers = SPEAKERS_STEREO;
             a.format = AUDIO_FORMAT_FLOAT_PLANAR;
             a.samples_per_sec = rate;
-            // continuous timestamps (frame-accurate); re-anchor if we drift from the clock
-            const int64_t diff = int64_t(ts) - int64_t(now);
-            if (diff > 70000000 || diff < -70000000) ts = now;
+            // Stamp the block as audio that just finished arriving (start = now - duration). A stamp in
+            // the past makes OBS grow its global audio buffering (and it never shrinks while OBS
+            // runs). OBS smooths small jitter itself, so consecutive blocks stay continuous.
+            const uint64_t dur = uint64_t(frames) * 1000000000ull / rate;
+            const uint64_t fresh = now > dur ? now - dur : now;
+            const int64_t diff = int64_t(ts) - int64_t(fresh);
+            if (diff > 20000000 || diff < -20000000) ts = fresh;   // re-anchor after a stall
+            else ts += (fresh > ts ? (fresh - ts) / 8 : 0);        // pull gently towards "fresh", never backwards
             a.timestamp = ts;
-            ts += uint64_t(frames) * 1000000000ull / rate;
+            ts += dur;
             obs_source_output_audio(source, &a);
 
             std::lock_guard<std::mutex> lk(statusMutex);
@@ -183,8 +188,8 @@ std::string statusText(const ssdsp::ConsumerStatus& s) {
         if (s.hubFlags & ssbus::kHubBypassed) return T("Hub is bypassed - viewers hear nothing", "Hub ถูก bypass อยู่ คนดูจะไม่ได้ยินอะไร");
         return T("Connected, but the Hub is not running (DAW stopped audio?)", "เชื่อมแล้ว แต่ Hub ไม่ทำงาน (DAW ปิดเสียงอยู่หรือเปล่า)");
     }
-    std::snprintf(buf, sizeof buf, "%s · DAW %.1f kHz · buffer %.1f ms · drift %+.0f ppm · underrun %llu%s",
-                  T("Connected", "เชื่อมแล้ว"), s.dawRate / 1000.0, s.bufferMs, s.driftPpm,
+    std::snprintf(buf, sizeof buf, "%s · DAW %.1f kHz · buffer %.1f ms%s · drift %+.0f ppm · underrun %llu%s",
+                  T("Connected", "เชื่อมแล้ว"), s.dawRate / 1000.0, s.bufferMs, s.autoBuffer ? T(" (auto)", " (อัตโนมัติ)") : "", s.driftPpm,
                   (unsigned long long) s.underruns,
                   (s.hubFlags & ssbus::kHubPanic) ? T(" · stream muted in Hub", " · ตัดเสียงคนดูอยู่ใน Hub") : "");
     return buf;
@@ -201,7 +206,7 @@ void ss_update(void* data, obs_data_t* settings) {
     s->cfg.bus = (bus && *bus) ? bus : "Main";
     s->cfg.output = int(obs_data_get_int(settings, "output"));
     s->cfg.bufferMs = int(obs_data_get_int(settings, "buffer_ms"));
-    if (s->cfg.bufferMs < 5) s->cfg.bufferMs = 30;
+    if (s->cfg.bufferMs != 0 && s->cfg.bufferMs < 5) s->cfg.bufferMs = 0;   // 0 = adaptive
     s->cfgDirty = true;
 }
 
@@ -248,7 +253,7 @@ void ss_destroy(void* data) {
 void ss_defaults(obs_data_t* settings) {
     obs_data_set_default_string(settings, "bus", "Main");
     obs_data_set_default_int(settings, "output", 0);
-    obs_data_set_default_int(settings, "buffer_ms", 30);
+    obs_data_set_default_int(settings, "buffer_ms", 0);   // adaptive
 }
 
 bool ss_refresh(obs_properties_t*, obs_property_t*, void*) { return true; }   // re-creates the properties (status)
@@ -295,6 +300,7 @@ obs_properties_t* ss_properties(void* data) {
     }
 
     obs_property_t* buf = obs_properties_add_list(props, "buffer_ms", T("Buffer", "บัฟเฟอร์"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+    obs_property_list_add_int(buf, T("Auto - lowest safe (recommended)", "อัตโนมัติ - ต่ำสุดที่ปลอดภัย (แนะนำ)"), 0);
     obs_property_list_add_int(buf, T("Low (15 ms)", "ต่ำ (15 ms)"), 15);
     obs_property_list_add_int(buf, T("Normal (30 ms)", "ปกติ (30 ms)"), 30);
     obs_property_list_add_int(buf, T("Safe (60 ms)", "ปลอดภัย (60 ms)"), 60);

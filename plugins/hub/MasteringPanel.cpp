@@ -139,9 +139,13 @@ void MasteringPanel::paintListBoxItem(int row, juce::Graphics& g, int width, int
         g.fillRoundedRectangle(juce::Rectangle<float>(0, 1, float(width), float(height - 2)), 8.0f);
     }
     const auto f = filtered_[row];
+    const juce::String tag = f.hasFileExtension(".dll") ? "VST2" : "VST3";
     g.setColour(selected ? p.onInk : p.ink);
     g.setFont(uiFont(13.0f));
-    g.drawText(f.getFileNameWithoutExtension(), 10, 0, width - 20, height, juce::Justification::centredLeft, true);
+    g.drawText(f.getFileNameWithoutExtension(), 10, 0, width - 64, height, juce::Justification::centredLeft, true);
+    g.setColour((selected ? p.onInk : p.graphite).withAlpha(0.8f));
+    g.setFont(uiFont(10.5f, Weight::Medium));
+    g.drawText(tag, width - 52, 0, 44, height, juce::Justification::centredRight, false);
 }
 
 void MasteringPanel::paint(juce::Graphics& g) {

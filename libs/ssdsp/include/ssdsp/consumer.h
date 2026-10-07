@@ -21,6 +21,7 @@ struct ConsumerStatus {
     uint32_t dawRate        = 0;
     double   bufferMs       = 0;       // current (filtered) buffer fill
     double   targetMs       = 0;
+    bool     autoBuffer     = false;   // target chosen from measured timing
     double   driftPpm       = 0;       // current correction
     uint64_t underruns      = 0;
     uint64_t overruns       = 0;
@@ -36,6 +37,7 @@ public:
     ~StreamConsumer();
 
     // Not thread safe with pull(); call from the consumer thread or while stopped.
+    // bufferMs <= 0 selects the adaptive buffer: the target follows the measured worst-case margin.
     void configure(const std::string& busName, int outputIndex, double bufferMs, uint32_t outRate);
 
     // Produces exactly `frames` frames at outRate into out[0], out[1] (planar).
@@ -47,10 +49,16 @@ public:
 private:
     void tryConnect();
     void resync(uint32_t dawRate);
+    void adapt(double marginFrames, double dtSec);   // adaptive buffer, called every pull
 
     std::string busName_ = "Main";
     int         output_ = 0;
     double      bufferMs_ = 30;
+    bool        auto_ = false;
+    double      autoMs_ = 20.0;          // current adaptive target
+    double      minMargin_ = 1.0e9;      // worst margin (frames) in the current window
+    double      windowSec_ = 0.0;
+    int         lowerVotes_ = 0;
     uint32_t    outRate_ = 48000;
 
     std::unique_ptr<ssbus::SharedMemory> shm_;

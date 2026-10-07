@@ -103,6 +103,15 @@ public:
     bool obsConnected() const;
     double latencyToObsMs() const;
 
+    struct LatencyInfo {
+        int block = 0;                 // DAW buffer (frames) of the latest block
+        double sampleRate = 48000.0;
+        double dawMs = 0, hubMs = 0, masteringMs = 0, obsMs = 0;
+        bool obs = false;
+        double total() const { return dawMs + hubMs + masteringMs + obsMs; }
+    };
+    LatencyInfo latency() const;
+
     juce::ChangeBroadcaster stateChanged;   // scenes / bus / stem names changed
 
 private:

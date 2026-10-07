@@ -86,6 +86,7 @@ void TrackProcessor::process(juce::AudioBuffer<float>& buffer, bool bypassed) {
     if (n == 0) return;   // VST3 parameter flush
     const int numCh = juce::jmin(buffer.getNumChannels(), juce::jmax(1, getTotalNumInputChannels()), 2);
     bypassed_.store(bypassed, std::memory_order_relaxed);
+    lastBlock_.store(n, std::memory_order_relaxed);
 
     int64_t time = ssengine::kNoTime;
     bool playing = false;

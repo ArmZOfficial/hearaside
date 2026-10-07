@@ -221,6 +221,23 @@ double HubProcessor::latencyToObsMs() const {
     return frames * 1000.0 / sr + double(bus->header.consumerBufferMs.load(std::memory_order_relaxed));
 }
 
+HubProcessor::LatencyInfo HubProcessor::latency() const {
+    LatencyInfo li;
+    auto* bus = engine_.bus();
+    li.sampleRate = juce::jmax(8000.0, sampleRate_);
+    if (!bus) return li;
+    const double fpm = li.sampleRate * 0.001;
+    li.block = int(bus->header.hubBlockSize.load(std::memory_order_relaxed));
+    const int mastering = mastering_.totalLatencyFrames();
+    const int hubTotal = int(bus->header.hubLatencyFrames.load(std::memory_order_relaxed));
+    li.dawMs = li.block / fpm;
+    li.masteringMs = mastering / fpm;
+    li.hubMs = juce::jmax(0, hubTotal - mastering) / fpm;
+    li.obs = obsConnected();
+    li.obsMs = li.obs ? double(bus->header.consumerBufferMs.load(std::memory_order_relaxed)) : 0.0;
+    return li;
+}
+
 // ---------------------------------------------------------------------------------------------
 // scenes
 

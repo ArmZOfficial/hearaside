@@ -1,4 +1,4 @@
-// StreamSplit shared-memory protocol (v1).
+// HEARASIDE shared-memory protocol (v1).
 // SPDX-License-Identifier: MIT
 //
 // Every struct in this file lives inside a shared-memory segment that is mapped by

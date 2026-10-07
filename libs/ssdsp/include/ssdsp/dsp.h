@@ -1,4 +1,4 @@
-// StreamSplit DSP building blocks. Header-only, allocation free after prepare().
+// HEARASIDE DSP building blocks. Header-only, allocation free after prepare().
 // SPDX-License-Identifier: MIT
 #pragma once
 

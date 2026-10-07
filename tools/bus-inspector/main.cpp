@@ -1,4 +1,4 @@
-// bus-inspector: live view of a StreamSplit bus (slot table, heartbeats, fill levels).
+// bus-inspector: live view of a HEARASIDE bus (slot table, heartbeats, fill levels).
 //   bus-inspector [BusName] [--once]
 #include "ssbus/bus.h"
 
@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     for (;;) {
         if (!shm) shm = SharedMemory::openExisting(bus, st);
         if (!once) std::printf("\x1b[2J\x1b[H");
-        std::printf("StreamSplit bus \"%s\"  (%s, protocol v%u, %.1f MB)\n", bus.c_str(),
+        std::printf("HEARASIDE bus \"%s\"  (%s, protocol v%u, %.1f MB)\n", bus.c_str(),
                     SharedMemory::segmentName(bus).c_str(), kProtocolVersion, double(kLayoutSize) / 1048576.0);
         if (!shm) {
             std::printf("  not available: %s\n", st == SharedMemory::Status::CreateFailed ? "no plug-in has opened this bus yet" : statusText(st));

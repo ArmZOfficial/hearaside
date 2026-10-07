@@ -1,8 +1,8 @@
-# StreamSplit — แผนพัฒนาปลั๊กอิน VST3 / VST2 แยก "เสียงที่เราได้ยิน" กับ "เสียงที่คนดูได้ยิน" ส่งตรงเข้า OBS
+# HEARASIDE — แผนพัฒนาปลั๊กอิน VST3 / VST2 แยก "เสียงที่เราได้ยิน" กับ "เสียงที่คนดูได้ยิน" ส่งตรงเข้า OBS
 
-> **ชื่อ "StreamSplit" เป็นชื่อชั่วคราว** (ตรวจเครื่องหมายการค้าก่อนเผยแพร่จริง)
+> **ชื่อ "HEARASIDE" เป็นชื่อชั่วคราว** (ตรวจเครื่องหมายการค้าก่อนเผยแพร่จริง)
 > เอกสารเวอร์ชัน 0.2 (Draft) · 7 ต.ค. 2026 — เพิ่ม UI/UX Design Plan เต็มรูปแบบ (หัวข้อ 7)
-> แบบร่างหน้าตาปลั๊กอิน: [StreamSplit Plugin UI (canvas)](https://claude.ai/artifact/XBmnEHccnFeKwSsGLtkbTd)
+> แบบร่างหน้าตาปลั๊กอิน: [HEARASIDE Plugin UI (canvas)](https://claude.ai/artifact/XBmnEHccnFeKwSsGLtkbTd)
 
 ---
 
@@ -34,10 +34,10 @@
 
 | ชิ้นส่วน | อยู่ที่ไหน | หน้าที่ |
 |---|---|---|
-| **StreamSplit Track** (VST3/VST2) | Insert ท้ายสุดของ FX chain ในแต่ละแทร็ก | มีสวิตช์อิสระ 2 ตัว: **MON** (ให้เสียงผ่านออก DAW ไปหูฟังเราไหม) และ **STR** (ส่งไปให้คนดูไหม) |
-| **StreamSplit Hub** (VST3/VST2) | Insert บน Master bus (ตัวเดียวต่อโปรเจกต์) | เป็น "นาฬิกากลาง" รวมเสียงทุกแทร็กที่เปิด STR เป็น **Stream Mix**, หน้าจอ mixer กลางคุมทุกแทร็ก, limiter, meter, scene, ปุ่ม Panic |
-| **StreamSplit OBS Source** | ปลั๊กอินฝั่ง OBS (Audio Source) | อ่าน Stream Mix จาก shared memory ส่งเข้า OBS โดยตรง ไม่ต้องลง virtual cable |
-| *StreamSplit Bridge* (เสริม) | แอปเล็ก ๆ บน tray | ส่ง Stream Mix ออก audio device ใดก็ได้ (VB-CABLE / BlackHole) สำหรับโปรแกรมที่ไม่ใช่ OBS |
+| **HEARASIDE Track** (VST3/VST2) | Insert ท้ายสุดของ FX chain ในแต่ละแทร็ก | มีสวิตช์อิสระ 2 ตัว: **MON** (ให้เสียงผ่านออก DAW ไปหูฟังเราไหม) และ **STR** (ส่งไปให้คนดูไหม) |
+| **HEARASIDE Hub** (VST3/VST2) | Insert บน Master bus (ตัวเดียวต่อโปรเจกต์) | เป็น "นาฬิกากลาง" รวมเสียงทุกแทร็กที่เปิด STR เป็น **Stream Mix**, หน้าจอ mixer กลางคุมทุกแทร็ก, limiter, meter, scene, ปุ่ม Panic |
+| **HEARASIDE OBS Source** | ปลั๊กอินฝั่ง OBS (Audio Source) | อ่าน Stream Mix จาก shared memory ส่งเข้า OBS โดยตรง ไม่ต้องลง virtual cable |
+| *HEARASIDE Bridge* (เสริม) | แอปเล็ก ๆ บน tray | ส่ง Stream Mix ออก audio device ใดก็ได้ (VB-CABLE / BlackHole) สำหรับโปรแกรมที่ไม่ใช่ OBS |
 
 หลักคิด:
 
@@ -185,10 +185,10 @@
 ```mermaid
 flowchart LR
   subgraph DAW["DAW process (Reaper / FL Studio / Cubase / Ableton ...)"]
-    T1["Track: Backing<br/>FX... → StreamSplit Track<br/>MON ON · STR ON"]
-    T2["Track: Vocal<br/>EQ → Comp → Reverb → StreamSplit Track<br/>MON OFF · STR ON"]
-    T3["Track: Click<br/>StreamSplit Track<br/>MON ON · STR OFF"]
-    M["Master bus<br/>StreamSplit Hub"]
+    T1["Track: Backing<br/>FX... → HEARASIDE Track<br/>MON ON · STR ON"]
+    T2["Track: Vocal<br/>EQ → Comp → Reverb → HEARASIDE Track<br/>MON OFF · STR ON"]
+    T3["Track: Click<br/>HEARASIDE Track<br/>MON ON · STR OFF"]
+    M["Master bus<br/>HEARASIDE Hub"]
     T1 -- "audio" --> M
     T2 -- "silence" --> M
     T3 -- "audio" --> M
@@ -202,11 +202,11 @@ flowchart LR
   M --> IF["Audio interface → หูฟัง<br/>(Monitor Mix)"]
 
   subgraph OBS["OBS process"]
-    SRC["StreamSplit OBS Source<br/>resample + drift compensation"]
+    SRC["HEARASIDE OBS Source<br/>resample + drift compensation"]
   end
   SHM -. "อ่าน Stream Mix / Stems" .-> SRC
   SRC --> LIVE["Stream / Record"]
-  SHM -. "optional" .-> BR["StreamSplit Bridge<br/>→ VB-CABLE / BlackHole / device อื่น"]
+  SHM -. "optional" .-> BR["HEARASIDE Bridge<br/>→ VB-CABLE / BlackHole / device อื่น"]
 ```
 
 ### 4.2 สิ่งที่เกิดขึ้นในหนึ่ง audio cycle
@@ -282,8 +282,8 @@ Master **ขึ้นกับ** ทุกแทร็กที่ route มา�
 
 | OS | API | ชื่อ |
 |---|---|---|
-| Windows | `CreateFileMappingW(INVALID_HANDLE_VALUE, …, PAGE_READWRITE, …)` + `MapViewOfFile` | `Local\StreamSplit_v1_<BusName>` |
-| macOS | `shm_open` + `ftruncate` + `mmap` | `/ssplit1_<hash(BusName)>` (macOS จำกัดชื่อ ~31 ตัวอักษร จึงใช้ hash) |
+| Windows | `CreateFileMappingW(INVALID_HANDLE_VALUE, …, PAGE_READWRITE, …)` + `MapViewOfFile` | `Local\HEARASIDE_v1_<BusName>` |
+| macOS | `shm_open` + `ftruncate` + `mmap` | `/hrsd1_<hash(BusName)>` (macOS จำกัดชื่อ ~31 ตัวอักษร จึงใช้ hash) |
 
 - **BusName** (default `Main`) ตั้งได้ในทุกชิ้นส่วน ใช้แยกกรณีเปิด DAW 2 ตัวหรือหลายโปรเจกต์พร้อมกัน
 - **ใส่เลข protocol version ในชื่อ** (`_v1`) → ปลั๊กอินต่างเวอร์ชันไม่ชนกัน
@@ -406,7 +406,7 @@ ReadResult read(uint64_t& r, float* const* dst, uint32_t ch, uint32_t n) {
 }
 ```
 
-### 6.3 StreamSplit Track (ปลั๊กอินประจำแทร็ก)
+### 6.3 HEARASIDE Track (ปลั๊กอินประจำแทร็ก)
 
 #### Bus layout
 
@@ -422,8 +422,8 @@ ReadResult read(uint64_t& r, float* const* dst, uint32_t ch, uint32_t n) {
 | `str` | Stream | Off / On | On | ให้เข้า Stream Mix ไหม |
 | `strGain` | Stream Gain | −∞ … +12 dB | 0 dB | ไม่ขึ้นกับ fader DAW |
 | `strPan` | Stream Pan/Balance | L100 … R100 | C | |
-| `strDelay` | Stream Delay | 0 … 250 ms | 0 | ชดเชย PDC / latency ของ live input |
-| `monTrim` | Monitor Trim | −∞ … +6 dB | 0 dB | ปรับระดับฝั่งหูฟังเพิ่ม |
+| `strDelay` | Stream Delay | 0 … 500 ms | 0 | ชดเชย PDC / latency ของ live input (เช่น ปลั๊กอินร้องหน่วง 40 ms → ตั้งแทร็กดนตรี 40 ms) — มีผลเฉพาะฝั่งคนดู หูฟังไม่ช้าลง |
+| `monTrim` | Headphone Level ("ระดับในหูฟัง") | −∞ … +6 dB | 0 dB | ลดเสียงแทร็กนี้ในหูฟังโดยคนดูยังได้ยินเท่าเดิม (Stream Mix อ่านก่อน gain นี้) แสดงบนหน้าจอหลักของ Track และในแถวของ Hub |
 | `strSolo` | Stream Solo | Off / On | Off | solo ในฝั่ง Stream เท่านั้น |
 
 ชื่อที่ผู้ใช้เห็นบนจอ: `mon` → "คุณได้ยิน", `str` → "คนดูได้ยิน", `strGain` → "ระดับเสียงฝั่งคนดู" (ทั้งหมดอยู่ในหัวข้อ 7.8) — ส่วนชื่อพารามิเตอร์ที่ host เห็น (automation lane) ใช้ภาษาอังกฤษสั้น ๆ: "You Hear", "Viewers Hear", "Viewers Level"
@@ -471,7 +471,7 @@ void processBlock(AudioBuffer<float>& buf, MidiBuffer&) {
 4. **ห้ามเปลี่ยนพารามิเตอร์จาก audio thread** และห้ามแก้ค่าข้าม instance โดยตรง
 5. ถ้า Track UI ปิดอยู่ timer ก็ยังทำงานได้ เพราะผูกกับ processor ไม่ใช่ editor
 
-### 6.4 StreamSplit Hub
+### 6.4 HEARASIDE Hub
 
 #### ตำแหน่งและข้อจำกัด
 
@@ -548,6 +548,7 @@ output = preview ? crossfade(input → stream, 20 ms) : input
 | `panic` | Stream Panic (ตัดเสียงคนดูทั้งหมด) | Off / On | Off |
 | `syncSafety` | Sync Safety | 0 / 1 / 2 block | 0 |
 | `scene` | Scene | 0 … 8 | 0 (ไม่ใช้) |
+| `monitorMaster` | ระดับหูฟังรวม (Headphone Master) | −∞ … +6 dB | 0 dB — ลดทุกอย่างที่คุณได้ยิน (หลัง Stream Mix ถูกเขียนแล้ว) ไม่มีผลตอน export/bounce |
 
 #### Scene
 
@@ -556,13 +557,13 @@ output = preview ? crossfade(input → stream, 20 ms) : input
 - การเรียก scene = Hub ส่งคำสั่งลง mailbox ของแต่ละ Track (Track เป็นคนแก้พารามิเตอร์ตัวเอง ตาม 6.3)
 - แทร็กที่ไม่อยู่ใน scene (สร้างทีหลัง) → ไม่ถูกแตะ
 
-### 6.5 StreamSplit OBS Source
+### 6.5 HEARASIDE OBS Source
 
 #### การลงทะเบียน
 
 ```c
-struct obs_source_info streamsplit_source = {
-    .id             = "streamsplit_source",
+struct obs_source_info hearaside_source = {
+    .id             = "hearaside_source",
     .type           = OBS_SOURCE_TYPE_INPUT,
     .output_flags   = OBS_SOURCE_AUDIO,
     .get_name       = ss_get_name,
@@ -611,7 +612,7 @@ loop:
 3. ปรับ **Sync Offset** ของกล้อง/ภาพ ให้ตรงกับเสียง (ดู latency budget 6.7)
 4. ใช้ **Advanced Audio Properties → Tracks** เพื่ออัดแยกแทร็ก / ทำ VOD track
 
-### 6.6 StreamSplit Bridge (เสริม / ทางสำรอง)
+### 6.6 HEARASIDE Bridge (เสริม / ทางสำรอง)
 
 - แอป tray เล็ก ๆ ใช้ miniaudio อ่าน Stream Mix หรือ stem แล้วส่งออก **audio device ที่เลือก**
 - ใช้ resampler + ตัวควบคุม drift ชุดเดียวกับ OBS Source (อยู่ใน `libs/ssdsp`)
@@ -651,7 +652,7 @@ loop:
 
 ## 7. UI/UX Design Plan
 
-> **แบบร่างบน canvas:** [StreamSplit Plugin UI](https://claude.ai/artifact/XBmnEHccnFeKwSsGLtkbTd) — มี 2 หน้าจอ (Hub และ Track) กด Play เพื่อลองกดปุ่ม สลับซีน ฟังแบบคนดู และตัดเสียงคนดูได้จริง
+> **แบบร่างบน canvas:** [HEARASIDE Plugin UI](https://claude.ai/artifact/XBmnEHccnFeKwSsGLtkbTd) — มี 2 หน้าจอ (Hub และ Track) กด Play เพื่อลองกดปุ่ม สลับซีน ฟังแบบคนดู และตัดเสียงคนดูได้จริง
 > หัวข้อนี้คือ "สเปก" ของแบบร่างนั้น เพื่อให้นำไปทำใน JUCE ได้ตรงกัน
 
 ### 7.1 เป้าหมายของ UI
@@ -769,7 +770,7 @@ loop:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ STREAMSPLIT   ( ร้องเพลง | คุยกับคนดู | พักจอ )   [● OBS เชื่อมแล้ว] [ตัดเสียงคนดู] │
+│ HEARASIDE     ( ร้องเพลง | คุยกับคนดู | พักจอ )   [● OBS เชื่อมแล้ว] [ตัดเสียงคนดู] │
 └───────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────┐ ┌──────────────────────────┐
 │ แทร็กทั้งหมด                                   │ │ เสียงที่คนดูได้ยิน  [ −14.9 ] │
@@ -800,10 +801,10 @@ loop:
 | ฟังแบบคนดู | Hub | banner ดำบนการ์ดแทร็ก, ปุ่มหลักกลายเป็นขาวขอบดำ, สรุป "คุณได้ยิน" เปลี่ยนตาม | "คุณกำลังฟังแบบคนดู หูฟังจะได้ยินเหมือนเสียงที่ส่งไป OBS" |
 | ตัดเสียงคนดู | Hub (+ chip ใน Track) | banner ขาวขอบดำ, ปุ่มตัดเสียงเป็นดำ, ความดังแสดง "ตัดอยู่", สรุป "คนดูได้ยิน: ไม่มี" | "ตัดเสียงไปหาคนดูอยู่ คนดูจะไม่ได้ยินอะไรจนกว่าคุณจะกดคืนเสียง" |
 | ปรับเอง (ไม่ตรงซีนใด) | Hub | ไม่มีซีนถูกเลือก | – |
-| OBS ยังไม่เชื่อม | Hub | chip ไม่มีจุด + บรรทัดแนะนำในการ์ดสรุป | "OBS ยังไม่เชื่อม เปิด OBS แล้วเพิ่ม Source ชื่อ StreamSplit" |
-| ไม่พบ Hub | Track | chip "ยังไม่มี Hub" + banner | "ใส่ StreamSplit Hub ที่ Master เพื่อส่งเสียงไปหาคนดู" |
+| OBS ยังไม่เชื่อม | Hub | chip ไม่มีจุด + บรรทัดแนะนำในการ์ดสรุป | "OBS ยังไม่เชื่อม เปิด OBS แล้วเพิ่ม Source ชื่อ HEARASIDE" |
+| ไม่พบ Hub | Track | chip "ยังไม่มี Hub" + banner | "ใส่ HEARASIDE Hub ที่ Master เพื่อส่งเสียงไปหาคนดู" |
 | มี Hub ซ้ำ | Hub ตัวที่สอง | ทั้งหน้าเป็น empty state | "มี Hub ทำงานอยู่แล้วในโปรเจกต์นี้ ตัวนี้จะปล่อยเสียงผ่านอย่างเดียว" |
-| ยังไม่มีแทร็ก | Hub | empty state ในการ์ดแทร็ก | "ยังไม่มีแทร็กที่ใส่ StreamSplit Track ใส่ที่ท้าย FX ของแทร็กที่ต้องการ แล้วจะขึ้นที่นี่เอง" |
+| ยังไม่มีแทร็ก | Hub | empty state ในการ์ดแทร็ก | "ยังไม่มีแทร็กที่ใส่ HEARASIDE Track ใส่ที่ท้าย FX ของแทร็กที่ต้องการ แล้วจะขึ้นที่นี่เอง" |
 | แทร็กไม่ทำงาน (suspend / freeze) | แถวใน Hub | แถวจาง + ป้าย "ไม่ทำงาน" | tooltip: "DAW ไม่ได้ประมวลผลแทร็กนี้อยู่" |
 | Sample rate ไม่ตรง | แถวใน Hub / Track | ไอคอนเตือน | "Sample rate ไม่ตรงกับ Hub แทร็กนี้จึงไม่ถูกส่งไปหาคนดู" |
 | ประมวลผลล่วงหน้า | แถวใน Hub | ไอคอนเตือน + ลิงก์คู่มือ | "DAW ประมวลผลแทร็กนี้ล่วงหน้า เสียงอาจไม่ตรงกับแทร็กอื่น" |
@@ -900,7 +901,7 @@ loop:
 ```
 plugins/common/ui/
 ├─ Theme.h                    # สร้างจาก design/tokens.json
-├─ StreamSplitLookAndFeel.*   # ฟอนต์, สี, slider, scrollbar, tooltip
+├─ HEARASIDELookAndFeel.*   # ฟอนต์, สี, slider, scrollbar, tooltip
 ├─ Backdrop.*                 # paper + grid + blobs + cache + blur
 ├─ GlassPanel.*
 ├─ AudiblePill.*  BigToggleRow.*  Switch.*  LevelSlider.*
@@ -981,7 +982,7 @@ plugins/track/ui/  TrackEditor
 ## 9. โครงสร้าง Repository
 
 ```
-streamsplit/
+hearaside/
 ├─ CMakeLists.txt
 ├─ cmake/                       # toolchain, JUCE fetch, เวอร์ชัน
 ├─ libs/
@@ -992,11 +993,11 @@ streamsplit/
 │  │  └─ src/ring.cpp
 │  └─ ssdsp/                    # smoother, pan, delay line, limiter, LUFS, resampler+PI controller
 ├─ plugins/
-│  ├─ track/                    # JUCE: StreamSplit Track
-│  ├─ hub/                      # JUCE: StreamSplit Hub
+│  ├─ track/                    # JUCE: HEARASIDE Track
+│  ├─ hub/                      # JUCE: HEARASIDE Hub
 │  └─ common/ui/                # Theme.h (สร้างจาก tokens), LookAndFeel, Backdrop/GlassPanel, components, ข้อความ 2 ภาษา
 ├─ obs/
-│  └─ streamsplit-obs/          # จาก obs-plugintemplate (GPLv2)
+│  └─ hearaside-obs/          # จาก obs-plugintemplate (GPLv2)
 ├─ apps/
 │  └─ bridge/                   # miniaudio tray app (เสริม)
 ├─ tools/
@@ -1015,7 +1016,7 @@ streamsplit/
 │  ├─ user-guide-en.md
 │  └─ protocol.md
 ├─ installer/
-│  ├─ windows/streamsplit.iss
+│  ├─ windows/hearaside.iss
 │  └─ macos/
 └─ .github/workflows/           # build + test + artifacts
 ```
@@ -1200,10 +1201,10 @@ streamsplit/
 
 | ส่วน | ตำแหน่ง |
 |---|---|
-| VST3 | `C:\Program Files\Common Files\VST3\StreamSplit\` |
+| VST3 | `C:\Program Files\Common Files\VST3\HEARASIDE\` |
 | VST2 (ถ้ามี) | ผู้ใช้เลือก (เช่น `C:\Program Files\VSTPlugins\`) |
-| OBS plugin | OBS รุ่นใหม่: `C:\ProgramData\obs-studio\plugins\streamsplit-obs\bin\64bit\` · รุ่นเก่า: `C:\Program Files\obs-studio\obs-plugins\64bit\` (ตรวจตาม OBS ที่ติดตั้ง) |
-| Bridge | `C:\Program Files\StreamSplit\Bridge\` |
+| OBS plugin | OBS รุ่นใหม่: `C:\ProgramData\obs-studio\plugins\hearaside-obs\bin\64bit\` · รุ่นเก่า: `C:\Program Files\obs-studio\obs-plugins\64bit\` (ตรวจตาม OBS ที่ติดตั้ง) |
+| Bridge | `C:\Program Files\HEARASIDE\Bridge\` |
 
 - เซ็น Authenticode เพื่อลดคำเตือน SmartScreen (ไม่บังคับแต่ควรทำถ้าแจกจ่าย)
 
@@ -1213,7 +1214,7 @@ streamsplit/
 |---|---|
 | VST3 | `/Library/Audio/Plug-Ins/VST3/` |
 | VST2 (ถ้ามี) | `/Library/Audio/Plug-Ins/VST/` |
-| OBS plugin | `~/Library/Application Support/obs-studio/plugins/streamsplit-obs.plugin` |
+| OBS plugin | `~/Library/Application Support/obs-studio/plugins/hearaside-obs.plugin` |
 
 - Universal binary (arm64 + x86_64), codesign + notarize (บังคับสำหรับการแจกจ่าย)
 
@@ -1232,7 +1233,7 @@ streamsplit/
 
 - **Monitor bus หลายชุด** (cue mix ให้สมาชิกวง) → ขยายจาก 2 คอลัมน์เป็น matrix แทร็ก × bus (ออกแบบ protocol เผื่อไว้)
 - **ส่งข้ามเครื่อง**: NDI (ผ่าน DistroAV ฝั่ง OBS) หรือ UDP/Opus
-- **เชื่อม obs-websocket**: เปลี่ยน scene ใน OBS → เปลี่ยน scene ของ StreamSplit อัตโนมัติ
+- **เชื่อม obs-websocket**: เปลี่ยน scene ใน OBS → เปลี่ยน scene ของ HEARASIDE อัตโนมัติ
 - **Ducking ฝั่งคนดู**: เพลงเบาลงเองเมื่อพูด (เฉพาะ Stream Mix)
 - **Stream-only FX**: reverb send / EQ บน Stream bus
 - **ปุ่มวัด latency อัตโนมัติ** (ping) สำหรับตั้ง `strDelay`

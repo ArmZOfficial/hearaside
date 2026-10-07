@@ -1,4 +1,4 @@
-﻿#include "testing.h"
+#include "testing.h"
 
 #include "ssdsp/consumer.h"
 #include "ssdsp/dsp.h"

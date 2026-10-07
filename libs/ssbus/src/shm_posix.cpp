@@ -39,7 +39,7 @@ static uint32_t fnv1a(const std::string& s) {
 std::string SharedMemory::segmentName(const std::string& busName) {
     // macOS limits POSIX shm names to ~31 characters, so hash the bus name.
     char buf[32];
-    std::snprintf(buf, sizeof buf, "/ssplit%u_%08x", unsigned(kProtocolVersion), fnv1a(busName));
+    std::snprintf(buf, sizeof buf, "/hrsd%u_%08x", unsigned(kProtocolVersion), fnv1a(busName));
     return buf;
 }
 

@@ -184,7 +184,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         if ((f & kFlagSolo) && (f & kFlagStr) && sh.sampleRate.load(std::memory_order_relaxed) == sr) { soloActive = true; break; }
     }
 
-    const uint32_t maxDelay = std::min<uint32_t>(uint32_t(0.25 * sampleRate_ + 0.5),
+    const uint32_t maxDelay = std::min<uint32_t>(uint32_t(0.5 * sampleRate_ + 0.5),
                                                  kRingFrames - kGuardFrames - 4u * uint32_t(maxBlock_));
     const uint64_t aheadThreshold = uint64_t(syncSafety_ * n) + uint64_t(std::max<double>(2.0 * n, 0.020 * sampleRate_));
     const float pkDecay = std::exp(-float(n) / (0.3f * float(sr)));

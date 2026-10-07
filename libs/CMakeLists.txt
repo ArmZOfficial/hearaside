@@ -16,7 +16,7 @@ target_include_directories(ss_speex_resampler
     PUBLIC  ${SS_EXTERNAL}/speexdsp/include/speex
     PRIVATE ${SS_EXTERNAL}/speexdsp/libspeexdsp ${SS_EXTERNAL}/speexdsp/include)
 target_compile_definitions(ss_speex_resampler
-    PUBLIC  OUTSIDE_SPEEX RANDOM_PREFIX=ssplit
+    PUBLIC  OUTSIDE_SPEEX RANDOM_PREFIX=hearaside
     PRIVATE FLOATING_POINT EXPORT=)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64" AND NOT APPLE)
     target_compile_definitions(ss_speex_resampler PRIVATE USE_SSE)

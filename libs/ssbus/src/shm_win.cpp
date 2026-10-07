@@ -45,7 +45,7 @@ bool processAlive(uint32_t pid) noexcept {
 }
 
 std::string SharedMemory::segmentName(const std::string& busName) {
-    return "Local\\StreamSplit_v" + std::to_string(kProtocolVersion) + "_" + busName;
+    return "Local\\HEARASIDE_v" + std::to_string(kProtocolVersion) + "_" + busName;
 }
 
 static std::wstring widen(const std::string& s) {

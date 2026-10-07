@@ -1,4 +1,4 @@
-// StreamSplit bus: shared-memory segment + slot registry + helpers.
+// HEARASIDE bus: shared-memory segment + slot registry + helpers.
 // SPDX-License-Identifier: MIT
 #pragma once
 

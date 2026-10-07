@@ -1,8 +1,8 @@
 ﻿<#
-  Builds StreamSplit with MSVC + Ninja.
+  Builds HEARASIDE with MSVC + Ninja.
     .\build.ps1                       # Release, everything
     .\build.ps1 -Config Debug
-    .\build.ps1 -CMakeArgs '-DSTREAMSPLIT_BUILD_OBS=OFF'
+    .\build.ps1 -CMakeArgs '-DHEARASIDE_BUILD_OBS=OFF'
     .\build.ps1 -Vst2Sdk C:\SDKs\vst2   # only with a licensed VST 2 SDK
     .\build.ps1 -Test                  # run unit + integration tests after building
     .\build.ps1 -Install               # copy VST3 / OBS plug-in into the system folders (admin)
@@ -30,7 +30,7 @@ cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
 $env:PATH = "$env:ProgramFiles\CMake\bin;$env:LOCALAPPDATA\Microsoft\WinGet\Links;$env:PATH"
 
 $cfgArgs = @('-S', $root, '-B', $build, '-G', 'Ninja', "-DCMAKE_BUILD_TYPE=$Config") + $CMakeArgs
-if ($Vst2Sdk) { $cfgArgs += "-DSTREAMSPLIT_VST2_SDK=$Vst2Sdk" }
+if ($Vst2Sdk) { $cfgArgs += "-DHEARASIDE_VST2_SDK=$Vst2Sdk" }
 & cmake @cfgArgs
 if ($LASTEXITCODE) { throw 'cmake configure failed' }
 & cmake --build $build

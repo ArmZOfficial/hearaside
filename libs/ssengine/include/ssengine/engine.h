@@ -1,4 +1,4 @@
-// StreamSplit engines: the real-time core of the Track and Hub plug-ins, free of JUCE so it
+// HEARASIDE engines: the real-time core of the Track and Hub plug-ins, free of JUCE so it
 // can be unit tested and simulated with arbitrary host behaviour.
 // SPDX-License-Identifier: MIT
 #pragma once
@@ -17,7 +17,7 @@ namespace ssengine {
 constexpr int64_t kNoTime = INT64_MIN;
 
 // =============================================================================================
-// TrackPublisher - lives in every StreamSplit Track instance.
+// TrackPublisher - lives in every HEARASIDE Track instance.
 
 class TrackPublisher {
 public:
@@ -65,7 +65,7 @@ private:
 };
 
 // =============================================================================================
-// HubEngine - lives in the StreamSplit Hub on the master bus.
+// HubEngine - lives in the HEARASIDE Hub on the master bus.
 
 struct HubParams {
     float masterDb    = 0.0f;

@@ -1,4 +1,4 @@
-#include "testing.h"
+﻿#include "testing.h"
 
 #include "ssdsp/consumer.h"
 #include "ssdsp/dsp.h"
@@ -82,7 +82,8 @@ TEST_CASE("dsp: loudness at 44.1 kHz, -20 dBFS stereo sine") {
 // with jitter) for 4 hours at +/-200 ppm drift and checks the buffer stays near its target.
 static void simulateDrift(double ppm, int dawBlock, uint32_t dawRate, uint32_t outRate, double& worstErrMs, int& underruns) {
     DriftController ctl;
-    const double target = 0.030 * dawRate;
+    // same minimum as StreamConsumer::resync(): large host blocks need room for the sawtooth
+    const double target = std::max(0.030 * dawRate, 1.5 * dawBlock + 0.012 * dawRate);
     ctl.reset(target);
     double fill = target;
     std::mt19937 rng(42);
@@ -102,9 +103,10 @@ static void simulateDrift(double ppm, int dawBlock, uint32_t dawRate, uint32_t o
         const double want = 480.0 * outRate / 48000.0 * ratio + frac;
         const double take = std::floor(want);
         frac = want - take;
+        // the controller (and the consumer's status) look at the fill before the read
+        filtered += (fill - filtered) * (1.0 - std::exp(-dt / 2.0));
         if (fill < take) ++underruns;
         fill -= take;
-        filtered += (fill - filtered) * (1.0 - std::exp(-dt / 2.0));
         if (tCons > 120.0) worstErrMs = std::max(worstErrMs, std::abs(filtered - target) * 1000.0 / dawRate);
         tCons += 0.010;
     }

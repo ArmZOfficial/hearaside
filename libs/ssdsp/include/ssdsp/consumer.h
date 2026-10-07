@@ -88,6 +88,8 @@ private:
     void* st_ = nullptr;
     uint32_t in_, out_, baseNum_, baseDen_;
     int ppm_ = 0;
+    uint32_t lastNum_ = 0;
+    uint32_t priming_ = 0;   // input still swallowed by the filter delay after reset()
 };
 
 } // namespace ssdsp

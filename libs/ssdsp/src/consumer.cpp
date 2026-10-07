@@ -19,7 +19,7 @@ VarResampler::VarResampler(uint32_t inRate, uint32_t outRate, int quality) : in_
     baseDen_ = outRate / g;
     int err = 0;
     st_ = speex_resampler_init_frac(2, baseNum_, baseDen_, inRate, outRate, quality, &err);
-    speex_resampler_skip_zeros(static_cast<SpeexResamplerState*>(st_));
+    reset();
 }
 
 VarResampler::~VarResampler() {
@@ -29,19 +29,22 @@ VarResampler::~VarResampler() {
 void VarResampler::setCorrectionPpm(int ppm) {
     if (ppm == ppm_ || st_ == nullptr) return;
     ppm_ = ppm;
-    // num/den = in/out * (1 + ppm/1e6). Pick the finest scale that fits in 32 bits.
-    uint64_t scale = 1000000;
-    while (scale > 1 && (uint64_t(baseNum_) * (scale + scale / 50) > UINT32_MAX || uint64_t(baseDen_) * scale > UINT32_MAX))
-        scale /= 10;
-    const int64_t adj = int64_t(std::llround(double(ppm) * double(scale) / 1.0e6));
-    const uint64_t num = uint64_t(baseNum_) * uint64_t(int64_t(scale) + adj);
-    const uint64_t den = uint64_t(baseDen_) * scale;
-    speex_resampler_set_rate_frac(static_cast<SpeexResamplerState*>(st_), uint32_t(num), uint32_t(den), in_, out_);
+    // num/den = in/out * (1 + ppm/1e6). speex rescales its phase as samp_frac_num * den when the
+    // ratio changes and gives up (leaving a stale filter -> out-of-bounds reads) if that overflows
+    // 32 bits, so den must stay <= 65535. The resulting 5-15 ppm steps are averaged out by the
+    // drift controller.
+    const uint64_t k = std::max<uint64_t>(1, 65535 / baseDen_);
+    const uint64_t den = uint64_t(baseDen_) * k;
+    const double num = double(baseNum_) * double(k) * (1.0 + double(ppm) * 1.0e-6);
+    const uint32_t numQ = uint32_t(std::clamp<double>(std::llround(num), 1.0, double(UINT32_MAX)));
+    if (numQ == lastNum_) return;
+    lastNum_ = numQ;
+    speex_resampler_set_rate_frac(static_cast<SpeexResamplerState*>(st_), numQ, uint32_t(den), in_, out_);
 }
 
 uint32_t VarResampler::inputFor(uint32_t outFrames) const {
     const double ratio = double(in_) / double(out_) * (1.0 + ppm_ * 1.0e-6);
-    return uint32_t(std::ceil(double(outFrames) * ratio)) + 2;
+    return uint32_t(std::ceil(double(outFrames) * ratio)) + 2 + priming_;
 }
 
 void VarResampler::process(const float* const* in, uint32_t& inFrames, float* const* out, uint32_t& outFrames) {
@@ -54,12 +57,16 @@ void VarResampler::process(const float* const* in, uint32_t& inFrames, float* co
     }
     inFrames = inUsed;
     outFrames = outMade;
+    priming_ = inUsed >= priming_ ? 0 : priming_ - inUsed;
 }
 
 void VarResampler::reset() {
     if (st_) {
-        speex_resampler_reset_mem(static_cast<SpeexResamplerState*>(st_));
-        speex_resampler_skip_zeros(static_cast<SpeexResamplerState*>(st_));
+        auto* st = static_cast<SpeexResamplerState*>(st_);
+        speex_resampler_reset_mem(st);
+        speex_resampler_skip_zeros(st);
+        // after skip_zeros the first half filter length of input produces no output
+        priming_ = uint32_t(std::max(0, speex_resampler_get_input_latency(st)));
     }
 }
 
@@ -160,14 +167,26 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
     rs_->setCorrectionPpm(int(std::lround(c * 1.0e6)));
     fillFiltered_ += (fill - fillFiltered_) * (1.0 - std::exp(-dtSec / 0.5));
 
-    uint32_t need = std::min<uint32_t>(rs_->inputFor(frames), uint32_t(inBuf_[0].size()));
+    // Resample until the block is full. One pass is normally enough; a second one covers the
+    // fractional phase of the resampler. Never pad with zeros mid-stream (= audible click).
     float* in[2] = { inBuf_[0].data(), inBuf_[1].data() };
-    uint32_t avail = 0;
-    const auto res = ssbus::ringReadAt(L.streamAudio[output_], L.streamHeader.writePos[output_], cursor_, in, need, &avail);
-    if (res == ssbus::ReadResult::Overrun) {
-        ++st_.overruns; resync(dawRate); fade_ = 0.0f; silence(); return;
+    uint32_t made = 0;
+    for (int pass = 0; pass < 3 && made < frames; ++pass) {
+        const uint32_t need = std::min<uint32_t>(rs_->inputFor(frames - made), uint32_t(inBuf_[0].size()));
+        uint32_t avail = 0;
+        const auto res = ssbus::ringReadAt(L.streamAudio[output_], L.streamHeader.writePos[output_], cursor_, in, need, &avail);
+        if (res == ssbus::ReadResult::Overrun) {
+            ++st_.overruns; resync(dawRate); fade_ = 0.0f; silence(); return;
+        }
+        if (avail == 0) break;
+        uint32_t inUsed = avail, outMade = frames - made;
+        float* o[2] = { out[0] + made, out[1] + made };
+        rs_->process(in, inUsed, o, outMade);
+        cursor_ += inUsed;
+        made += outMade;
+        if (outMade == 0 && inUsed == 0) break;
     }
-    if (avail + 2 < need) {
+    if (made < frames) {
         // Not enough data: the DAW stalled or the buffer is too small. Rebuild the buffer.
         ++st_.underruns;
         needResync_ = true;
@@ -175,12 +194,6 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
         st_.streaming = false;
         return;
     }
-
-    uint32_t inUsed = avail, outMade = frames;
-    rs_->process(in, inUsed, out, outMade);
-    cursor_ += inUsed;
-    for (uint32_t ch = 0; ch < 2; ++ch)
-        if (outMade < frames) std::memset(out[ch] + outMade, 0, (frames - outMade) * sizeof(float));
 
     // 10 ms fades for connect / disconnect
     const float fadeTarget = hubOk ? 1.0f : 0.0f;

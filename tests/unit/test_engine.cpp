@@ -373,7 +373,9 @@ TEST_CASE("e2e: hub -> consumer (OBS side) at 44.1k -> 48k with drift, no underr
     const double end = 120.0;   // two simulated minutes
     while (tObs < end) {
         if (tDaw <= tObs) {
-            for (int i = 0; i < block; ++i) in[size_t(i)] = 0.5f * std::sin(float(timeline + i) * 2.0f * 3.14159265f * 441.0f / 44100.0f);
+            // 441 Hz has an exact 100-sample period at 44.1 kHz; reducing the phase keeps float
+            // precision (a raw float(timeline) argument reaches ~3e5 rad and adds its own jitter)
+            for (int i = 0; i < block; ++i) in[size_t(i)] = 0.5f * float(std::sin(double((timeline + i) % 100) * 2.0 * 3.14159265358979 / 100.0));
             const float* ch[1] = { in.data() };
             tr.process(ch, 1, block, timeline, true, false, false);
             std::fill(l.begin(), l.end(), 0.0f); std::fill(r.begin(), r.end(), 0.0f);

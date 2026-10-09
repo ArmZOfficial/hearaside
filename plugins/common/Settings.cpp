@@ -23,7 +23,7 @@ juce::PropertiesFile::Options fileOptions() {
 
 Settings::Settings() {
     file_ = std::make_unique<juce::PropertiesFile>(fileOptions());
-    language_ = file_->getValue("language", "th") == "en" ? Language::English : Language::Thai;
+    language_ = file_->getValue("language", "en") == "th" ? Language::Thai : Language::English;   // English for new users (S6)
     const auto t = file_->getValue("theme", "auto");
     theme_ = t == "light" ? ThemeMode::Light : t == "dark" ? ThemeMode::Dark : ThemeMode::Auto;
     scale_ = juce::jlimit(1.0f, 2.0f, (float) file_->getDoubleValue("uiScale", 1.0));

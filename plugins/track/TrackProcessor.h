@@ -52,7 +52,9 @@ public:
     ssengine::TrackPublisher& publisher() noexcept { return pub_; }
     juce::String displayName() const;                 // what the UI / Hub shows
     juce::Colour trackColour() const;                 // host colour, or transparent
-    void setDisplayNameOverride(const juce::String&); // "" = follow the host
+    void setDisplayNameOverride(const juce::String&); // "" = follow the host; cut to 63 bytes UTF-8
+    juce::String displayNameOverride() const { return nameOverride_; }
+    juce::String hostTrackName() const { return hostName_; }   // the DAW's name for the track (message thread)
     juce::String busName() const;
     void setBusName(const juce::String&);
     int  stemIndex() const noexcept { return stem_.load(); }

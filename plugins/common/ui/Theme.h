@@ -33,6 +33,18 @@ struct Palette {
     juce::Colour trackShade3;
     juce::Colour trackShade4;
     juce::Colour trackShade5;
+    juce::Colour danger;
+    juce::Colour dangerBg;
+    juce::Colour warn;
+    juce::Colour warnBg;
+    juce::Colour ok;
+    juce::Colour menuBg;
+    juce::Colour sheet;
+    juce::Colour thumb;
+    juce::Colour scrollThumb;
+    juce::Colour scrollThumbHover;
+    juce::Colour scrollThumbActive;
+    juce::Colour focusRing;
 };
 
 inline const Palette& light() {
@@ -64,6 +76,18 @@ inline const Palette& light() {
         juce::Colour(0xff8c8c86u),   // trackShade3
         juce::Colour(0xffb4b4aeu),   // trackShade4
         juce::Colour(0xffd2d2ccu),   // trackShade5
+        juce::Colour(0xffb42318u),   // danger
+        juce::Colour(0xffb42318u),   // dangerBg
+        juce::Colour(0xffb54708u),   // warn
+        juce::Colour(0x14b54708u),   // warnBg
+        juce::Colour(0xff0f7553u),   // ok
+        juce::Colour(0xffffffffu),   // menuBg
+        juce::Colour(0xf7fafaf8u),   // sheet
+        juce::Colour(0xffffffffu),   // thumb
+        juce::Colour(0x24181818u),   // scrollThumb
+        juce::Colour(0x4c181818u),   // scrollThumbHover
+        juce::Colour(0x80181818u),   // scrollThumbActive
+        juce::Colour(0x1a181818u),   // focusRing
     };
     return p;
 }
@@ -97,6 +121,18 @@ inline const Palette& dark() {
         juce::Colour(0xff8c8c86u),   // trackShade3
         juce::Colour(0xff66665fu),   // trackShade4
         juce::Colour(0xff4a4a45u),   // trackShade5
+        juce::Colour(0xffff8a80u),   // danger
+        juce::Colour(0xffc8322fu),   // dangerBg
+        juce::Colour(0xfffdb022u),   // warn
+        juce::Colour(0x1afdb022u),   // warnBg
+        juce::Colour(0xff3ccb7fu),   // ok
+        juce::Colour(0xff242422u),   // menuBg
+        juce::Colour(0xf71e1e1du),   // sheet
+        juce::Colour(0xffededeau),   // thumb
+        juce::Colour(0x24ffffffu),   // scrollThumb
+        juce::Colour(0x4cffffffu),   // scrollThumbHover
+        juce::Colour(0x80ffffffu),   // scrollThumbActive
+        juce::Colour(0x29ffffffu),   // focusRing
     };
     return p;
 }
@@ -104,7 +140,7 @@ inline const Palette& dark() {
 namespace radius {
 constexpr float card = 22.0f;
 constexpr float header = 20.0f;
-constexpr float row = 16.0f;
+constexpr float row = 14.0f;
 constexpr float primary = 14.0f;
 constexpr float small = 12.0f;
 constexpr float meter = 3.0f;
@@ -154,7 +190,7 @@ constexpr float appMinW = 380.0f;
 constexpr float appMinH = 400.0f;
 constexpr float panelMargin = 32.0f;
 constexpr float screenFit = 0.85f;
-constexpr float rowH = 68.0f;
+constexpr float rowH = 56.0f;
 constexpr float rowNarrowH = 104.0f;
 constexpr float minTarget = 32.0f;
 }

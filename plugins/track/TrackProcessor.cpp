@@ -1,6 +1,7 @@
 #include "TrackProcessor.h"
 #include "TrackEditor.h"
 #include "Strings.h"
+#include "ValueText.h"
 
 #include "ssdsp/dsp.h"
 
@@ -177,7 +178,7 @@ juce::String TrackProcessor::displayName() const {
 juce::Colour TrackProcessor::trackColour() const { return hostColour_; }
 
 void TrackProcessor::setDisplayNameOverride(const juce::String& name) {
-    const auto trimmed = name.trim();
+    const auto trimmed = valuetext::truncateUtf8(name.trim(), ssbus::kNameBytes - 1);   // whole code points, NUL fits
     if (trimmed == nameOverride_) return;
     nameOverride_ = trimmed;
     pushIdentity();

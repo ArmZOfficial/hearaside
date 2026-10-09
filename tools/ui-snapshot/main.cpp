@@ -1,4 +1,4 @@
-// ui-snapshot: renders the Track and Hub editors to PNG files (light + dark, Thai + English)
+// ui-snapshot: renders the Track, Hub and App Audio editors to PNG files (light + dark, English + Thai)
 // so the native UI can be checked against the design mock-up without a DAW.
 //   ui-snapshot <output folder>
 #include "track/TrackProcessor.h"
@@ -6,8 +6,12 @@
 #include "hub/HubProcessor.h"
 #include "hub/HubEditor.h"
 #include "Settings.h"
+#include "Links.h"
+#include "ValueText.h"
+#include "ui/Overlay.h"
 #ifdef _WIN32
 #include "app/AppAudioProcessor.h"
+#include "app/AppAudioEditor.h"
 extern "C" __declspec(dllimport) unsigned int __stdcall timeBeginPeriod(unsigned int);   // winmm, no <windows.h> here
 #pragma comment(lib, "winmm.lib")
 #endif
@@ -44,7 +48,9 @@ juce::StringArray layoutProblems(juce::Component& root) {
         std::vector<juce::Component*> kids;
         for (auto* k : c.getChildren())
             if (k->isVisible() && !k->getBounds().isEmpty() && dynamic_cast<juce::TooltipWindow*>(k) == nullptr
-                && dynamic_cast<juce::ScrollBar*>(k) == nullptr && dynamic_cast<juce::ResizableCornerComponent*>(k) == nullptr)
+                && dynamic_cast<juce::ScrollBar*>(k) == nullptr && dynamic_cast<juce::ResizableCornerComponent*>(k) == nullptr
+                && dynamic_cast<Overlay*>(k) == nullptr && dynamic_cast<FocusRingOverlay*>(k) == nullptr   // layers over everything
+                && !k->getProperties().contains("hsCovers"))                                             // a sheet over a card
                 kids.push_back(k);
         auto name = [](juce::Component* k) {
             const auto t = k->getTitle().isNotEmpty() ? k->getTitle() : k->getName();
@@ -279,6 +285,243 @@ int testDirectory() {
     return failures == 0 ? 0 : 1;
 }
 
+// --test-ui: the pure parts of the UI (values typed by people, names, share links). Exit 1 on a failure.
+int testUi() {
+    using namespace valuetext;
+    int failures = 0;
+    auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+    const auto minus = juce::String(juce::CharPointer_UTF8("\xe2\x88\x92"));
+    auto near = [](std::optional<float> v, float x) { return v.has_value() && std::abs(*v - x) < 1.0e-4f; };
+    // EditableValue: dB (prompt 3.2)
+    expect("dB: -3", near(parseDb("-3", -30, 6), -3.0f));
+    expect("dB: U+2212 3", near(parseDb(minus + "3", -30, 6), -3.0f));
+    expect("dB: -3 dB", near(parseDb("-3 dB", -30, 6), -3.0f));
+    expect("dB: +2", near(parseDb("+2", -30, 6), 2.0f));
+    expect("dB: 2,5", near(parseDb("2,5", -30, 6), 2.5f));
+    expect("dB: -inf = bottom", near(parseDb("-inf", -30, 6), -30.0f));
+    expect("dB: infinity sign = bottom", near(parseDb(juce::String(juce::CharPointer_UTF8("\xe2\x88\x9e")), -30, 6), -30.0f));
+    expect("dB: out of range clamps", near(parseDb("+20", -30, 6), 6.0f) && near(parseDb("-99", -30, 6), -30.0f));
+    expect("dB: nonsense keeps the old value", !parseDb("loud", -30, 6).has_value() && !parseDb("", -30, 6).has_value() && !parseDb("1.2.3", -30, 6).has_value());
+    expect("dB: shown 0.0 dB", valuetext::formatDb(0.0f) == "0.0 dB");
+    expect("dB: shown with U+2212", valuetext::formatDb(-3.0f) == minus + "3.0 dB");
+    expect("dB: shown +2.0 dB", valuetext::formatDb(2.0f) == "+2.0 dB");
+    expect("dB: shown -inf", valuetext::formatDb(-30.0f) == minus + juce::String(juce::CharPointer_UTF8("\xe2\x88\x9e")) + " dB");
+    expect("dB: field text", editDb(-30.0f) == "-inf" && editDb(2.0f) == "+2.0" && editDb(-3.0f) == "-3.0");
+    // ms
+    expect("ms: 40 ms", near(parseMs("40 ms", 0, 500), 40.0f) && formatMs(40.0f) == "40 ms");
+    expect("ms: clamps", near(parseMs("900", 0, 500), 500.0f));
+    // pan
+    expect("pan: L40", near(parsePan("L40"), -40.0f));
+    expect("pan: C", near(parsePan("C"), 0.0f));
+    expect("pan: R25", near(parsePan("R25"), 25.0f));
+    expect("pan: l 40", near(parsePan("l 40"), -40.0f));
+    expect("pan: -40", near(parsePan("-40"), -40.0f));
+    expect("pan: R250 clamps", near(parsePan("R250"), 100.0f));
+    expect("pan: nonsense", !parsePan("left").has_value());
+    expect("pan: shown", formatPan(-40.0f) == "L40" && formatPan(0.0f) == "C" && formatPan(25.0f) == "R25");
+    // names: UTF-8 cut at a code point (63 bytes + NUL in shared memory)
+    const auto thai = juce::String::fromUTF8("เสียงร้องประสานชุดที่สองแบบยาวมากจริงๆ");
+    const auto cut = truncateUtf8(thai, 63);
+    expect("name: Thai cut fits 63 bytes", int(cut.getNumBytesAsUTF8()) <= 63 && thai.startsWith(cut) && cut.length() == 21);
+    const auto emoji = juce::String::fromUTF8("Mint \xf0\x9f\x8e\xa4\xf0\x9f\x8e\xa4\xf0\x9f\x8e\xa4");
+    expect("name: emoji never split", truncateUtf8(emoji, 8) == juce::String::fromUTF8("Mint ") && truncateUtf8(emoji, 10) == juce::String::fromUTF8("Mint \xf0\x9f\x8e\xa4"));
+    expect("name: short names untouched", truncateUtf8("Vocal", 63) == "Vocal");
+    expect("initial of a Thai name skips the leading vowel", initialOf(juce::String::fromUTF8("เสียง")) == juce::String::fromUTF8("ส"));
+    // share links (S7 parser)
+    using links::Kind;
+    expect("link: permanent /l/", links::parse("https://hearaside.vercel.app/l/7Kq2mW9fAbCd").kind == Kind::Listen);
+    expect("link: tunnel /s/ with a slash", links::parse("https://abc-def.trycloudflare.com/s/7Kq2mW9fAbCd/").kind == Kind::Send);
+    expect("link: Wi-Fi address", links::parse("http://192.168.1.5:47810/s/7Kq2mW9fAbCd").kind == Kind::Send);
+    expect("link: token kept", links::parse("https://x.example/l/7Kq2mW9fAbCd?x=1").token == "7Kq2mW9fAbCd");
+    expect("link: not a link", links::parse("hello").kind == Kind::None && links::parse("https://example.com/").kind == Kind::None
+                               && links::parse("https://example.com/x/7Kq2mW9fAbCd").kind == Kind::None && links::parse("ftp://h/l/7Kq2mW9fAbCd").kind == Kind::None);
+    expect("link: short token refused", links::parse("https://h/l/abc").kind == Kind::None);
+    std::printf("%s\n", failures == 0 ? "ui: all passed" : "ui: FAILED");
+    return failures == 0 ? 0 : 1;
+}
+
+// Every design-system component in one frame (prompt 4 U1: a demo page in ui-snapshot, both themes).
+struct Gallery : juce::Component {
+    LookAndFeel lnf;
+    Overlay overlay;
+    std::vector<std::unique_ptr<juce::Component>> owned;
+    juce::Rectangle<int> area { 24, 24, 0, 0 };
+    int x = 24, y = 24, rowH = 0;
+    explicit Gallery(bool dark) {
+        lnf.setDark(dark);
+        setLookAndFeel(&lnf);
+        setSize(1180, 860);
+    }
+    ~Gallery() override { owned.clear(); setLookAndFeel(nullptr); }
+    template <typename T> T& add(std::unique_ptr<T> c, int w, int h) {
+        if (x + w > getWidth() - 24) { x = 24; y += rowH + 16; rowH = 0; }
+        c->setBounds(x, y, w, h);
+        x += w + 16;
+        rowH = std::max(rowH, h);
+        auto& ref = *c;
+        addAndMakeVisible(ref);
+        owned.push_back(std::move(c));
+        return ref;
+    }
+    void newLine() { x = 24; y += rowH + 22; rowH = 0; }
+    void paint(juce::Graphics& g) override {
+        const auto& p = lnf.pal();
+        g.fillAll(p.paper);
+        g.setColour(p.glass);
+        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(8.0f), 22.0f);
+        drawWordmark(g, { 24.0f, 820.0f, 300.0f, 30.0f }, "COMPONENTS", 16.0f, p.ink);
+        const auto& pal = p;
+        float bx = 340.0f;
+        for (auto d : { Dot::Ok, Dot::Warn, Dot::Rec, Dot::RecRing, Dot::Muted }) { drawStatusDot(g, { bx, 835.0f }, d, pal); bx += 18.0f; }
+        drawBadge(g, { bx + 10.0f, 825.0f, badgeWidth("40 ms"), 20.0f }, "40 ms", BadgeStyle::Chip, pal);
+        drawBadge(g, { bx + 70.0f, 825.0f, badgeWidth("Solo", BadgeStyle::Solid), 20.0f }, "Solo", BadgeStyle::Solid, pal);
+        drawBadge(g, { bx + 120.0f, 825.0f, badgeWidth("Recording", BadgeStyle::Rec), 20.0f }, "Recording", BadgeStyle::Rec, pal);
+        drawAvatar(g, { bx + 220.0f, 817.0f, 28.0f, 28.0f }, "Mint", true, pal);
+        drawAvatar(g, { bx + 256.0f, 817.0f, 28.0f, 28.0f }, "Fah", false, pal);
+    }
+};
+
+void buildGallery(Gallery& gl) {
+    using std::make_unique;
+    for (bool on : { true, false })
+        for (auto side : { AudibleToggle::Side::You, AudibleToggle::Side::Viewers }) {
+            auto& t = gl.add(make_unique<AudibleToggle>(side), 48, 38);
+            t.setOn(on, false);
+        }
+    for (bool on : { true, false }) {
+        auto& t = gl.add(make_unique<AudibleToggle>(AudibleToggle::Side::Viewers), 150, 42);
+        t.setLabelShown(true);
+        t.setOn(on, false);
+    }
+    gl.add(make_unique<AudibleToggle>(AudibleToggle::Side::You), 40, 32).setOn(true, false);
+    {
+        auto& s = gl.add(make_unique<Switch>(), 36, 20);
+        s.setOn(true, false);
+        gl.add(make_unique<Switch>(), 36, 20);
+        gl.add(make_unique<Switch>(), 46, 26).setOn(true, false);
+        auto& ls = gl.add(make_unique<LabelledSwitch>(), 100, 36);
+        ls.setPill(true);
+        ls.setOn(true, false);
+    }
+    gl.newLine();
+    {
+        auto& a = gl.add(make_unique<LevelSlider>(), 220, 20);
+        a.setValue(-3.0);
+        auto& b = gl.add(make_unique<LevelSlider>(), 220, 20);
+        b.setValue(-6.0);
+        b.setDim(true);
+        auto& pf = gl.add(make_unique<PanSlider>(true), 260, PanSlider::kFullHeight);
+        pf.setPan(-40.0f);
+        auto& pc = gl.add(make_unique<PanSlider>(false), 160, 20);
+        pc.setPan(25.0f);
+    }
+    gl.newLine();
+    {
+        auto& v1 = gl.add(make_unique<EditableValue>(EditableValue::Kind::Db, -30.0f, 6.0f), 72, 26);
+        v1.setValue(-3.0f);
+        auto& v2 = gl.add(make_unique<EditableValue>(EditableValue::Kind::Db, -30.0f, 6.0f), 72, 26);
+        v2.setValue(-30.0f);
+        auto& v3 = gl.add(make_unique<EditableValue>(EditableValue::Kind::Ms, 0.0f, 500.0f), 72, 26);
+        v3.setValue(40.0f);
+        auto& v4 = gl.add(make_unique<EditableValue>(EditableValue::Kind::Pan, -100.0f, 100.0f), 72, 26);
+        v4.setValue(-40.0f);
+        auto& v5 = gl.add(make_unique<EditableValue>(EditableValue::Kind::Db, -30.0f, 6.0f), 72, 26);
+        v5.setValue(2.0f);
+        v5.startEditing();
+        auto& n1 = gl.add(make_unique<InlineName>(), 160, 26);
+        n1.setName("Backing track", "Audio 03");
+        auto& n2 = gl.add(make_unique<InlineName>(), 160, 26);
+        n2.setName("Lead vocal", "Audio 04");
+        n2.startEditing();
+        auto& tf = gl.add(make_unique<TextField>(juce::String(juce::CharPointer_UTF8("https://\xe2\x80\xa6/l/\xe2\x80\xa6"))), 260, 38);
+        juce::ignoreUnused(tf);
+    }
+    gl.newLine();
+    {
+        auto& dd = gl.add(make_unique<Dropdown>(), 200, 38);
+        dd.setItems({ "None", "Stem 1", "Stem 2" });
+        auto& sp = gl.add(make_unique<SourcePicker>(), 300, 48);
+        sp.set(icons::Icon::Window, "Chrome");
+        auto& ss = gl.add(make_unique<SourcePicker>(true), 220, 26);
+        ss.set(icons::Icon::Monitor, "Whole computer (except the DAW)");
+        auto& seg = gl.add(make_unique<SegmentedControl>(), 206, 32);
+        seg.setSegments({ { "Headphones", icons::Icon::Headphones }, { "Viewers", icons::Icon::Broadcast } });
+        seg.setSelected(1);
+        auto& st = gl.add(make_unique<Stepper>(0, 2), 160, 34);
+        st.setValue(2);
+        st.setUnit("block");
+    }
+    gl.newLine();
+    {
+        auto& g1 = gl.add(make_unique<GhostButton>("Manage"), 110, 36);
+        g1.setIcon(icons::Icon::Sliders);
+        auto& g2 = gl.add(make_unique<GhostButton>("Add friend", GhostButton::Style::Solid), 130, 36);
+        g2.setIcon(icons::Icon::Plus);
+        gl.add(make_unique<GhostButton>("Reset", GhostButton::Style::Danger), 90, 36);
+        auto& g4 = gl.add(make_unique<GhostButton>("Copy"), 70, 30);
+        g4.setSmall(true);
+        gl.add(make_unique<IconButton>(icons::Icon::Link), 40, 40);
+        gl.add(make_unique<IconButton>(icons::Icon::Sliders), 36, 36).setOn(true);
+        gl.add(make_unique<MoreButton>(), 32, 32);
+        gl.add(make_unique<BackButton>(true), 90, 40);
+        auto& m1 = gl.add(make_unique<MuteButton>(), 150, 40);
+        juce::ignoreUnused(m1);
+        auto& m2 = gl.add(make_unique<MuteButton>(), 160, 40);
+        m2.setActive(true);
+        auto& lk = gl.add(make_unique<LinkButton>("Manage"), 60, 18);
+        juce::ignoreUnused(lk);
+    }
+    gl.newLine();
+    {
+        auto& p1 = gl.add(make_unique<PrimaryButton>(icons::Icon::Headphones), 260, 48);
+        p1.setButtonText(tr(Str::PreviewOff));
+        auto& p2 = gl.add(make_unique<PrimaryButton>(icons::Icon::Headphones), 260, 48);
+        p2.setButtonText(tr(Str::PreviewOn));
+        p2.setActive(true);
+        auto& c1 = gl.add(make_unique<StatusChip>(36.0f), 250, 36);
+        c1.set("OBS not connected", Dot::Warn, "5.3 ms", true);
+        auto& c2 = gl.add(make_unique<StatusChip>(30.0f), 170, 30);
+        c2.set("Connected to Hub", Dot::Ok);
+        auto& d = gl.add(make_unique<Disclosure>("Other DAWs"), 220, 38);
+        d.setOpen(true);
+    }
+    gl.newLine();
+    {
+        auto& b1 = gl.add(make_unique<Banner>(), 360, 58);
+        b1.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::HubMissingBanner));
+        auto& b2 = gl.add(make_unique<Banner>(), 360, 58);
+        b2.set(Banner::Style::Dark, icons::Icon::Headphones, tr(Str::SyncViewersUntil));
+        auto& steps = gl.add(make_unique<NumberedSteps>(), 360, 110);
+        steps.setSteps({ tr(Str::StudioOneStep1), tr(Str::StudioOneStep2), tr(Str::StudioOneStep3) });
+    }
+    gl.newLine();
+    {
+        auto& row = gl.add(make_unique<ToggleRow>(icons::Icon::Headphones), 340, 60);
+        row.setTexts(tr(Str::MonRowTitle), tr(Str::MonRowCaption));
+        auto& row2 = gl.add(make_unique<ToggleRow>(icons::Icon::Broadcast), 340, 60);
+        row2.setTexts(tr(Str::StrRowTitle), tr(Str::StrRowCaption));
+        row2.setOn(true, false);
+        auto& mb = gl.add(make_unique<MeterBar>(4.0f, true), 120, 8);
+        mb.setLevel(0.7f);
+    }
+    // a menu and a toast on top
+    gl.addAndMakeVisible(gl.overlay);
+    gl.overlay.setBounds(gl.getLocalBounds());
+    auto& anchor = gl.add(std::make_unique<MoreButton>(), 32, 32);
+    gl.overlay.toast(trf(Str::RenamedToast, { "Lead vocal" }), 60000);
+    Menu m(236);
+    m.header("Backing track");
+    m.toggle(tr(Str::StreamSolo), true, [] {});
+    m.item(tr(Str::RenameDisplay), [] {}, tr(Str::RenameHint));
+    m.separator();
+    m.item(tr(Str::Pan), [] {}, tr(Str::Center));
+    m.item(tr(Str::Delay), [] {}, "40 ms");
+    m.item(tr(Str::Stem), [] {}, juce::String(juce::CharPointer_UTF8("None \xe2\x80\xba")));
+    m.separator();
+    m.item(tr(Str::FineSettingsEllipsis), [] {}, {}, true);
+    gl.overlay.showMenu(std::move(m), anchor);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -289,12 +532,13 @@ int main(int argc, char** argv) {
 #endif
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String(argv[1]) == "--test-directory") return testDirectory();
+    if (argc > 1 && juce::String(argv[1]) == "--test-ui") return testUi();
 #ifdef _WIN32
     if (argc > 2 && juce::String(argv[1]) == "--test-sync") return testSync(argv[2]);
     if (argc > 2 && juce::String(argv[1]) == "--test-app-audio") return testAppAudio(argv[2], argc > 3 ? juce::String(argv[3]) : juce::String(), argc > 4 ? juce::String(argv[4]).getIntValue() : 480);
 #endif
-    // --audit [folder]: the UX audit matrix (sizes x language x theme x states) + a layout check;
-    // exits 1 when a layout problem is found
+    // --audit [folder]: the UX audit matrix (sizes x language x theme x pages x states) + a layout
+    // check; exits 1 when a layout problem is found
     const bool audit = argc > 1 && juce::String(argv[1]) == "--audit";
     const juce::String outArg = audit ? (argc > 2 ? juce::String(argv[2]) : juce::String("ui-snapshots/audit"))
                               : argc > 1 && !juce::String(argv[1]).startsWith("--") ? juce::String(argv[1]) : juce::String("ui-snapshots");
@@ -305,7 +549,7 @@ int main(int argc, char** argv) {
     const auto oldLang = settings->language();
     const auto oldTheme = settings->themeMode();
 
-    // a Hub and five Tracks on a private bus, like the mock-up (new instances must not touch a
+    // a Hub and seven Tracks on a private bus, like the mock-up (new instances must not touch a
     // running DAW's "Main" bus even before setBusName)
 #ifdef _WIN32
     _putenv_s("HEARASIDE_DEFAULT_BUS", "Snapshot");
@@ -313,10 +557,11 @@ int main(int argc, char** argv) {
     HubProcessor hub;
     hub.setBusName("Snapshot");
     hub.prepareToPlay(48000, 256);
-    struct T { const char* name; bool mon, str; float db, trim; };
-    const T demo[] = { { "ดนตรี (Backing)", true, true, -3.0f, 0.0f }, { "เสียงร้อง", false, true, 0.0f, 0.0f },
-                       { "กีตาร์", true, true, -2.0f, -6.0f }, { "เมโทรนอม / ไกด์", true, false, -6.0f, -10.0f },
-                       { "ไมค์พูด", false, false, 0.0f, 0.0f } };
+    struct T { const char* name; bool mon, str; float db, trim, pan; int stem; };
+    const T demo[] = { { "Backing track", true, true, -3.0f, 0.0f, 0.0f, -1 }, { "Vocal", false, true, 0.0f, 0.0f, 0.0f, 1 },
+                       { "Guitar", true, true, -2.0f, -6.0f, -30.0f, -1 }, { "Click / Guide", true, false, -6.0f, -10.0f, 0.0f, -1 },
+                       { "Talk mic", false, false, 0.0f, 0.0f, 0.0f, -1 }, { "Bass", true, true, -1.5f, -4.0f, 0.0f, -1 },
+                       { "Chorus", false, true, -4.0f, 0.0f, 25.0f, 1 } };
     std::vector<std::unique_ptr<TrackProcessor>> tracks;
     for (const auto& d : demo) {
         auto t = std::make_unique<TrackProcessor>();
@@ -328,6 +573,8 @@ int main(int argc, char** argv) {
         set(trackparam::Str, d.str ? 1.0f : 0.0f);
         set(trackparam::StrGain, d.db);
         set(trackparam::MonTrim, d.trim);
+        set(trackparam::StrPan, d.pan);
+        t->setStemIndex(d.stem);
         if (tracks.empty()) set(trackparam::StrDelay, 40.0f);
         tracks.push_back(std::move(t));
     }
@@ -366,7 +613,8 @@ int main(int argc, char** argv) {
 
     if (audit) {
         const auto oldScale = settings->uiScale();
-        settings->setUiScaleAuto(1.0f);   // (does not count as the user's choice)
+        settings->setUiScale(1.0f);   // a chosen 100 %: editors must not pick a size for the screen
+        settings->setFlag("startHidden", true);
         juce::String report;
         int problems = 0;
         auto check = [&](juce::Component& c, const juce::String& name) {
@@ -375,68 +623,86 @@ int main(int argc, char** argv) {
             report << name << " (" << c.getWidth() << "x" << c.getHeight() << "): " << (probs.isEmpty() ? juce::String("ok") : juce::String(probs.size()) + " problem(s)") << "\n";
             for (const auto& pr : probs) report << "    " << pr << "\n";
         };
-        // an editor at a content size (w, h); 0 = its default size
-        auto shot = [&](auto& p, const juce::String& name, int w, int h) {
+        // an editor at a content size (w, h); 0 = its default size. prep: put it in a state first.
+        auto shot = [&](auto& p, const juce::String& name, int w, int h, std::function<void(juce::AudioProcessorEditor&)> prep = {}) {
             std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
             if (w > 0) ed->setSize(w, h);
-            pump(250);
+            pump(150);
+            if (prep) { prep(*ed); pump(250); }
+            else pump(100);
             save(*ed, dir.getChildFile(name + ".png"), 1.0f);
             check(*ed, name);
         };
-        auto panelShot = [&](HubEditor::Panel which, const juce::String& name, int slot = -1) {
-            std::unique_ptr<juce::AudioProcessorEditor> ed(hub.createEditor());
-            auto* he = dynamic_cast<HubEditor*>(ed.get());
-            auto panel = he->createPanel(which, slot);
-            struct Frame : juce::Component { void paint(juce::Graphics& g) override { g.fillAll(paletteOf(*this).paper); } } frame;
-            frame.setLookAndFeel(&panel->getLookAndFeel());
-            frame.setSize(panel->getWidth(), panel->getHeight());
-            frame.addAndMakeVisible(*panel);
-            pump(250);
-            save(frame, dir.getChildFile(name + ".png"), 1.0f);
-            check(frame, name);
-            frame.removeChildComponent(panel.get());
-            frame.setLookAndFeel(nullptr);
+        auto page = [](HubEditor::Page pg, int slot = -1) {
+            return [pg, slot](juce::AudioProcessorEditor& e) { if (auto* he = dynamic_cast<HubEditor*>(&e)) he->showPage(pg, slot); };
         };
         struct Size { const char* tag; int w, h; };
-        const Size hubSizes[] = { { "default", 1040, 790 }, { "oldmin", 880, 750 }, { "wide", 1600, 1000 }, { "laptop", 1000, 560 },
-                                  { "regular-edge", 780, 600 }, { "compact", 560, 480 },
-                                  { "min", int(theme::layout::hubMinW), int(theme::layout::hubMinH) }, { "tall", 420, 760 } };
+        const Size hubSizes[] = { { "default", 1040, 790 }, { "wide", 1600, 1000 }, { "laptop", 1000, 560 }, { "regular-edge", 780, 600 },
+                                  { "compact", 420, 790 }, { "min", int(theme::layout::hubMinW), int(theme::layout::hubMinH) } };
+        const std::pair<HubEditor::Page, const char*> pages[] = { { HubEditor::Page::Share, "share" }, { HubEditor::Page::Settings, "settings" },
+                                                                 { HubEditor::Page::Track, "track" }, { HubEditor::Page::Sync, "sync" },
+                                                                 { HubEditor::Page::Tracks, "tracks" }, { HubEditor::Page::Programs, "programs" },
+                                                                 { HubEditor::Page::Setup, "setup" } };
         for (int lang = 0; lang < 2; ++lang) {
             for (int dark = 0; dark < 2; ++dark) {
-                settings->setLanguage(lang == 0 ? Language::Thai : Language::English);
+                settings->setLanguage(lang == 0 ? Language::English : Language::Thai);
                 settings->setThemeMode(dark ? ThemeMode::Dark : ThemeMode::Light);
-                const juce::String sfx = juce::String(lang == 0 ? "th" : "en") + (dark ? "-dark" : "-light");
+                const juce::String sfx = juce::String(lang == 0 ? "en" : "th") + (dark ? "-dark" : "-light");
                 for (const auto& s : hubSizes) shot(hub, "hub-" + juce::String(s.tag) + "-" + sfx, s.w, s.h);
+                for (const auto& [pg, tag] : pages) {
+                    shot(hub, "page-" + juce::String(tag) + "-" + sfx, 1040, 790, page(pg, hub.tracks().front().slot));
+                    if (lang == 0 && !dark) shot(hub, "page-" + juce::String(tag) + "-compact-" + sfx, 420, 790, page(pg, hub.tracks().front().slot));
+                }
+                for (int sec = 1; sec < 4; ++sec)
+                    shot(hub, "page-settings-" + juce::String(sec) + "-" + sfx, 1040, 790, [sec](juce::AudioProcessorEditor& e) {
+                        if (auto* he = dynamic_cast<HubEditor*>(&e)) he->showSettings(HubEditor::SettingsSection(sec));
+                    });
                 shot(*tracks[1], "track-default-" + sfx, TrackEditor::kWidth, TrackEditor::kHeight);
                 shot(*tracks[1], "track-short-" + sfx, 380, 520);
                 shot(*tracks[1], "track-min-" + sfx, int(theme::layout::trackMinW), int(theme::layout::trackMinH));
+                shot(*tracks[1], "track-fine-" + sfx, TrackEditor::kWidth, TrackEditor::kHeight, [](juce::AudioProcessorEditor& e) {
+                    if (auto* te = dynamic_cast<TrackEditor*>(&e)) te->openFineSettings(true);
+                });
 #ifdef _WIN32
-                shot(*apps[0], "app-default-" + sfx, 460, 610);
-                shot(*apps[0], "app-short-" + sfx, 460, 480);
+                shot(*apps[0], "app-default-" + sfx, 440, 600);
+                shot(*apps[0], "app-short-" + sfx, 440, 480);
                 shot(*apps[0], "app-min-" + sfx, int(theme::layout::appMinW), int(theme::layout::appMinH));
 #endif
+                {   // the component gallery (U1)
+                    Gallery g(dark != 0);
+                    buildGallery(g);
+                    pump(200);
+                    save(g, dir.getChildFile("gallery-" + sfx + ".png"), 1.0f);
+                }
             }
         }
-        // states (Thai + English, light)
+        // states (English + Thai, light)
         for (int lang = 0; lang < 2; ++lang) {
-            settings->setLanguage(lang == 0 ? Language::Thai : Language::English);
+            settings->setLanguage(lang == 0 ? Language::English : Language::Thai);
             settings->setThemeMode(ThemeMode::Light);
-            const juce::String sfx = lang == 0 ? "th" : "en";
-            for (auto p : { HubEditor::Panel::Share, HubEditor::Panel::Settings, HubEditor::Panel::Sync })
-                panelShot(p, juce::String(p == HubEditor::Panel::Share ? "panel-share-" : p == HubEditor::Panel::Settings ? "panel-settings-" : "panel-sync-") + sfx);
-            panelShot(HubEditor::Panel::Track, "panel-track-" + sfx, hub.tracks().front().slot);
-            panelShot(HubEditor::Panel::Levels, "panel-levels-" + sfx);
-            panelShot(HubEditor::Panel::Setup, "panel-setup-" + sfx);
-            if (!hub.sources().empty()) panelShot(HubEditor::Panel::SourceLevels, "panel-source-levels-" + sfx, hub.sources().front().index);
+            const juce::String sfx = lang == 0 ? "en" : "th";
             hub.setParam(hubparam::Preview, 1.0f);
             hub.setParam(hubparam::Panic, 1.0f);
             shot(hub, "state-preview-panic-default-" + sfx, 1040, 790);
-            shot(hub, "state-preview-panic-compact-" + sfx, 560, 480);
+            shot(hub, "state-preview-panic-compact-" + sfx, 420, 790);
             hub.setParam(hubparam::Preview, 0.0f);
             hub.setParam(hubparam::Panic, 0.0f);
+            shot(hub, "state-menu-track-" + sfx, 1040, 790, [](juce::AudioProcessorEditor& e) { if (auto* he = dynamic_cast<HubEditor*>(&e)) he->openRowMenu(0); });
+            shot(hub, "state-menu-program-" + sfx, 1040, 790, [](juce::AudioProcessorEditor& e) { if (auto* he = dynamic_cast<HubEditor*>(&e)) he->openRowMenu(7); });
+            shot(hub, "state-obs-popover-" + sfx, 1040, 790, [](juce::AudioProcessorEditor& e) { if (auto* he = dynamic_cast<HubEditor*>(&e)) he->openObsPopover(); });
+            shot(hub, "state-compact-levels-" + sfx, 420, 790, [](juce::AudioProcessorEditor& e) { if (auto* he = dynamic_cast<HubEditor*>(&e)) he->setCompactTab(1); });
+            shot(hub, "state-compact-summary-" + sfx, 420, 790, [](juce::AudioProcessorEditor& e) { if (auto* he = dynamic_cast<HubEditor*>(&e)) he->setCompactTab(2); });
+#ifdef _WIN32
+            shot(*apps[0], "state-app-receive-" + sfx, 440, 600, [](juce::AudioProcessorEditor& e) { if (auto* ae = dynamic_cast<AppAudioEditor*>(&e)) ae->showReceiveLink(); });
+            apps[1]->setOn(false);
+            pump(200);
+            shot(*apps[1], "state-app-off-" + sfx, 440, 600);
+            apps[1]->setOn(true);
+#endif
         }
-        settings->setLanguage(Language::Thai);
-        {   // nothing on the bus yet: the empty state
+        settings->setLanguage(Language::English);
+        settings->setFlag("startHidden", false);
+        {   // nothing on the bus yet: the empty state (getting started)
 #ifdef _WIN32
             _putenv_s("HEARASIDE_DEFAULT_BUS", "AuditEmpty");
 #endif
@@ -445,36 +711,37 @@ int main(int argc, char** argv) {
             empty.prepareToPlay(48000, 256);
             juce::AudioBuffer<float> b(2, 256);
             for (int i = 0; i < 20; ++i) empty.processBlock(b, midi);
-            shot(empty, "state-empty-default-th", 1040, 790);
-            shot(empty, "state-empty-compact-th", 560, 480);
+            shot(empty, "state-empty-default-en", 1040, 790);
+            shot(empty, "state-empty-compact-en", 420, 790);
 #ifdef _WIN32
             _putenv_s("HEARASIDE_DEFAULT_BUS", "Snapshot");
 #endif
         }
-        {   // 40+ tracks, one with a very long name
+        {   // 40+ tracks, one with a very long Thai name
             const size_t keep = tracks.size();
             for (int i = 0; i < 38; ++i) {
                 auto t = std::make_unique<TrackProcessor>();
                 t->setBusName("Snapshot");
                 t->setDisplayNameOverride(i == 0 ? juce::String::fromUTF8("เสียงร้องประสานชุดที่สองแบบยาวมากจริงๆ (Backing Vocals Group B, double-tracked)")
-                                                 : "Track " + juce::String(i + 6));
+                                                 : "Track " + juce::String(i + 8));
                 t->prepareToPlay(48000, 256);
                 tracks.push_back(std::move(t));
             }
             gAudio(40);
+            settings->setLanguage(Language::Thai);
             shot(hub, "state-40tracks-default-th", 1040, 790);
-            shot(hub, "state-40tracks-compact-th", 560, 480);
+            shot(hub, "state-40tracks-compact-th", 420, 790);
             settings->setLanguage(Language::English);
             shot(hub, "state-40tracks-laptop-en", 1000, 560);
-            settings->setLanguage(Language::Thai);
+            shot(hub, "state-40tracks-tracks-en", 1040, 790, page(HubEditor::Page::Tracks));
             gAudio = nullptr;   // the extra tracks go first
             tracks.resize(keep);
         }
         {   // an extra Hub on the same bus
             HubProcessor extra;
             extra.setBusName("Snapshot");
-            shot(extra, "state-second-hub-th", 1040, 790);
-            shot(extra, "state-second-hub-compact-th", 560, 480);
+            shot(extra, "state-second-hub-en", 1040, 790);
+            shot(extra, "state-second-hub-compact-en", 420, 790);
         }
         report = "HEARASIDE UI audit - " + juce::Time::getCurrentTime().toString(true, true) + "\nlayout problems: "
                + juce::String(problems) + "\n\n" + report;
@@ -501,8 +768,8 @@ int main(int argc, char** argv) {
                            + "\r\nConnection: close\r\n\r\n" + body;
             s.write(req.toRawUTF8(), int(req.getNumBytesAsUTF8()));
             juce::MemoryOutputStream out;
-            char buf[4096];
-            for (int n; s.waitUntilReady(true, 3000) == 1 && (n = s.read(buf, sizeof buf, false)) > 0;) out.write(buf, size_t(n));
+            char buf2[4096];
+            for (int n; s.waitUntilReady(true, 3000) == 1 && (n = s.read(buf2, sizeof buf2, false)) > 0;) out.write(buf2, size_t(n));
             const auto text = out.toString();
             return std::pair<int, juce::String>(text.fromFirstOccurrenceOf(" ", false, false).getIntValue(), text.fromFirstOccurrenceOf("\r\n\r\n", false, false));
         };
@@ -511,6 +778,7 @@ int main(int argc, char** argv) {
         auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
         // the requests block until the message thread answers: run them beside the message loop
         std::atomic<bool> finished { false };
+        const int trackCount = int(tracks.size());
         std::thread client([&] {
             auto r = call("GET", "/api/v1/state", {}, host);
             expect("no key -> 401", r.first == 401);
@@ -522,10 +790,10 @@ int main(int argc, char** argv) {
             expect("another host name (DNS rebinding) -> 403", r.first == 403);
             r = call("GET", "/api/v1/state", {}, host + key);
             const auto state = juce::JSON::parse(r.second);
-            expect("GET /api/v1/state -> 200 with the 5 tracks", r.first == 200 && state["tracks"].size() == 5);
+            expect("GET /api/v1/state -> 200 with every track", r.first == 200 && state["tracks"].size() == trackCount);
             r = call("POST", "/api/v1/mute", "{\"on\": true}", host + key);
             expect("POST /api/v1/mute {on: true} -> 200, stream_muted", r.first == 200 && bool(juce::JSON::parse(r.second)["stream_muted"]));
-            r = call("POST", "/api/v1/tracks/" + juce::URL::addEscapeChars(juce::String::fromUTF8("เสียงร้อง"), false), "{\"you_hear\": true, \"viewers_db\": -6}", host + key);
+            r = call("POST", "/api/v1/tracks/" + juce::URL::addEscapeChars("Vocal", false), "{\"you_hear\": true, \"viewers_db\": -6}", host + key);
             expect("POST /api/v1/tracks/<name> -> 200", r.first == 200);
             r = call("POST", "/api/v1/tracks/nope", "{}", host + key);
             expect("unknown track -> 404", r.first == 404);
@@ -582,11 +850,12 @@ int main(int argc, char** argv) {
         }
     }
 
+    // default: the main screens of the three plug-ins, both languages and themes
     for (int lang = 0; lang < 2; ++lang) {
         for (int dark = 0; dark < 2; ++dark) {
-            settings->setLanguage(lang == 0 ? Language::Thai : Language::English);
+            settings->setLanguage(lang == 0 ? Language::English : Language::Thai);
             settings->setThemeMode(dark ? ThemeMode::Dark : ThemeMode::Light);
-            const juce::String suffix = juce::String(lang == 0 ? "th" : "en") + (dark ? "-dark" : "-light");
+            const juce::String suffix = juce::String(lang == 0 ? "en" : "th") + (dark ? "-dark" : "-light");
             {
                 std::unique_ptr<juce::AudioProcessorEditor> ed(hub.createEditor());
                 pump(400);
@@ -605,47 +874,6 @@ int main(int argc, char** argv) {
             }
 #endif
         }
-    }
-    // an extra Hub on the same bus (start of a viewers FX channel until it finds an end Hub)
-    settings->setLanguage(Language::Thai);
-    settings->setThemeMode(ThemeMode::Dark);
-    {
-        HubProcessor extra;
-        extra.setBusName("Snapshot");
-        std::unique_ptr<juce::AudioProcessorEditor> ed(extra.createEditor());
-        pump(400);
-        save(*ed, dir.getChildFile("hub-th-extra.png"));
-    }
-
-    // share panel (Thai, dark)
-    {
-        hub.setSharing(true);
-        pump(300);
-        std::unique_ptr<juce::AudioProcessorEditor> ed(hub.createEditor());
-        if (auto* he = dynamic_cast<HubEditor*>(ed.get())) {
-            auto panel = he->createPanel(HubEditor::Panel::Share);
-            struct Frame : juce::Component { void paint(juce::Graphics& g) override { g.fillAll(paletteOf(*this).paper); } } frame;
-            frame.setLookAndFeel(&panel->getLookAndFeel());
-            frame.setSize(panel->getWidth(), panel->getHeight());
-            frame.addAndMakeVisible(*panel);
-            pump(400);
-            save(frame, dir.getChildFile("hub-th-share.png"));
-            frame.removeChildComponent(panel.get());
-            frame.setLookAndFeel(nullptr);
-        }
-        pump(200);
-        hub.setSharing(false);
-    }
-
-    // preview + panic state (Thai, light)
-    settings->setLanguage(Language::Thai);
-    settings->setThemeMode(ThemeMode::Light);
-    hub.setParam(hubparam::Preview, 1.0f);
-    hub.setParam(hubparam::Panic, 1.0f);
-    {
-        std::unique_ptr<juce::AudioProcessorEditor> ed(hub.createEditor());
-        pump(400);
-        save(*ed, dir.getChildFile("hub-th-preview-panic.png"));
     }
     gAudio = nullptr;
     settings->setLanguage(oldLang);

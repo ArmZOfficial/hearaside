@@ -170,6 +170,7 @@ std::vector<TrackView> HubProcessor::tracks() const {
         v.delayMs = ssbus::bitsFloat(s.strDelayBits.load(std::memory_order_relaxed));
         v.trimDb = ssbus::bitsFloat(s.monTrimBits.load(std::memory_order_relaxed));
         v.stem = s.stemIndex.load(std::memory_order_relaxed);
+        v.chainMs = ssbus::bitsFloat(s.chainLatencyBits.load(std::memory_order_relaxed));
         v.peakIn = juce::jmax(ssbus::bitsFloat(s.peakInBits[0].load(std::memory_order_relaxed)),
                               ssbus::bitsFloat(s.peakInBits[1].load(std::memory_order_relaxed)));
         v.peakStream = juce::jmax(ssbus::bitsFloat(s.peakStreamBits[0].load(std::memory_order_relaxed)),

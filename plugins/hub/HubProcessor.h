@@ -33,6 +33,7 @@ struct TrackView {
     juce::uint32 colourARGB = 0;
     bool mon = false, str = false, solo = false, bypassed = false, mono = false, active = false;
     float gainDb = 0, pan = 0, delayMs = 0, trimDb = 0;
+    float chainMs = 0;   // plug-in latency before the Track (measured by the Hub)
     int stem = -1;
     float peakIn = 0, peakStream = 0;
     uint32_t hubStatus = 0;

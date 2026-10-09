@@ -1,92 +1,91 @@
+// HEARASIDE Hub editor (prompt 3.3 - 3.5, design export "Main", "Compact" and the sub-pages).
+// One window: the main screen (All tracks + What viewers hear + Right now) and full-window
+// sub-pages (Share and friends, Settings, Track fine settings, Auto-sync vocal, Manage tracks,
+// Manage program audio, Setup check) with Back and Mute always in the header.
 #pragma once
 
 #include "HubProcessor.h"
 #include "ui/Backdrop.h"
-#include "ui/Components.h"
 #include "ui/EditorShell.h"
+#include "ui/ScrollArea.h"
+#include "ui/SettingsPanel.h"
 
 namespace hearaside {
 
 class HubEditor;
 
-// Small hover target with a tooltip (warning icon or text badge inside a track row).
-class Badge : public juce::Component, public juce::SettableTooltipClient {
-public:
-    void setIcon(icons::Icon i) { icon_ = i; text_ = {}; repaint(); }
-    void setText(const juce::String& t) { text_ = t; repaint(); }
-    int idealWidth() const;
-    void paint(juce::Graphics&) override;
-private:
-    icons::Icon icon_ = icons::Icon::Warning;
-    juce::String text_;
+// What one row of the main screen shows: a Track, an App Audio (program) or a friend.
+struct RowData {
+    enum class Kind { Track, Program, Friend };
+    Kind kind = Kind::Track;
+    int slot = -1;        // bus slot: you / viewers / levels go through HubProcessor::send(slot, ...)
+    int index = -1;       // App Audio index (sources()), friend id
+    juce::String name;
+    juce::uint32 colour = 0;
+    int shade = 0;
+    bool you = false, viewers = false, solo = false, active = true, linked = true;
+    float hpDb = 0, vwDb = 0, pan = 0, delayMs = 0, meter = 0;
+    int stem = -1;
+    juce::String warnTip;   // rate mismatch / ahead / bypassed
+    // program
+    juce::String app;
+    bool on = true, recording = false, follow = false;
+    uint32_t capture = 0;
+    double recordSec = 0;
+    float latencyMs = 0;
 };
 
-// Track / App Audio rows come in three widths (docs/ux-roadmap.md 5.2): Full (wide pills and
-// level sliders), Mid (shorter pills, slimmer sliders), Narrow (two lines: the name, then both
-// pills; levels move to the "..." panel). The status word is always written out.
-enum class RowTier { Full, Mid, Narrow };
-struct RowCols { RowTier tier; float pillW, levelW; };
-RowCols rowCols(float rowWidth);
-
-class TrackRow : public juce::Component {
+// One row (prompt 3.3): wide = grid 1fr | 48 | 48 | 206 | 32, 56 high; narrow = two lines
+// (name + toggles / slider + value + ⋯) as in the Compact mock.
+class ChannelRow : public juce::Component {
 public:
-    explicit TrackRow(HubEditor& ed);
-    static int heightFor(float width);
-    void update(const TrackView& v, int shadeIndex);
-    int slot() const noexcept { return view_.slot; }
-    const TrackView& view() const noexcept { return view_; }
+    explicit ChannelRow(HubEditor&);
+    void update(const RowData&);
+    const RowData& data() const noexcept { return d_; }
+    void setNarrow(bool n) { if (n != narrow_) { narrow_ = n; resized(); repaint(); } }
+    bool isNarrow() const noexcept { return narrow_; }
+    static int heightFor(bool narrow) { return narrow ? int(theme::layout::rowNarrowH) : int(theme::layout::rowH); }
+    void startRename() { name_.startEditing(); }
+    void flash();   // "go to the track": highlight for 1.2 s
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     void mouseUp(const juce::MouseEvent&) override;
     void refreshTexts();
+    MoreButton& moreButton() noexcept { return more_; }
+    void openMenu() { showMenu(); }
 
 private:
-    void sendLevel(LevelSlider& s, ssbus::ParamId id);
     void showMenu();
+    Menu programMenu();
+    void sendLevel(float db);
+    juce::String statusText(Dot& dot) const;
 
     HubEditor& ed_;
-    TrackView view_;
-    int shade_ = 0;
-    AudiblePill mon_ { icons::Icon::Headphones }, str_ { icons::Icon::Broadcast };
-    LevelSlider hp_, vw_;
-    MeterBar in_ { 3.0f };
-    IconButton more_ { icons::Icon::More };
-    Badge warn_, state_, delay_;   // delay_: viewers delay (ms), shown when set
-    juce::uint32 lastUserMs_[2] = { 0, 0 };
+    RowData d_;
+    bool narrow_ = false, first_ = true;
+    InlineName name_;
+    SourcePicker picker_ { true };
+    TextLine status_ { 11.5f };
+    MeterBar meter_ { 3.0f, true };
+    AudibleToggle you_ { AudibleToggle::Side::You }, viewers_ { AudibleToggle::Side::Viewers };
+    LevelSlider level_;
+    EditableValue value_ { EditableValue::Kind::Db, -30.0f, 6.0f };
+    MoreButton more_;
+    juce::Rectangle<float> dot_, badges_, avatar_;
+    juce::uint32 lastUserMs_ = 0, flashUntil_ = 0;
     bool updating_ = false;
-    juce::Rectangle<float> nameArea_, hpIcon_, vwIcon_, hpValue_, vwValue_;
 };
 
-// One HEARASIDE App Audio, laid out like a TrackRow: program, you hear / viewers hear and their
-// levels (through its headphone slot); on/off and recording in the "..." menu.
-class SourceRow : public juce::Component {
+// A sub-page of the Hub (fills the window under the header). Pages paint their own text; the
+// glass cards come from cards() so the editor's backdrop blurs them once.
+class HubPage : public juce::Component {
 public:
-    explicit SourceRow(HubEditor& ed);
-    static int heightFor(float width);
-    void update(const SourceView& v, int shadeIndex);
-    int index() const noexcept { return view_.index; }
-    void paint(juce::Graphics&) override;
-    void resized() override;
-    void mouseMove(const juce::MouseEvent&) override;
-    void mouseUp(const juce::MouseEvent&) override;
-    void refreshTexts();
-
-private:
-    void sendLevel(LevelSlider& s, ssbus::ParamId id);
-    void showMenu();
-    void pickApp();
-
-    HubEditor& ed_;
-    SourceView view_;
-    int shade_ = 0;
-    AudiblePill mon_ { icons::Icon::Headphones }, str_ { icons::Icon::Broadcast };
-    LevelSlider hp_, vw_;
-    MeterBar meter_ { 3.0f };
-    IconButton more_ { icons::Icon::More };
-    Badge state_, delay_;
-    juce::uint32 lastUserMs_[2] = { 0, 0 };
-    bool updating_ = false;
-    juce::Rectangle<float> nameArea_, appArea_, hpIcon_, vwIcon_, hpValue_, vwValue_;
+    explicit HubPage(HubEditor& e) : ed(e) {}
+    virtual std::vector<GlassCard> cards() const = 0;
+    virtual void tick() {}           // ~10 Hz from the editor
+    virtual void refreshTexts() {}
+    HubEditor& ed;
 };
 
 class HubEditor : public EditorShell, private juce::Timer {
@@ -94,15 +93,30 @@ public:
     explicit HubEditor(HubProcessor&);
     ~HubEditor() override;
 
+    enum class Page { Main, Share, Settings, Track, Sync, Tracks, Programs, Setup };
+    void showPage(Page, int slot = -1);
+    Page page() const noexcept { return page_; }
+    enum class SettingsSection { Appearance, Audio, Connection, About };
+    void showSettings(SettingsSection);
+
     HubProcessor& proc() noexcept { return proc_; }
     LookAndFeel& lnf() noexcept { return lnf_; }
-    void showTrackPanel(int slot, juce::Component& anchor);
-    void showSourceLevels(int index, juce::Component& anchor);
-    void showShare();
-    // sub-panels by name ("share", "settings", "sync", "track"), also rendered by ui-snapshot
-    enum class Panel { Share, Settings, Sync, Track, Levels, SourceLevels, Setup };
-    std::unique_ptr<juce::Component> createPanel(Panel, int slot = -1);
-    void askRename(const juce::String& title, const juce::String& current, std::function<void(juce::String)> done);
+    SharedSettings& settings() noexcept { return settings_; }
+    bool levelsShowHeadphones() const noexcept { return levelHeadphones_; }
+    void renameRow(int slot, const juce::String& name);   // S1: "" = back to the DAW's name, with a toast
+    void goToTrack(int slot);                              // scroll to its row and flash it
+    juce::Colour shadeColour(const RowData&) const;
+    void layoutNow() { layout(); content_.repaint(); }
+    const std::vector<TrackView>& trackViews() const noexcept { return views_; }
+    const std::vector<SourceView>& sourceViews() const noexcept { return srcViews_; }
+
+    // ui-snapshot: open a row's ⋯ menu / the OBS popover, pick a Compact tab
+    void openRowMenu(int row) { if (row >= 0 && row < rows_.size()) rows_[row]->openMenu(); }
+    void openObsPopover() { showObsPopover(); }
+    void setCompactTab(int t) { tabs_.setSelected(t, true); }
+
+    static juce::String programLabel(const juce::String& exe);
+    static icons::Icon programIcon(const juce::String& exe);
 
 private:
     struct Content : juce::Component {
@@ -111,97 +125,96 @@ private:
         void resized() override { ed.layout(); }
         HubEditor& ed;
     };
-    // getting-started checklist (empty state), track rows, then the App Audio rows under a title
-    struct ListContent : juce::Component {
-        void paint(juce::Graphics&) override;
-        juce::Rectangle<float> startBox, sourcesHead;
-        juce::String stepText(int i) const;
-        bool steps[3] = { false, false, false };
-        juce::String step1Detail;   // the step for the DAW in use
+    // the scrolling list of the All tracks card: tracks, Program audio, Friends
+    struct List : juce::Component {
+        explicit List(HubEditor& e) : ed(e) {}
+        void paint(juce::Graphics& g) override { ed.paintList(g); }
+        HubEditor& ed;
     };
+    // the right-hand cards' child controls live on the content directly
     enum class Mode { Compact, Regular, Wide };
+    enum class Tab { Tracks, Levels, Summary };
 
     void paintContent(juce::Graphics&);
+    void paintList(juce::Graphics&);
+    void paintHeader(juce::Graphics&);
+    void paintViewersCard(juce::Graphics&);
+    void paintRightNow(juce::Graphics&, juce::Rectangle<float> area, bool lists);
     void layout();
-    void layoutHeader(bool compact);
-    void layoutTracksCard(bool compact);
-    void layoutStrip(juce::Rectangle<float> card, bool withSummary);
-    float stripHeight(float width, bool withSummary) const;
+    void layoutHeader();
+    void layoutMain(juce::Rectangle<float> r);
     void layoutList();
-    void updateMode(float width, float height);
-    void showLevels();
-    void showSetup();
-    struct Lists { juce::StringArray you, viewers, onlyViewers; };
-    Lists summaryLists() const;
-    int startHeight(float width) const;
-    int summaryLineCount() const;
-    juce::String obsLine() const;
-    void updateStart();
-    void paintSummaryLines(juce::Graphics&, juce::Rectangle<float>, bool stacked);   // stacked: label over value + latency
+    void layoutViewersCard(juce::Rectangle<float> card, bool condensed);
+    void updateMode(float width);
     void timerCallback() override;
-    FnChangeListener procListener_;
     void lookChanged() override;
     void refreshTexts();
-    void syncTracks();
-    void syncSources();
-    void showSettings();
-    void showSync();
-    void updateSyncBanner();
+    void syncRows();
+    void updateStart();
+    void showObsPopover();
+    void showCompactMore();
     bool paramOn(const char* id) const;
     void toggleParam(const char* id);
+    juce::String lufsText() const;
+    struct Lists { juce::StringArray you, viewers, onlyViewers; };
+    Lists summaryLists() const;
+    juce::String obsLatencyText() const;
 
     HubProcessor& proc_;
     Content content_ { *this };
+    List list_ { *this };
     Backdrop backdrop_;
+    Page page_ = Page::Main;
+    std::unique_ptr<HubPage> pageView_;
+    Mode mode_ = Mode::Regular;
+    Tab tab_ = Tab::Tracks;
+    bool levelHeadphones_ = false, narrowRows_ = false;
 
-    StatusChip obsChip_ { 36.0f };
-    StatusChip dawChip_ { 36.0f };
+    // header
+    StatusChip obs_ { 36.0f };
+    IconButton share_ { icons::Icon::Link }, settingsButton_ { icons::Icon::Sliders }, compactMore_ { icons::Icon::More };
     MuteButton mute_;
-    IconButton settingsButton_ { icons::Icon::Sliders };
-    IconButton shareButton_ { icons::Icon::Link };
-    StatusChip shareChip_ { 36.0f };
-    juce::TextButton syncButton_;
-    IconButton syncMore_ { icons::Icon::More };
-    Banner syncBanner_;
-    juce::String syncText_;
-
-    Banner previewBanner_, panicBanner_;
-    juce::Viewport viewport_;
-    ListContent list_;
-    juce::OwnedArray<TrackRow> rows_;
-    std::vector<TrackView> views_;
-    juce::OwnedArray<SourceRow> sourceRows_;
-    std::vector<SourceView> srcViews_;
-
-    MeterBar meterL_ { 6.0f }, meterR_ { 6.0f };
-    LevelSlider masterSlider_, headphoneSlider_;
-    Switch limiter_;
-    PrimaryButton preview_ { icons::Icon::Headphones };
-    IconButton levelsButton_ { icons::Icon::Sliders };   // compact: stream level, headphones, limiter
-    IconButton setupButton_ { icons::Icon::Check };      // setup check
-    Banner silentBanner_;                                // viewers hear nothing (click: setup check)
+    BackButton back_ { true };
+    // tracks card
+    GhostButton manage_ { {}, GhostButton::Style::Ghost }, autoSync_ { {}, GhostButton::Style::Ghost };
+    SegmentedControl levelMode_, tabs_;
+    Banner silentBanner_, syncBanner_;
     struct ClickListener : juce::MouseListener {
         std::function<void()> fn;
         void mouseUp(const juce::MouseEvent& e) override { if (fn && !e.mods.isPopupMenu()) fn(); }
     } silentClick_;
-    juce::TextButton startHide_;
-    Mode mode_ = Mode::Regular;
-    bool condensed_ = false;          // right column too short for the full cards
-    bool obsInHeader_ = true;         // else the OBS state is written in the viewers card
-    bool shareChipOn_ = false;
-    bool showStart_ = false, hadOnlyViewers_ = false;
-    float wordmarkSize_ = 17.0f;
-    bool tracksSubtitle_ = true;
-    int chipWidths_[3] = { 0, 0, 0 };
+    ScrollArea scroll_;
+    juce::OwnedArray<ChannelRow> rows_;   // tracks, then programs (friends: S2)
+    LinkButton manageTracksLink_, manageProgramsLink_, manageFriendsLink_;
+    GhostButton startHide_ { {}, GhostButton::Style::Ghost };
+    std::vector<TrackView> views_;
+    std::vector<SourceView> srcViews_;
+    // what viewers hear
+    MeterBar meterL_ { 6.0f }, meterR_ { 6.0f };
+    LevelSlider masterSlider_, headphoneSlider_;
+    EditableValue masterValue_ { EditableValue::Kind::Db, -30.0f, 6.0f }, headphoneValue_ { EditableValue::Kind::Db, -30.0f, 6.0f };
+    Switch limiter_;
+    PrimaryButton preview_ { icons::Icon::Headphones };
     std::unique_ptr<DbSliderLink> masterLink_, headphoneLink_;
+    std::unique_ptr<ParamValueLink> masterValueLink_, headphoneValueLink_;
+    FnChangeListener procListener_;
 
-    // painted geometry
-    juce::Rectangle<float> header_, wordmark_, tracksCard_, tracksTitle_, columns_;
-    juce::Rectangle<float> streamCard_, streamTitle_, lufsBox_, meterLabels_, masterLabel_, limiterText_;
-    juce::Rectangle<float> summaryCard_, summaryTitle_, youBox_, youText_, hpLabel_, viewersBox_, latencyBox_;
-    juce::Rectangle<float> messageCard_, stripCard_, stripTitle_, stripLines_, onlyBox_;
-    bool lastPreview_ = false, lastPanic_ = false, lastLimiter_ = false;
-    int slowTick_ = 0;
+    // getting started (empty state)
+    bool showStart_ = false, steps_[3] = { false, false, false };
+    juce::String step1Detail_;
+    int pendingRevertSlot_ = -1;
+    juce::uint32 pendingRevertUntil_ = 0;
+    juce::String pendingRevertFrom_;
+
+    // painted geometry (content coordinates unless noted)
+    juce::Rectangle<float> header_, wordmark_, headerTitle_, divider_;
+    juce::Rectangle<float> tracksCard_, tracksHead_, columns_, slidersSetLabel_, viewersCard_, rightNow_, bottomBar_, messageCard_;
+    juce::Rectangle<float> lufs_, lufsLabel_, meterLabels_, masterLabel_, hpLabel_, sep_, limiterText_;
+    juce::Rectangle<float> startBox_, programsHead_, friendsHead_;   // list coordinates
+    bool condensed_ = false, rightNowLists_ = true, rightNowShown_ = true;
+    bool lastPreview_ = false, lastPanic_ = false;
+    int slowTick_ = 0, lastObsWidth_ = 0;
+    juce::String lastLufs_, lastSummary_;
 };
 
 } // namespace hearaside

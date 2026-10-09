@@ -1,12 +1,15 @@
 // Base for the plug-in editors: owns the LookAndFeel, follows the shared Settings (theme,
 // language, UI size 100-200 %), scales a "content" component with a transform. Resizable editors
 // remember their size per plug-in (Settings, content units) and never open bigger than the
-// screen; the first time HEARASIDE runs it picks a UI size that fits the screen.
+// screen; the first time HEARASIDE runs it picks a UI size that fits the screen. The content gets
+// the Overlay (menus, dropdowns, popovers, toasts) and the keyboard focus ring on top.
 #pragma once
 
 #include "../Settings.h"
 #include "../Strings.h"
+#include "Controls.h"
 #include "LookAndFeel.h"
+#include "Overlay.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -21,32 +24,7 @@ inline void recolourTextEditors(juce::Component& root) {
     }
 }
 
-// CallOutBox content: a panel at the editor's UI size, never wider or taller than the screen
-// (it scrolls instead).
-class PanelFrame : public juce::Component {
-public:
-    PanelFrame(std::unique_ptr<juce::Component> panel, float scale, juce::Rectangle<int> screen) : panel_(std::move(panel)) {
-        holder_.addAndMakeVisible(*panel_);
-        panel_->setTransform(juce::AffineTransform::scale(scale));
-        holder_.setSize(juce::roundToInt(float(panel_->getWidth()) * scale), juce::roundToInt(float(panel_->getHeight()) * scale));
-        viewport_.setViewedComponent(&holder_, false);
-        viewport_.setScrollBarsShown(true, false);
-        addAndMakeVisible(viewport_);
-        const int margin = juce::roundToInt(theme::layout::panelMargin);
-        const int maxW = juce::jmax(200, screen.getWidth() - margin), maxH = juce::jmax(160, screen.getHeight() - margin * 2);
-        const bool scrolls = holder_.getHeight() > maxH;
-        setSize(juce::jmin(maxW, holder_.getWidth() + (scrolls ? viewport_.getScrollBarThickness() : 0)),
-                juce::jmin(maxH, holder_.getHeight()));
-    }
-    void resized() override { viewport_.setBounds(getLocalBounds()); }
-
-private:
-    std::unique_ptr<juce::Component> panel_;
-    juce::Component holder_;
-    juce::Viewport viewport_;
-};
-
-class EditorShell : public juce::AudioProcessorEditor, private juce::ChangeListener {
+class EditorShell : public juce::AudioProcessorEditor, private juce::ChangeListener, private juce::ComponentListener {
 public:
     // minW 0 = fixed size. key: where the window size is remembered ("hub", "track", "app").
     EditorShell(juce::AudioProcessor& p, int baseW, int baseH, int minW = 0, int minH = 0, juce::String key = {},
@@ -63,6 +41,8 @@ public:
     ~EditorShell() override {
         saveTimer_.stopTimer();
         settings_->removeChangeListener(this);
+        if (content_ != nullptr) content_->removeComponentListener(this);
+        focusRing_.reset();
         setLookAndFeel(nullptr);
     }
 
@@ -77,11 +57,18 @@ public:
 
     void paint(juce::Graphics& g) override { g.fillAll(lnf_.pal().paper); }
 
+    Overlay& overlay() noexcept { return overlay_; }
+    void toast(const juce::String& text, int ms = 2400) { overlay_.toast(text, ms); }
+
 protected:
     // Call at the end of the derived constructor.
     void setContent(juce::Component& c, int initialW = 0, int initialH = 0) {
         content_ = &c;
         addAndMakeVisible(c);
+        focusRing_ = std::make_unique<FocusRingOverlay>(c);
+        c.addAndMakeVisible(*focusRing_);
+        c.addAndMakeVisible(overlay_);
+        c.addComponentListener(this);
         const auto screen = screenArea();
         if (!settings_->uiScaleChosen()) {
             // first run: the biggest UI size whose default window still fits the screen
@@ -112,16 +99,6 @@ protected:
 
     virtual void lookChanged() {}   // theme / language / glass / colour mode changed
 
-    // Shows a sub-panel next to `anchor` at the UI size, limited to the screen (scrolls if needed).
-    void launchPanel(std::unique_ptr<juce::Component> panel, juce::Component& anchor) {
-        panel->setLookAndFeel(&lnf_);
-        recolourTextEditors(*panel);
-        auto frame = std::make_unique<PanelFrame>(std::move(panel), settings_->uiScale(), screenArea());
-        frame->setLookAndFeel(&lnf_);
-        auto& box = juce::CallOutBox::launchAsynchronously(std::move(frame), anchor.getScreenBounds(), nullptr);
-        box.setLookAndFeel(&lnf_);
-    }
-
     // The screen the editor is on (or opens on: where the mouse is), without the taskbar.
     juce::Rectangle<int> screenArea() const {
         const auto& displays = juce::Desktop::getInstance().getDisplays();
@@ -136,6 +113,14 @@ protected:
     juce::TooltipWindow tooltips_ { this, 600 };
 
 private:
+    void componentMovedOrResized(juce::Component& c, bool, bool wasResized) override {
+        if (!wasResized || &c != content_) return;
+        focusRing_->setBounds(c.getLocalBounds());
+        overlay_.setBounds(c.getLocalBounds());
+        focusRing_->toFront(false);
+        overlay_.toFront(false);
+    }
+
     void applyLimits(float s) {
         setResizeLimits(juce::roundToInt(float(minW_) * s), juce::roundToInt(float(minH_) * s),
                         juce::roundToInt(float(maxW_) * s), juce::roundToInt(float(maxH_) * s));
@@ -173,6 +158,8 @@ private:
     };
 
     juce::Component* content_ = nullptr;
+    Overlay overlay_;
+    std::unique_ptr<FocusRingOverlay> focusRing_;
     int baseW_, baseH_, minW_, minH_, maxW_, maxH_;
     juce::String key_;
     float lastScale_ = SharedSettings()->uiScale();
@@ -186,6 +173,14 @@ struct FnChangeListener : juce::ChangeListener {
     void changeListenerCallback(juce::ChangeBroadcaster*) override { if (fn) fn(); }
 };
 
+// Writes a parameter as one undo step for the host.
+inline void setParamWithGesture(juce::RangedAudioParameter& p, float plain) {
+    p.beginChangeGesture();
+    p.setValueNotifyingHost(p.convertTo0to1(plain));
+    p.endChangeGesture();
+}
+inline float paramPlain(const juce::RangedAudioParameter& p) { return p.convertFrom0to1(p.getValue()); }
+
 // Links a LevelSlider (-30..+6 shown) to a dB parameter with a wider range, with proper
 // begin/end gestures. Call update() from the editor timer.
 class DbSliderLink {
@@ -195,7 +190,7 @@ public:
         slider_.onDragEnd = [this] { param_.endChangeGesture(); dragging_ = false; };
         slider_.onValueChange = [this] {
             if (updating_) return;
-            const float db = slider_.getValue() <= -30.0 + 1.0e-6 ? param_.getNormalisableRange().start : float(slider_.getValue());
+            const float db = slider_.getValue() <= slider_.getMinimum() + 1.0e-6 ? param_.getNormalisableRange().start : float(slider_.getValue());
             if (!dragging_) param_.beginChangeGesture();
             param_.setValueNotifyingHost(param_.convertTo0to1(db));
             if (!dragging_) param_.endChangeGesture();
@@ -204,14 +199,13 @@ public:
     }
     void update() {
         if (dragging_) return;
-        const float db = param_.convertFrom0to1(param_.getValue());
-        const double v = juce::jlimit(-30.0, 6.0, double(db));
+        const double v = juce::jlimit(slider_.getMinimum(), slider_.getMaximum(), double(paramPlain(param_)));
         if (std::abs(v - slider_.getValue()) > 1.0e-4) {
             const juce::ScopedValueSetter<bool> svs(updating_, true);
             slider_.setValue(v, juce::dontSendNotification);
         }
     }
-    float db() const { return param_.convertFrom0to1(param_.getValue()); }
+    float db() const { return paramPlain(param_); }
 
 private:
     juce::Slider& slider_;
@@ -219,54 +213,21 @@ private:
     bool dragging_ = false, updating_ = false;
 };
 
-// The value next to a slider: click it and type a number (Enter to set). Writes the parameter in
-// its own units, so it also reaches values past the slider's travel (a dB slider shows -30..+6).
-class ValueField : public juce::Label {
+// An EditableValue showing / typing a parameter in its own units (a dB value can go past the
+// slider's travel). The bottom of a dB range shows as −∞. Call update() from the editor timer.
+class ParamValueLink {
 public:
-    enum class Unit { Db, Ms };
-    ValueField(juce::RangedAudioParameter& p, Unit u) : param_(p), unit_(u) {
-        setEditable(true, true, false);
-        setJustificationType(juce::Justification::centredRight);
-        setBorderSize({ 1, 4, 1, 0 });   // the number ends where the slider ends
-        setFont(uiFont(12.0f));
-        setMouseCursor(juce::MouseCursor::IBeamCursor);
-        onTextChange = [this] { commit(); };
+    ParamValueLink(EditableValue& v, juce::RangedAudioParameter& p) : value_(v), param_(p) {
+        value_.onCommit = [this](float x) {   // −∞ (the slider's bottom) = the parameter's bottom
+            const bool inf = value_.kind() == EditableValue::Kind::Db && x <= valuetext::kFloorDb + 1.0e-3f;
+            setParamWithGesture(param_, inf ? param_.getNormalisableRange().start : x);
+        };
         update();
     }
-    // editor timer: follow the parameter (automation, the Hub, the slider) unless being typed in
-    void update() {
-        if (isBeingEdited()) return;
-        const auto t = text(param_.convertFrom0to1(param_.getValue()));
-        if (t != getText()) setText(t, juce::dontSendNotification);
-    }
-
+    void update() { if (!value_.isEditing()) value_.setValue(paramPlain(param_)); }
 private:
-    juce::String text(float v) const {
-        if (unit_ == Unit::Ms) return juce::String(juce::roundToInt(v)) + " ms";
-        const float floor = param_.getNormalisableRange().start;
-        if (v > -30.0f || v <= floor + 0.05f) return formatDb(v <= floor + 0.05f ? -60.0f : v);   // -inf at the bottom
-        return juce::String(juce::CharPointer_UTF8("\xe2\x88\x92")) + juce::String(-v, 1) + " dB";
-    }
-    void commit() {
-        auto t = getText().trim().replace(juce::CharPointer_UTF8("\xe2\x88\x92"), "-");   // U+2212 as typed from the display
-        const auto& range = param_.getNormalisableRange();
-        float v;
-        if (t.containsIgnoreCase("inf") || t.contains(juce::CharPointer_UTF8("\xe2\x88\x9e"))) {
-            v = range.start;
-        } else {
-            const auto num = t.retainCharacters("-+0123456789.,").replaceCharacter(',', '.');
-            if (num.containsOnly("-+.")) { update(); return; }   // nothing usable: show the value again
-            v = num.getFloatValue();
-        }
-        v = juce::jlimit(range.start, range.end, v);
-        param_.beginChangeGesture();
-        param_.setValueNotifyingHost(param_.convertTo0to1(v));
-        param_.endChangeGesture();
-        setText(text(param_.convertFrom0to1(param_.getValue())), juce::dontSendNotification);
-    }
-
+    EditableValue& value_;
     juce::RangedAudioParameter& param_;
-    Unit unit_;
 };
 
 } // namespace hearaside

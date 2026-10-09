@@ -34,7 +34,12 @@ set_target_properties(hearaside_web PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set(hearaside_common_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/common/Settings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/Strings.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ValueText.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/LookAndFeel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Focus.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Controls.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Overlay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/ScrollArea.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Backdrop.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Components.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Icons.cpp
@@ -98,6 +103,8 @@ hearaside_add_plugin(HearasideHub
     SOURCES
         hub/HubProcessor.cpp
         hub/HubEditor.cpp
+        hub/HubPages.cpp
+        hub/HubPages2.cpp
         hub/ShareServer.cpp
         hub/ShareDirectory.cpp
         hub/ControlServer.cpp
@@ -117,6 +124,7 @@ if(WIN32)
         DESCRIPTION  "Brings a program's audio (YouTube, Spotify...) into any DAW track and prints it"
         SOURCES
             app/AppAudioProcessor.cpp
+            app/AppAudioEditor.cpp
             app/AppCapture.cpp
             app/LinkReceiver.cpp
             app/TakeRecorder.cpp)
@@ -128,7 +136,7 @@ if(HEARASIDE_BUILD_TOOLS)
     target_sources(hearaside_ui_snapshot PRIVATE
         ${CMAKE_SOURCE_DIR}/tools/ui-snapshot/main.cpp
         track/TrackProcessor.cpp track/TrackEditor.cpp
-        hub/HubProcessor.cpp hub/HubEditor.cpp hub/ShareServer.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp
+        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/ShareServer.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp
         ${hearaside_common_sources})
     target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hearaside_ui_snapshot PRIVATE
@@ -138,7 +146,7 @@ if(HEARASIDE_BUILD_TOOLS)
         hearaside_assets hearaside_web ssengine juce::juce_audio_utils juce::juce_gui_extra
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     if(WIN32)   # App Audio editor + --test-app-audio
-        target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/LinkReceiver.cpp app/TakeRecorder.cpp)
+        target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/AppAudioEditor.cpp app/LinkReceiver.cpp app/TakeRecorder.cpp)
         target_link_libraries(hearaside_ui_snapshot PRIVATE ole32 mmdevapi avrt winhttp)
     endif()
 endif()
@@ -146,6 +154,7 @@ endif()
 if(HEARASIDE_BUILD_TOOLS AND HEARASIDE_BUILD_TESTS)
     add_test(NAME rest_api COMMAND hearaside_ui_snapshot --test-rest)   # docs/rest-api.md
     add_test(NAME share_directory COMMAND hearaside_ui_snapshot --test-directory)   # permanent links, Hub side
+    add_test(NAME ui_values COMMAND hearaside_ui_snapshot --test-ui)                 # typed values, names, share links
 endif()
 
 # plugin-host-test: loads the built binaries like a DAW (VST3, and VST2 when enabled)

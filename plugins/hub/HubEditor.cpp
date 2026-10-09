@@ -1,7 +1,9 @@
 #include "HubEditor.h"
+#include "HubPages.h"
+#include "HubPagesShared.h"
 #include "Host.h"
+#include "Links.h"
 #include "app/AppCapture.h"
-#include "ui/SettingsPanel.h"
 
 namespace hearaside {
 
@@ -9,1218 +11,420 @@ using ssbus::ParamId;
 
 namespace {
 
-constexpr float kGap = 12.0f, kMoreW = 26.0f, kPadL = 16.0f, kPadR = 12.0f, kNameMinFull = 150.0f, kNameMinMid = 110.0f;
-constexpr float kStreamCardH = 300.0f, kStripLineH = 20.0f;
-constexpr float kSummaryFullH = 18.0f + 24.0f + 12.0f + 96.0f + 8.0f + 62.0f + 8.0f + 44.0f + 18.0f;   // without the latency box
-constexpr int kSourcesHeadH = 52;
 constexpr const char* kSystemAudio = "*system*";   // AppAudioProcessor::kSystemAudio
-
-juce::String programLabel(const juce::String& exe) {
-    if (exe == kSystemAudio) return tr(Str::AppSystem);
-    if (exe == "*link*") return tr(Str::AppLinkIn);
-    if (exe.startsWith("http")) return tr(Str::AppLinkFrom) + " " + juce::URL(exe).getDomain();
-    return exe.endsWithIgnoreCase(".exe") ? exe.dropLastCharacters(4) : exe;
-}
+constexpr const char* kLinkIn = "*link*";          // AppAudioProcessor::kLinkIn
+constexpr float kRightW = 300.0f, kRightWideW = 340.0f, kHeaderH = 64.0f, kCompactHeaderH = 56.0f;
+constexpr float kToggleW = 48.0f, kLevelW = 206.0f, kMoreW = 32.0f, kColGap = 10.0f;
+constexpr int kGroupGap = 14;
 
 juce::String clock(double seconds) {
     const int s = juce::roundToInt(seconds);
     return juce::String(s / 60) + ":" + juce::String(s % 60).paddedLeft('0', 2);
 }
 
-juce::Colour shadeFor(const theme::Palette& p, int index) {
-    const juce::Colour shades[] = { p.trackShade1, p.trackShade2, p.trackShade3, p.trackShade4, p.trackShade5 };
-    return shades[juce::jmax(0, index) % 5];
-}
-
 juce::String minusText(const juce::String& s) { return s.replace("-", juce::String(juce::CharPointer_UTF8("\xe2\x88\x92"))); }
 
-void drawTextBlock(juce::Graphics& g, const juce::String& text, juce::Font f, juce::Colour c, juce::Rectangle<float> r,
-                   float lineSpacing = 2.0f) {
-    drawWrapped(g, text, f, c, r, lineSpacing);
-}
+juce::String joinDots(const juce::StringArray& a) { return a.joinIntoString(juce::String(juce::CharPointer_UTF8(" \xc2\xb7 "))); }
 
-// ---- per-track fine settings (remote: everything goes through the Track's mailbox) ----------
-class HubTrackPanel : public juce::Component, private juce::Timer {
+// The OBS chip's popover (prompt 3.3 header item 2): connection + the delay to OBS
+class ObsPopover : public juce::Component {
 public:
-    HubTrackPanel(HubEditor& ed, int slot) : ed_(ed), slot_(slot) {
-        name_.setFont(uiFont(13.0f));
-        name_.setIndents(10, 6);
-        name_.onReturnKey = name_.onFocusLost = [this] {
-            if (name_.getText().trim().isNotEmpty() && name_.getText() != lastName_) ed_.proc().rename(slot_, name_.getText());
-        };
-        pan_.setRange(-100.0, 100.0, 1.0);
-        pan_.setDoubleClickReturnValue(true, 0.0);
-        pan_.onValueChange = [this] { if (!updating_) { touched_ = now(); ed_.proc().send(slot_, ParamId::StrPan, float(pan_.getValue()) / 100.0f); } };
-        delay_.setRange(0.0, 500.0, 1.0);
-        delay_.setSkewFactorFromMidPoint(100.0);
-        delay_.setDoubleClickReturnValue(true, 0.0);
-        delay_.setTooltip(tr(Str::DelayTip));
-        delay_.onValueChange = [this] { if (!updating_) { touched_ = now(); ed_.proc().send(slot_, ParamId::StrDelayMs, float(delay_.getValue())); } };
-        stem_.addItem(tr(Str::StemNone), 1);
-        for (int i = 0; i < ssbus::kMaxStems; ++i)
-            stem_.addItem(ed_.proc().stemName(i).isNotEmpty() ? ed_.proc().stemName(i) : "Stem " + juce::String(i + 1), i + 2);
-        stem_.onChange = [this] { if (!updating_) { touched_ = now(); ed_.proc().send(slot_, ParamId::StemIndex, float(stem_.getSelectedId() - 2)); } };
-        solo_.onClick = [this] { touched_ = now(); ed_.proc().send(slot_, ParamId::StrSolo, solo_.isOn() ? 0.0f : 1.0f); };
-        hp_.onValueChange = [this] { if (!updating_) { touched_ = now(); ed_.proc().send(slot_, ParamId::MonTrimDb, LevelSlider::sliderToDb(hp_.getValue())); } };
-        vw_.onValueChange = [this] { if (!updating_) { touched_ = now(); ed_.proc().send(slot_, ParamId::StrGainDb, LevelSlider::sliderToDb(vw_.getValue())); } };
-        hp_.setTooltip(tr(Str::HeadphoneTip));
-        for (auto* r : rows()) addAndMakeVisible(r);
-        setSize(360, int(rows().size()) * 42 + 16);
-        timerCallback();
-        startTimerHz(15);
-    }
-
-    void resized() override {
-        auto r = getLocalBounds().reduced(8);
-        for (auto* row : rows()) row->setBounds(r.removeFromTop(42));
-    }
-
-private:
-    static juce::uint32 now() { return juce::Time::getMillisecondCounter(); }
-    std::vector<FormRow*> rows() { return { &hpRow_, &vwRow_, &nameRow_, &panRow_, &delayRow_, &stemRow_, &soloRow_ }; }
-
-    void timerCallback() override {
-        const auto views = ed_.proc().tracks();
-        const auto it = std::find_if(views.begin(), views.end(), [this](const TrackView& v) { return v.slot == slot_; });
-        if (it == views.end()) return;
-        const juce::ScopedValueSetter<bool> svs(updating_, true);
-        if (!name_.hasKeyboardFocus(true) && it->name != lastName_) { lastName_ = it->name; name_.setText(it->name, false); }
-        const bool idle = now() - touched_ > 400 && !juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown();
-        if (idle) {
-            hp_.setValue(LevelSlider::dbToSlider(it->trimDb), juce::dontSendNotification);
-            vw_.setValue(LevelSlider::dbToSlider(it->gainDb), juce::dontSendNotification);
-            pan_.setValue(it->pan * 100.0, juce::dontSendNotification);
-            delay_.setValue(it->delayMs, juce::dontSendNotification);
-            stem_.setSelectedId(it->stem + 2, juce::dontSendNotification);
-        }
-        solo_.setOn(it->solo, true);
-        hp_.setEnabled(it->mon);
-        vw_.setEnabled(it->str);
-        hpRow_.setCaption(formatDb(LevelSlider::sliderToDb(hp_.getValue())));
-        vwRow_.setCaption(formatDb(LevelSlider::sliderToDb(vw_.getValue())));
-        panRow_.setCaption(juce::roundToInt(pan_.getValue()) == 0 ? juce::String("C")
-                           : (pan_.getValue() < 0 ? "L" : "R") + juce::String(std::abs(juce::roundToInt(pan_.getValue()))));
-        delayRow_.setCaption(juce::String(juce::roundToInt(delay_.getValue())) + " ms");
-    }
-
-    HubEditor& ed_;
-    int slot_;
-    juce::String lastName_;
-    juce::TextEditor name_;
-    juce::Slider pan_ { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::Slider delay_ { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::ComboBox stem_;
-    Switch solo_;
-    LevelSlider hp_, vw_;
-    FormRow hpRow_ { Str::HeadphoneLevel, hp_, 170 }, vwRow_ { Str::ViewersLevel, vw_, 170 };
-    FormRow nameRow_ { Str::RenameDisplay, name_, 170 }, panRow_ { Str::Pan, pan_, 170 }, delayRow_ { Str::ViewersDelay, delay_, 170 },
-            stemRow_ { Str::Stem, stem_, 170 }, soloRow_ { Str::StreamSolo, solo_, 50 };
-    bool updating_ = false;
-    juce::uint32 touched_ = 0;
-};
-
-// ---- one App Audio's headphone / viewers levels (narrow rows have no sliders) -----------------
-class HubSourceLevelsPanel : public juce::Component, private juce::Timer {
-public:
-    HubSourceLevelsPanel(HubEditor& ed, int index) : ed_(ed), index_(index) {
-        hp_.onValueChange = [this] { send(hp_, ParamId::MonTrimDb); };
-        vw_.onValueChange = [this] { send(vw_, ParamId::StrGainDb); };
-        hp_.setTooltip(tr(Str::HeadphoneTip));
-        for (auto* r : { &hpRow_, &vwRow_ }) addAndMakeVisible(r);
-        setSize(360, 2 * 42 + 16);
-        timerCallback();
-        startTimerHz(15);
-    }
-    void resized() override {
-        auto r = getLocalBounds().reduced(8);
-        for (auto* row : { &hpRow_, &vwRow_ }) row->setBounds(r.removeFromTop(42));
-    }
-
-private:
-    void send(LevelSlider& s, ParamId id) {
-        if (updating_ || slot_ < 0) return;
-        touched_ = juce::Time::getMillisecondCounter();
-        ed_.proc().send(slot_, id, LevelSlider::sliderToDb(s.getValue()));
-    }
-    void timerCallback() override {
-        const auto views = ed_.proc().sources();
-        const auto it = std::find_if(views.begin(), views.end(), [this](const SourceView& v) { return v.index == index_; });
-        if (it == views.end()) return;
-        slot_ = it->slot;
-        const juce::ScopedValueSetter<bool> svs(updating_, true);
-        if (juce::Time::getMillisecondCounter() - touched_ > 400 && !juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown()) {
-            hp_.setValue(LevelSlider::dbToSlider(it->trimDb), juce::dontSendNotification);
-            vw_.setValue(LevelSlider::dbToSlider(it->gainDb), juce::dontSendNotification);
-        }
-        hp_.setEnabled(slot_ >= 0 && it->mon);
-        vw_.setEnabled(slot_ >= 0 && it->str);
-        hpRow_.setCaption(formatDb(LevelSlider::sliderToDb(hp_.getValue())));
-        vwRow_.setCaption(formatDb(LevelSlider::sliderToDb(vw_.getValue())));
-    }
-    HubEditor& ed_;
-    int index_, slot_ = -1;
-    LevelSlider hp_, vw_;
-    FormRow hpRow_ { Str::HeadphoneLevel, hp_, 170 }, vwRow_ { Str::ViewersLevel, vw_, 170 };
-    bool updating_ = false;
-    juce::uint32 touched_ = 0;
-};
-
-// ---- levels (compact Hub): stream level, headphone master, peak protection -------------------
-class HubLevelsPanel : public juce::Component, private juce::Timer {
-public:
-    explicit HubLevelsPanel(HubProcessor& p) : proc_(p) {
-        master_ = std::make_unique<DbSliderLink>(masterSlider_, *proc_.params().getParameter(hubparam::Master));
-        phones_ = std::make_unique<DbSliderLink>(phonesSlider_, *proc_.params().getParameter(hubparam::Headphones));
-        masterSlider_.setTitle(tr(Str::Master));
-        phonesSlider_.setTitle(tr(Str::HeadphoneMaster));
-        phonesSlider_.setTooltip(tr(Str::HeadphoneMasterTip));
-        limiter_.setTitle(tr(Str::Limiter));
-        limiter_.onClick = [this] { proc_.setParam(hubparam::LimiterOn, on(hubparam::LimiterOn) ? 0.0f : 1.0f); timerCallback(); };
-        for (auto* r : { &masterRow_, &phonesRow_, &limiterRow_ }) addAndMakeVisible(r);
-        limiterRow_.setCaption(tr(Str::LimiterCaption));
-        phonesRow_.setCaption(tr(Str::HeadphoneMasterTip).upToFirstOccurrenceOf(" (", false, false));
-        setSize(360, 3 * 48 + 16);
-        timerCallback();
-        startTimerHz(15);
-    }
-    void resized() override {
-        auto r = getLocalBounds().reduced(8);
-        for (auto* row : { &masterRow_, &phonesRow_, &limiterRow_ }) row->setBounds(r.removeFromTop(48));
-    }
-
-private:
-    bool on(const char* id) const { return proc_.params().getRawParameterValue(id)->load() > 0.5f; }
-    void timerCallback() override {
-        master_->update();
-        phones_->update();
-        limiter_.setOn(on(hubparam::LimiterOn), isShowing());
-        masterRow_.setCaption(formatDb(float(masterSlider_.getValue())));
-    }
-    HubProcessor& proc_;
-    LevelSlider masterSlider_, phonesSlider_;
-    Switch limiter_;
-    std::unique_ptr<DbSliderLink> master_, phones_;
-    FormRow masterRow_ { Str::Master, masterSlider_, 170 }, phonesRow_ { Str::HeadphoneMaster, phonesSlider_, 170 },
-            limiterRow_ { Str::Limiter, limiter_, 50 };
-};
-
-// ---- Hub settings (gear): bus, sync, ceiling, stem names + UI preferences --------------------
-class HubSettingsPanel : public juce::Component {
-public:
-    explicit HubSettingsPanel(HubProcessor& p) : proc_(p) {
-        bus_.setText(proc_.busName(), false);
-        bus_.onReturnKey = bus_.onFocusLost = [this] { proc_.setBusName(bus_.getText()); };
-        shareBase_.setText(settings_->shareBase(), false);
-        shareBase_.setTextToShowWhenEmpty("https://....vercel.app", paletteOf(*this).graphite);
-        shareBase_.onReturnKey = shareBase_.onFocusLost = [this] { settings_->setShareBase(shareBase_.getText()); shareBase_.setText(settings_->shareBase(), false); };
-        shareBaseRow_.setCaption(tr(Str::ShareBaseHint));
-        permanent_.setOn(settings_->permanentLinks(), false);
-        permanent_.setTitle(tr(Str::PermanentLinks));
-        permanent_.onClick = [this] { settings_->setPermanentLinks(!settings_->permanentLinks()); permanent_.setOn(settings_->permanentLinks(), true); };
-        permanentRow_.setCaption(tr(Str::SharePermanent));
-        restOn_.setOn(settings_->restApi(), false);
-        restOn_.setTitle(tr(Str::RestApi));
-        restOn_.onClick = [this] { settings_->setRestApi(!settings_->restApi()); restOn_.setOn(settings_->restApi(), true); refreshRest(); };
-        copyKey_.setButtonText(tr(Str::CopyApiKey));
-        copyKey_.onClick = [this] {
-            juce::SystemClipboard::copyTextToClipboard(settings_->restApiKey());
-            copyKey_.setButtonText(tr(Str::Copied));
-        };
-        inner_.addAndMakeVisible(copyKey_);
-        refreshRest();
-        sync_.addItemList({ "0", "1 " + tr(Str::Blocks), "2 " + tr(Str::Blocks) }, 1);
-        syncAttachment_ = std::make_unique<juce::ComboBoxParameterAttachment>(*proc_.params().getParameter(hubparam::SyncSafety), sync_);
-        syncRow_.setCaption(tr(Str::SyncSafetyHint));
-        ceiling_.setRange(-12.0, 0.0, 0.1);
-        ceilingAttachment_ = std::make_unique<juce::SliderParameterAttachment>(*proc_.params().getParameter(hubparam::Ceiling), ceiling_);
-        ceiling_.onValueChange = [this] { ceilingRow_.setCaption(minusText(juce::String(ceiling_.getValue(), 1)) + " dBFS"); };
-        ceiling_.onValueChange();
-        for (auto* e : { &bus_, &shareBase_ }) { e->setFont(uiFont(13.0f)); e->setIndents(10, 6); }
-        for (auto* r : { &busRow_, &syncRow_, &ceilingRow_, &shareBaseRow_, &permanentRow_, &restRow_ }) inner_.addAndMakeVisible(r);
-        for (int i = 0; i < ssbus::kMaxStems; ++i) {
-            auto* e = stems_.add(new juce::TextEditor());
-            e->setFont(uiFont(13.0f));
-            e->setIndents(10, 6);
-            e->setText(proc_.stemName(i), false);
-            e->setTextToShowWhenEmpty("Stem " + juce::String(i + 1), paletteOf(*this).graphite);
-            e->onReturnKey = e->onFocusLost = [this, i, e] { proc_.setStemName(i, e->getText()); };
-            inner_.addAndMakeVisible(e);
-        }
-        inner_.addAndMakeVisible(ui_);
-        const int h = 6 * 48 + 40 + 30 + 4 * 40 + 20 + ui_.idealHeight() + 16;
-        inner_.setSize(380, h);
-        viewport_.setViewedComponent(&inner_, false);
-        viewport_.setScrollBarsShown(true, false);
-        addAndMakeVisible(viewport_);
-        setSize(396, juce::jmin(h, 540));
-        inner_.onResize = [this] { layoutInner(); };
-        layoutInner();
-    }
-
-    void resized() override { viewport_.setBounds(getLocalBounds()); }
-
-private:
-    struct Inner : juce::Component {
-        std::function<void()> onResize;
-        void resized() override { if (onResize) onResize(); }
-        void paint(juce::Graphics& g) override {
-            const auto& p = paletteOf(*this);
-            g.setColour(p.ink);
-            g.setFont(uiFont(13.0f, Weight::Medium));
-            g.drawText(tr(Str::StemNames), stemTitle, juce::Justification::centredLeft, false);
-            g.setColour(p.hairline2);
-            g.fillRect(divider);
-        }
-        juce::Rectangle<int> stemTitle, divider;
-    };
-
-    void layoutInner() {
-        auto r = inner_.getLocalBounds().reduced(8);
-        for (auto* row : { &busRow_, &syncRow_, &ceilingRow_, &shareBaseRow_, &permanentRow_, &restRow_ }) row->setBounds(r.removeFromTop(48));
-        copyKey_.setBounds(r.removeFromTop(40).reduced(0, 4).removeFromRight(200));
-        inner_.stemTitle = r.removeFromTop(30);
-        for (int i = 0; i < stems_.size(); i += 2) {
-            auto line = r.removeFromTop(40).reduced(0, 5);
-            stems_[i]->setBounds(line.removeFromLeft(line.getWidth() / 2 - 4));
-            if (i + 1 < stems_.size()) stems_[i + 1]->setBounds(line.withTrimmedLeft(4));
-        }
-        r.removeFromTop(10);
-        inner_.divider = r.removeFromTop(1);
-        r.removeFromTop(9);
-        ui_.setBounds(r);
-    }
-
-    HubProcessor& proc_;
-    juce::Viewport viewport_;
-    Inner inner_;
-    juce::TextEditor bus_;
-    juce::ComboBox sync_;
-    juce::Slider ceiling_ { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    std::unique_ptr<juce::ComboBoxParameterAttachment> syncAttachment_;
-    std::unique_ptr<juce::SliderParameterAttachment> ceilingAttachment_;
-    juce::OwnedArray<juce::TextEditor> stems_;
-    // REST API: the address while on (the key is written when the Hub starts the server)
-    void refreshRest() {
-        restRow_.setCaption(settings_->restApi() ? juce::String("http://127.0.0.1:" + juce::String(proc_.control().running() ? proc_.control().port() : ControlServer::kFirstPort) + "/api/v1")
-                                                 : tr(Str::RestApiCap));
-        copyKey_.setEnabled(settings_->restApi());
-    }
-
-    SharedSettings settings_;
-    juce::TextEditor shareBase_;
-    Switch permanent_, restOn_;
-    juce::TextButton copyKey_;
-    FormRow busRow_ { Str::BusName, bus_, 170 }, syncRow_ { Str::SyncSafety, sync_, 170 }, ceilingRow_ { Str::Ceiling, ceiling_, 170 },
-            shareBaseRow_ { Str::ShareBase, shareBase_, 200 }, permanentRow_ { Str::PermanentLinks, permanent_, 50 },
-            restRow_ { Str::RestApi, restOn_, 50 };
-    UiSettingsPanel ui_;
-};
-
-// ---- auto sync: pick the mic and the music track, measure, show the result -------------------
-class HubSyncPanel : public juce::Component, private juce::Timer {
-public:
-    explicit HubSyncPanel(HubProcessor& p) : proc_(p) {
-        for (const auto& s : proc_.sources())
-            ref_.addItem("App Audio: " + s.name + (s.app.isNotEmpty() ? " (" + programLabel(s.app) + ")" : juce::String()), kSourceId + s.index);
-        for (const auto& v : proc_.tracks()) {
-            mic_.addItem(v.name, v.slot + 1);
-            ref_.addItem(v.name, v.slot + 1);
-        }
-        int mic = -1, ref = -1;
-        bool refSource = false;
-        proc_.defaultSyncTracks(mic, ref, refSource);
-        mic_.setSelectedId(mic + 1, juce::dontSendNotification);
-        ref_.setSelectedId(refSource ? kSourceId + ref : ref + 1, juce::dontSendNotification);
-        start_.onClick = [this] {
-            if (busy()) proc_.cancelAutoSync();
-            else {
-                const int r = ref_.getSelectedId();
-                proc_.startAutoSync(mic_.getSelectedId() - 1, r >= kSourceId ? r - kSourceId : r - 1, r >= kSourceId, 3000);
-            }
-            timerCallback();
-        };
-        for (auto* c : std::initializer_list<juce::Component*> { &micRow_, &refRow_, &start_ }) addAndMakeVisible(c);
-        // as tall as the steps need, + room for the status lines
-        const float howH = wrappedHeight(uiFont(12.0f), tr(Str::SyncHow), 420.0f - 32.0f, 2.0f);
-        setSize(420, juce::roundToInt(16.0f + 26.0f + 6.0f + howH + 4.0f + 8.0f + 2.0f * 42.0f + 10.0f + 40.0f + 10.0f + 64.0f + 16.0f));
-        timerCallback();
-        startTimerHz(10);
-    }
-
-    void resized() override {
-        auto r = getLocalBounds().reduced(16);
-        title_ = r.removeFromTop(26).toFloat();
-        r.removeFromTop(6);
-        how_ = r.removeFromTop(int(wrappedHeight(uiFont(12.0f), tr(Str::SyncHow), float(r.getWidth()), 2.0f)) + 4).toFloat();
-        r.removeFromTop(8);
-        micRow_.setBounds(r.removeFromTop(42));
-        refRow_.setBounds(r.removeFromTop(42));
-        r.removeFromTop(10);
-        start_.setBounds(r.removeFromTop(40));
-        r.removeFromTop(10);
-        status_ = r.toFloat();
-    }
-
+    explicit ObsPopover(HubProcessor& p) : proc_(p) { setSize(300, height()); }
+    int height() const { return proc_.obsConnected() ? 186 : 236; }
     void paint(juce::Graphics& g) override {
         const auto& p = paletteOf(*this);
+        auto r = getLocalBounds().toFloat();
+        const bool obs = proc_.obsConnected();
+        auto head = r.removeFromTop(20.0f);
+        drawStatusDot(g, { head.getX() + 4.0f, head.getCentreY() }, obs ? Dot::Ok : Dot::Warn, p, 7.0f);
         g.setColour(p.ink);
-        g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText(tr(Str::SyncTitle), title_, juce::Justification::centredLeft, true);
-        drawWrapped(g, tr(Str::SyncHow), uiFont(12.0f), p.graphite, how_, 2.0f);
-        drawWrapped(g, statusText(), uiFont(13.0f, Weight::Medium), p.ink, status_, 2.0f);
-    }
-
-private:
-    static constexpr int kSourceId = 1000;   // combo ids of App Audio entries
-
-    bool busy() const {
-        const auto ph = proc_.autoSync().phase;
-        return ph == HubProcessor::SyncPhase::Countdown || ph == HubProcessor::SyncPhase::Reference || ph == HubProcessor::SyncPhase::Microphone;
-    }
-
-    juce::String statusText() const { return syncStatusText(proc_); }
-
-public:
-    static juce::String syncStatusText(const HubProcessor& proc) {
-        const auto st = proc.autoSync();
-        using P = HubProcessor::SyncPhase;
-        switch (st.phase) {
-            case P::Idle:       return {};
-            case P::Countdown:  return tr(Str::SyncCountdown) + " " + juce::String(proc.syncCountdown());
-            case P::Reference:  return tr(Str::SyncMeasuringRef);
-            case P::Microphone: return tr(Str::SyncMeasuringMic);
-            case P::Failed:     return tr(st.error);
-            case P::Done: {
-                const auto ms = juce::String(std::abs(st.deltaMs), 1) + " ms";
-                return (st.deltaMs >= 0.0 ? tr(Str::SyncLate) : tr(Str::SyncEarly)) + " " + ms + " - " + tr(Str::SyncInTime);
-            }
+        g.setFont(uiFont(14.0f, Weight::SemiBold));
+        g.drawText(obs ? tr(Str::ObsConnected) : tr(Str::ObsNotConnected), head.withTrimmedLeft(16.0f), juce::Justification::centredLeft, true);
+        r.removeFromTop(12.0f);
+        if (!obs) {
+            NumberedText(g, r, { tr(Str::ObsOpen), tr(Str::ObsAddSource) }, p);
+        } else {
+            drawWrapped(g, tr(Str::ObsConnectedCap), uiFont(13.0f), p.ink2, r.removeFromTop(20.0f), 3.0f);
+            r.removeFromTop(12.0f);
         }
-        return {};
-    }
-
-private:
-    void timerCallback() override {
-        const bool b = busy();
-        start_.setButtonText(b ? tr(Str::SyncCancel) : tr(Str::SyncStart));
-        start_.setActive(b);
-        mic_.setEnabled(!b);
-        ref_.setEnabled(!b);
-        const auto text = statusText();
-        if (text != lastStatus_) { lastStatus_ = text; repaint(); }
-    }
-
-    HubProcessor& proc_;
-    juce::ComboBox mic_, ref_;
-    FormRow micRow_ { Str::SyncMic, mic_, 200 }, refRow_ { Str::SyncRef, ref_, 200 };
-    PrimaryButton start_ { icons::Icon::Headphones, 40.0f };
-    juce::Rectangle<float> title_, how_, status_;
-    juce::String lastStatus_;
-};
-
-// ---- Setup check: what is ready, what to fix (docs/ux-roadmap.md 4.1) -----------------------------
-// Every line reads the real state and says what happened, what it means for you and for the
-// viewers, and how to fix it. The same nine lines are always there, so the panel never jumps.
-class HubSetupPanel : public juce::Component, private juce::Timer {
-public:
-    explicit HubSetupPanel(HubProcessor& p) : proc_(p) {
-        copy_.setButtonText(tr(Str::CopyReport));
-        copy_.setTooltip(tr(Str::CopyReportTip));
-        copy_.onClick = [this] {
-            juce::SystemClipboard::copyTextToClipboard(proc_.diagnostics());
-            copy_.setButtonText(tr(Str::Copied));
+        g.setColour(p.hairline2);
+        g.fillRect(r.removeFromTop(1.0f));
+        r.removeFromTop(12.0f);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.0f));
+        g.drawText(tr(Str::LatencyToObs), r.removeFromTop(16.0f), juce::Justification::centredLeft, true);
+        r.removeFromTop(10.0f);
+        const auto li = proc_.latency();
+        auto ms = [](double v) { return juce::String(v, 1) + " ms"; };
+        auto line = [&](const juce::String& a, const juce::String& b, bool total) {
+            auto row = r.removeFromTop(total ? 26.0f : 20.0f);
+            if (total) {
+                g.setColour(p.hairline2);
+                g.fillRect(row.removeFromTop(1.0f));
+                row.removeFromTop(5.0f);
+            }
+            g.setColour(total ? p.ink : p.ink2);
+            g.setFont(uiFont(12.5f, total ? Weight::SemiBold : Weight::Regular));
+            g.drawText(a, row, juce::Justification::centredLeft, true);
+            g.drawText(b, row, juce::Justification::centredRight, false);
+            r.removeFromTop(total ? 0.0f : 6.0f);
         };
-        addAndMakeVisible(copy_);
-        items_ = check();
-        setSize(kW, juce::roundToInt(contentHeight()));
-        startTimerHz(2);
+        line(tr(Str::DawBuffer), li.block > 0 ? juce::String(li.block) + " " + tr(Str::SampleWord) + juce::String(juce::CharPointer_UTF8(" \xc2\xb7 ")) + ms(li.dawMs)
+                                              : juce::String(juce::CharPointer_UTF8("\xe2\x80\x93")), false);
+        line(tr(Str::TrackFx), ms(li.trackFxMs), false);
+        line(tr(Str::MasterFx), ms(li.masterFxMs), false);
+        line(tr(Str::Total), trf(Str::AboutMs, { juce::String(li.total(), 1) }), true);
     }
-
-    void resized() override { copy_.setBounds(getLocalBounds().reduced(18).removeFromBottom(32).removeFromLeft(220)); }
-
-    void paint(juce::Graphics& g) override {
-        const auto& p = paletteOf(*this);
-        auto r = getLocalBounds().toFloat().reduced(18.0f);
-        g.setColour(p.ink);
-        g.setFont(uiFont(16.0f, Weight::SemiBold));
-        g.drawText(tr(Str::SetupTitle), r.removeFromTop(26.0f), juce::Justification::centredLeft, true);
+private:
+    static void NumberedText(juce::Graphics& g, juce::Rectangle<float>& r, const juce::StringArray& steps, const theme::Palette& p) {
+        for (int i = 0; i < steps.size(); ++i) {
+            const float h = wrappedHeight(uiFont(13.0f), steps[i], r.getWidth() - 18.0f, 4.0f);
+            auto row = r.removeFromTop(h);
+            g.setColour(p.ink2);
+            g.setFont(uiFont(13.0f));
+            g.drawText(juce::String(i + 1) + ".", row.removeFromLeft(18.0f).withHeight(18.0f), juce::Justification::centredLeft, false);
+            drawWrapped(g, steps[i], uiFont(13.0f), p.ink2, row, 4.0f);
+            r.removeFromTop(4.0f);
+        }
         r.removeFromTop(8.0f);
-        for (const auto& it : items_) {
-            const float h = itemHeight(it);
-            auto box = r.removeFromTop(h);
-            r.removeFromTop(6.0f);
-            if (it.level > 0) drawInset(g, box, theme::radius::small, p, it.level == 2);
-            auto in = box.reduced(10.0f, 6.0f);
-            auto icon = in.removeFromLeft(22.0f).removeFromTop(20.0f);
-            if (it.level == 0) {
-                g.setColour(p.ink);
-                g.fillEllipse(icon.withSizeKeepingCentre(18.0f, 18.0f));
-                icons::draw(g, icons::Icon::Check, icon.withSizeKeepingCentre(12.0f, 12.0f), p.onInk, 2.4f);
-            } else {
-                icons::draw(g, it.level == 2 ? icons::Icon::SpeakerOff : icons::Icon::Warning, icon.withSizeKeepingCentre(17.0f, 17.0f), p.ink, 2.0f);
-            }
-            in.removeFromLeft(8.0f);
-            for (const auto& [text, font, colour] : lines(it, p)) {
-                const float th = wrappedHeight(font, text, in.getWidth(), 2.0f);
-                drawWrapped(g, text, font, colour, in.removeFromTop(th), 2.0f);
-                in.removeFromTop(2.0f);
-            }
-        }
     }
-
-private:
-    static constexpr int kW = 440;
-    struct Item {
-        int level = 0;   // 0 fine, 1 should be fixed, 2 the viewers are affected
-        juce::String what, you, viewers, fix;
-    };
-    using Line = std::tuple<juce::String, juce::Font, juce::Colour>;
-
-    std::vector<Line> lines(const Item& it, const theme::Palette& p) const {
-        std::vector<Line> out { { it.what, uiFont(13.0f, it.level > 0 ? Weight::SemiBold : Weight::Regular), p.ink } };
-        if (it.level == 0) return out;
-        if (it.you.isNotEmpty()) out.push_back({ tr(Str::MonLabel) + ": " + it.you, uiFont(12.0f), p.graphite });
-        if (it.viewers.isNotEmpty()) out.push_back({ tr(Str::StrLabel) + ": " + it.viewers, uiFont(12.0f), p.graphite });
-        if (it.fix.isNotEmpty()) out.push_back({ juce::String(juce::CharPointer_UTF8("\xe2\x86\x92 ")) + it.fix, uiFont(12.0f, Weight::Medium), p.ink });
-        return out;
-    }
-    float itemHeight(const Item& it) const {
-        const auto& p = paletteOf(*this);
-        float h = 12.0f;
-        for (const auto& [text, font, colour] : lines(it, p)) h += wrappedHeight(font, text, float(kW) - 36.0f - 20.0f - 30.0f, 2.0f) + 2.0f;
-        return juce::jmax(32.0f, h);
-    }
-    float contentHeight() const {
-        float h = 18.0f + 26.0f + 8.0f;
-        for (const auto& it : items_) h += itemHeight(it) + 6.0f;
-        return h + 8.0f + 32.0f + 18.0f + 60.0f;   // + room for longer texts later
-    }
-
-    std::vector<Item> check() const {
-        std::vector<Item> out;
-        const bool owner = proc_.connected() && proc_.engine().role() == ssengine::HubEngine::Role::Owner;
-        const auto ts = proc_.tracks();
-        const auto ss = proc_.sources();
-        out.push_back(owner ? Item { 0, tr(Str::SetupHubOk) }
-                            : Item { 2, tr(Str::SecondHubTitle), {}, tr(Str::SetupNothing), tr(Str::SetupHubFix) });
-        if (!ts.empty() || !ss.empty()) out.push_back({ 0, tr(Str::SetupTracksOk).replace("%n", juce::String(int(ts.size() + ss.size()))) });
-        else out.push_back({ 1, tr(Str::SetupTracksBad), tr(Str::SetupTracksYou), {}, tr(Str::StartStep1) });
-        if (proc_.obsConnected()) out.push_back({ 0, tr(Str::ObsConnected) });
-        else out.push_back({ 2, tr(Str::ObsNotConnected), {}, tr(Str::SetupNothing), tr(Str::SetupObsFix) });
-        if (!proc_.viewersSilent()) out.push_back({ 0, tr(Str::SetupSignalOk) });
-        else out.push_back({ 2, tr(Str::SetupSignalBad).replace("%t", proc_.silentTrack()), {}, tr(Str::SetupNothing), tr(Str::SetupSignalFix) });
-        juce::StringArray rate, bypass, ahead;
-        for (const auto& v : ts) {
-            if (v.hubStatus & ssbus::kHubStatusRateMismatch) rate.add(v.name);
-            if (v.bypassed) bypass.add(v.name);
-            if (v.hubStatus & ssbus::kHubStatusAhead) ahead.add(v.name);
-        }
-        if (rate.isEmpty()) out.push_back({ 0, tr(Str::SetupRateOk) });
-        else out.push_back({ 2, tr(Str::SetupRateBad) + " " + rate.joinIntoString(", "), {}, tr(Str::SetupRateViewers), tr(Str::SetupRateFix) });
-        if (bypass.isEmpty()) out.push_back({ 0, tr(Str::SetupBypassOk) });
-        else out.push_back({ 1, tr(Str::SetupBypassBad) + " " + bypass.joinIntoString(", "), tr(Str::SetupBypassYou), {}, tr(Str::SetupBypassFix) });
-        if (ahead.isEmpty()) out.push_back({ 0, tr(Str::SetupAheadOk) });
-        else out.push_back({ 1, tr(Str::SetupAheadBad) + " " + ahead.joinIntoString(", "), {}, tr(Str::AheadWarning), tr(Str::SyncSafetyHint) });
-        bool captureFailed = false;
-        for (const auto& s : ss) captureFailed = captureFailed || (s.on() && s.capture == 4);   // AppCapture::State::Failed
-        if (!captureFailed) out.push_back({ 0, tr(Str::SetupAppOk) });
-        else out.push_back({ 1, tr(Str::AppFailed), tr(Str::SetupAppYou), tr(Str::SetupAppYou), tr(Str::SetupAppFix) });
-        if (!proc_.sharing()) out.push_back({ 0, tr(Str::SetupShareOff) });
-        else if (proc_.share().tunnel() == ShareServer::Tunnel::Missing || proc_.share().tunnel() == ShareServer::Tunnel::Failed)
-            out.push_back({ 1, tr(Str::SetupShareLan), {}, {}, tr(Str::TunnelMissing) });
-        else if (proc_.permanentLinksSet() && proc_.directory().state() == ShareDirectory::State::Unreachable)
-            out.push_back({ 1, tr(Str::ShareDirOffline), {}, {}, tr(Str::SetupShareFix) });
-        else out.push_back({ 0, tr(Str::SetupShareOk) });
-        return out;
-    }
-
-    void timerCallback() override {
-        auto now = check();
-        bool same = now.size() == items_.size();
-        for (size_t i = 0; same && i < now.size(); ++i) same = now[i].level == items_[i].level && now[i].what == items_[i].what;
-        if (!same) { items_ = std::move(now); repaint(); }
-    }
-
     HubProcessor& proc_;
-    juce::TextButton copy_;
-    std::vector<Item> items_;
-};
-
-// ---- share links (like LISTENTO) ------------------------------------------------------------
-// With a share web site set (Settings), the links are permanent (https://<site>/l/<token>) and a
-// backup link (the tunnel or Wi-Fi address of today) is shown below them.
-class HubSharePanel : public juce::Component, private juce::Timer {
-public:
-    explicit HubSharePanel(HubProcessor& p) : proc_(p) {
-        on_.onClick = [this] { proc_.setSharing(!proc_.sharing()); timerCallback(); };
-        on_.setTitle(tr(Str::ShareTitle));
-        for (auto* e : { &listenUrl_, &sendUrl_, &backupUrl_ }) {
-            e->setReadOnly(true);
-            e->setFont(uiFont(13.0f));
-            e->setIndents(10, 7);
-            e->setCaretVisible(false);
-        }
-        listenUrl_.setTitle(tr(Str::ShareListen));
-        sendUrl_.setTitle(tr(Str::ShareSend));
-        backupUrl_.setTitle(tr(Str::ShareBackup));
-        auto copier = [](juce::TextEditor& from, juce::TextButton& b) {
-            juce::SystemClipboard::copyTextToClipboard(from.getText());
-            b.setButtonText(tr(Str::Copied));
-            juce::Component::SafePointer<juce::TextButton> sp(&b);
-            juce::Timer::callAfterDelay(1500, [sp] { if (sp) sp->setButtonText(tr(Str::Copy)); });
-        };
-        copyListen_.onClick = [this, copier] { copier(listenUrl_, copyListen_); };
-        copySend_.onClick = [this, copier] { copier(sendUrl_, copySend_); };
-        copyBackup_.onClick = [this, copier] { copier(backupUrl_, copyBackup_); };
-        // on this computer: localhost (no tunnel round trip, and a secure context for the player)
-        openListen_.onClick = [this] { if (proc_.share().running()) juce::URL(proc_.share().localListenUrl()).launchInDefaultBrowser(); };
-        install_.onClick = [this] {
-            juce::SystemClipboard::copyTextToClipboard("winget install --id Cloudflare.cloudflared");
-            install_.setButtonText(tr(Str::Copied));
-        };
-        for (auto* b : { &copyListen_, &copySend_, &copyBackup_, &openListen_, &install_ })
-            b->setButtonText(tr(b == &openListen_ ? Str::OpenLink : b == &install_ ? Str::CopyInstall : Str::Copy));
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &on_, &listenUrl_, &sendUrl_, &backupUrl_, &copyListen_, &copySend_,
-                                                                            &copyBackup_, &openListen_, &install_ })
-            addAndMakeVisible(c);
-        setSize(460, 640);
-        timerCallback();
-        startTimerHz(4);
-    }
-
-    void resized() override {
-        auto r = getLocalBounds().reduced(18);
-        auto top = r.removeFromTop(34);
-        on_.setBounds(top.removeFromRight(50).withSizeKeepingCentre(50, 30));
-        title_ = top.toFloat();
-        r.removeFromTop(8);
-        permanent_ = r.removeFromTop(40).toFloat();
-        r.removeFromTop(8);
-        auto block = [&](juce::Rectangle<float>& box, juce::Rectangle<float>& text, juce::TextEditor& url,
-                         juce::TextButton& a, juce::TextButton* b) {
-            box = r.removeFromTop(148).toFloat();
-            auto in = box.reduced(14.0f, 12.0f);
-            text = in.removeFromTop(40.0f);
-            in.removeFromTop(8.0f);
-            url.setBounds(in.removeFromTop(36.0f).toNearestInt());
-            in.removeFromTop(8.0f);
-            auto row = in.removeFromTop(32.0f);
-            a.setBounds(row.removeFromLeft(110.0f).toNearestInt());
-            row.removeFromLeft(8.0f);
-            if (b) b->setBounds(row.removeFromLeft(80.0f).toNearestInt());
-            r.removeFromTop(12);
-        };
-        block(listenBox_, listenText_, listenUrl_, copyListen_, &openListen_);
-        statusL_ = listenBox_.reduced(14.0f, 12.0f).removeFromBottom(32.0f).withTrimmedLeft(210.0f);
-        block(sendBox_, sendText_, sendUrl_, copySend_, nullptr);
-        statusS_ = sendBox_.reduced(14.0f, 12.0f).removeFromBottom(32.0f).withTrimmedLeft(130.0f);
-        // backup: today's tunnel / Wi-Fi link, for when the share web site is down
-        backupLabel_ = r.removeFromTop(20).toFloat();
-        auto row = r.removeFromTop(36);
-        copyBackup_.setBounds(row.removeFromRight(90));
-        row.removeFromRight(8);
-        backupUrl_.setBounds(row);
-        r.removeFromTop(12);
-        tunnel_ = r.removeFromTop(58).toFloat();
-        r.removeFromTop(6);
-        install_.setBounds(r.removeFromTop(32).removeFromLeft(200));
-    }
-
-    void paint(juce::Graphics& g) override {
-        const auto& p = paletteOf(*this);
-        g.setColour(p.ink);
-        g.setFont(uiFont(16.0f, Weight::SemiBold));
-        g.drawText(tr(Str::ShareTitle), title_, juce::Justification::centredLeft, true);
-        const bool on = proc_.sharing();
-        drawWrapped(g, permanentText(), uiFont(12.5f, Weight::Medium), p.ink, permanent_, 2.0f);
-        auto box = [&](juce::Rectangle<float> b, juce::Rectangle<float> t, Str title, Str cap, const juce::String& status, juce::Rectangle<float> st) {
-            drawInset(g, b, theme::radius::small, p);
-            g.setColour(on ? p.ink : p.muted);
-            g.setFont(uiFont(14.0f, Weight::Medium));
-            g.drawText(tr(title), t.removeFromTop(18.0f), juce::Justification::centredLeft, true);
-            g.setColour(p.graphite);
-            g.setFont(uiFont(11.5f));
-            g.drawFittedText(tr(cap), t.toNearestInt(), juce::Justification::topLeft, 2, 0.85f);
-            g.setColour(p.ink);
-            g.setFont(uiFont(12.0f, Weight::Medium));
-            g.drawText(status, st, juce::Justification::centredRight, true);
-        };
-        const auto& sh = proc_.share();
-        box(listenBox_, listenText_, Str::ShareListen, Str::ShareListenCap,
-            on ? tr(Str::Listeners) + " " + juce::String(sh.listeners()) : juce::String(), statusL_);
-        box(sendBox_, sendText_, Str::ShareSend, Str::ShareSendCap,
-            on ? (sh.senderActive() ? tr(Str::SenderOn) : tr(Str::SenderOff)) : juce::String(), statusS_);
-        if (backupUrl_.isVisible()) {
-            g.setColour(p.graphite);
-            g.setFont(uiFont(12.0f));
-            g.drawText(tr(Str::ShareBackup), backupLabel_, juce::Justification::centredLeft, true);
-        }
-        if (on) {
-            Str t = Str::TunnelMissing;
-            switch (sh.tunnel()) {
-                case ShareServer::Tunnel::Ready:    t = Str::TunnelReady; break;
-                case ShareServer::Tunnel::Starting: t = Str::TunnelStarting; break;
-                case ShareServer::Tunnel::Failed:   t = Str::TunnelFailed; break;
-                default: break;
-            }
-            drawWrapped(g, tr(t), uiFont(12.0f), sh.tunnel() == ShareServer::Tunnel::Ready ? p.ink : p.graphite, tunnel_, 2.0f);
-        }
-    }
-
-private:
-    // what the permanent link is doing right now (what happened -> what it means -> what to do)
-    juce::String permanentText() const {
-        if (!proc_.permanentLinksSet()) return tr(Str::ShareNoBase);
-        if (!proc_.sharing()) return tr(Str::SharePermanent);
-        if (proc_.share().tunnel() == ShareServer::Tunnel::Missing || proc_.share().tunnel() == ShareServer::Tunnel::Failed)
-            return tr(Str::ShareDirNeedsTunnel);
-        switch (proc_.directory().state()) {
-            case ShareDirectory::State::Online:      return tr(Str::ShareDirOnline);
-            case ShareDirectory::State::Unreachable: return tr(Str::ShareDirOffline);
-            case ShareDirectory::State::Registering:
-            case ShareDirectory::State::Off:         break;
-        }
-        return tr(Str::ShareDirRegistering);
-    }
-
-    void timerCallback() override {
-        const bool on = proc_.sharing();
-        on_.setOn(on, isShowing());
-        const auto& sh = proc_.share();
-        const bool live = on && sh.running();
-        const bool permanent = proc_.permanentLinksSet();
-        // the permanent link can be copied any time (send it once); the others only exist while sharing
-        const auto l = permanent ? proc_.permanentUrl(true) : live ? sh.listenUrl() : juce::String();
-        const auto s = permanent ? proc_.permanentUrl(false) : live ? sh.sendUrl() : juce::String();
-        const auto b = permanent && live ? sh.listenUrl() : juce::String();
-        if (listenUrl_.getText() != l) listenUrl_.setText(l, false);
-        if (sendUrl_.getText() != s) sendUrl_.setText(s, false);
-        if (backupUrl_.getText() != b) backupUrl_.setText(b, false);
-        for (auto* c : std::initializer_list<juce::Component*> { &listenUrl_, &copyListen_ }) c->setEnabled(l.isNotEmpty());
-        for (auto* c : std::initializer_list<juce::Component*> { &sendUrl_, &copySend_ }) c->setEnabled(s.isNotEmpty());
-        openListen_.setEnabled(live);
-        backupUrl_.setVisible(b.isNotEmpty());
-        copyBackup_.setVisible(b.isNotEmpty());
-        install_.setVisible(on && sh.tunnel() == ShareServer::Tunnel::Missing);
-        repaint();
-    }
-
-    HubProcessor& proc_;
-    Switch on_;
-    juce::TextEditor listenUrl_, sendUrl_, backupUrl_;
-    juce::TextButton copyListen_, copySend_, copyBackup_, openListen_, install_;
-    juce::Rectangle<float> title_, permanent_, listenBox_, listenText_, sendBox_, sendText_, statusL_, statusS_, backupLabel_, tunnel_;
 };
 
 } // namespace
 
 // =============================================================================================
-// row geometry (shared by TrackRow, SourceRow and the column header)
-
-RowCols rowCols(float w) {
-    const float fixed = kPadL + kMoreW + 6.0f + kPadR + 3.0f * kGap;
-    if (w - fixed - 2.0f * 118.0f - 190.0f >= kNameMinFull) return { RowTier::Full, 118.0f, 190.0f };
-    if (w - fixed - 2.0f * 104.0f - 126.0f >= kNameMinMid) return { RowTier::Mid, 104.0f, 126.0f };
-    return { RowTier::Narrow, 0.0f, 0.0f };
+juce::String HubEditor::programLabel(const juce::String& exe) {
+    if (exe.isEmpty()) return tr(Str::AppPick);
+    if (exe == kSystemAudio) return tr(Str::AppSystem);
+    if (exe == kLinkIn) return tr(Str::SentInLegacy);
+    if (exe.startsWith("http")) return tr(Str::AppLinkFrom) + " " + juce::URL(exe).getDomain();
+    const auto name = exe.endsWithIgnoreCase(".exe") ? exe.dropLastCharacters(4) : exe;
+    return name.substring(0, 1).toUpperCase() + name.substring(1);   // "chrome.exe" -> "Chrome"
 }
 
-namespace {
-
-// Badges right to left along a name line; one that would leave the name under 48 px gets no room.
-// Returns where the name has to stop.
-float placeBadges(juce::Rectangle<float> line, std::initializer_list<Badge*> badges, Badge* warn) {
-    float right = line.getRight();
-    auto place = [&](Badge* b, float w) {
-        if (right - w < line.getX() + 48.0f) { b->setBounds({}); return; }
-        b->setBounds(juce::Rectangle<float>(right - w, line.getCentreY() - 9.0f, w, 18.0f).toNearestInt());
-        right -= w + 6.0f;
-    };
-    for (auto* b : badges) if (b->isVisible()) place(b, float(b->idealWidth()));
-    if (warn != nullptr && warn->isVisible()) place(warn, 18.0f);
-    return right;
-}
-
-// two compact lines (headphones, viewers): [icon] [slider] [value]
-void layoutLevels(juce::Rectangle<float> level, juce::Rectangle<float>& hpIcon, juce::Rectangle<float>& hpValue, juce::Slider& hp,
-                  juce::Rectangle<float>& vwIcon, juce::Rectangle<float>& vwValue, juce::Slider& vw) {
-    auto line = [&](juce::Rectangle<float> l, juce::Rectangle<float>& icon, juce::Rectangle<float>& value, juce::Slider& s) {
-        icon = l.removeFromLeft(14.0f);
-        l.removeFromLeft(6.0f);
-        value = l.removeFromRight(50.0f);
-        l.removeFromRight(4.0f);
-        s.setBounds(l.withSizeKeepingCentre(l.getWidth(), 20.0f).toNearestInt());
-    };
-    line(level.removeFromTop(level.getHeight() * 0.5f), hpIcon, hpValue, hp);
-    line(level, vwIcon, vwValue, vw);
-}
-
-// narrow rows: both pills side by side on their own line
-void layoutPills(juce::Rectangle<float> r, AudiblePill& mon, AudiblePill& str) {
-    const auto line = r.withSizeKeepingCentre(r.getWidth(), juce::jmin(44.0f, r.getHeight()));
-    const float pw = (line.getWidth() - kGap) * 0.5f;
-    mon.setBounds(line.withWidth(pw).toNearestInt());
-    str.setBounds(line.withTrimmedLeft(pw + kGap).toNearestInt());
-}
-
-} // namespace
-
-// =============================================================================================
-// Badge
-
-int Badge::idealWidth() const {
-    return text_.isEmpty() ? 18 : juce::roundToInt(textWidth(uiFont(11.0f, Weight::Medium), text_) + 14.0f);
-}
-
-void Badge::paint(juce::Graphics& g) {
-    const auto& p = paletteOf(*this);
-    auto r = getLocalBounds().toFloat();
-    if (text_.isEmpty()) {
-        icons::draw(g, icon_, r.withSizeKeepingCentre(15.0f, 15.0f), p.ink);
-        return;
-    }
-    g.setColour(p.ink.withAlpha(0.08f));
-    g.fillRoundedRectangle(r.reduced(0.5f), r.getHeight() * 0.5f);
-    g.setColour(p.ink2);
-    g.setFont(uiFont(11.0f, Weight::Medium));
-    g.drawText(text_, r, juce::Justification::centred, false);
+icons::Icon HubEditor::programIcon(const juce::String& exe) {
+    if (exe == kSystemAudio) return icons::Icon::Monitor;
+    if (exe == kLinkIn || exe.startsWith("http")) return icons::Icon::Link;
+    return icons::Icon::Window;
 }
 
 // =============================================================================================
-// TrackRow
+// ChannelRow
 
-TrackRow::TrackRow(HubEditor& ed) : ed_(ed) {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &mon_, &str_, &hp_, &vw_, &in_, &more_, &warn_, &state_, &delay_ })
-        addAndMakeVisible(c);
-    delay_.setVisible(false);
-    mon_.onClick = [this] { ed_.proc().send(view_.slot, ParamId::Mon, view_.mon ? 0.0f : 1.0f); };
-    str_.onClick = [this] { ed_.proc().send(view_.slot, ParamId::Str, view_.str ? 0.0f : 1.0f); };
-    hp_.onValueChange = [this] { sendLevel(hp_, ParamId::MonTrimDb); };
-    vw_.onValueChange = [this] { sendLevel(vw_, ParamId::StrGainDb); };
+ChannelRow::ChannelRow(HubEditor& ed) : ed_(ed) {
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &picker_, &status_, &meter_, &you_, &viewers_, &level_, &value_, &more_ })
+        addChildComponent(c);
+    you_.onClick = [this] { if (d_.slot >= 0) ed_.proc().send(d_.slot, ParamId::Mon, d_.you ? 0.0f : 1.0f); };
+    viewers_.onClick = [this] { if (d_.slot >= 0) ed_.proc().send(d_.slot, ParamId::Str, d_.viewers ? 0.0f : 1.0f); };
+    level_.onValueChange = [this] { if (!updating_) sendLevel(LevelSlider::sliderToDb(level_.getValue())); };
+    value_.onCommit = [this](float db) { sendLevel(db <= valuetext::kFloorDb + 1.0e-3f ? -60.0f : db); };
+    name_.onRename = [this](const juce::String& n) { ed_.renameRow(d_.slot, n); };
     more_.onClick = [this] { showMenu(); };
+    picker_.buildMenu = [this] { return programMenu(); };
     refreshTexts();
 }
 
-void TrackRow::refreshTexts() {
-    more_.setTooltip(tr(Str::AdvancedSettings));
-    hp_.setTooltip(tr(Str::HeadphoneTip));
-    vw_.setTooltip(tr(Str::ViewersLevel));
+void ChannelRow::refreshTexts() {
+    more_.setTitle(tr(Str::OptionsFor).replace("%s", d_.name));
+    value_.setTooltip(tr(Str::DoubleClickToType));
+    level_.setTooltip(tr(Str::DoubleClickToReset));
 }
 
-void TrackRow::sendLevel(LevelSlider& s, ParamId id) {
-    if (updating_) return;
-    lastUserMs_[&s == &hp_ ? 0 : 1] = juce::Time::getMillisecondCounter();
-    ed_.proc().send(view_.slot, id, LevelSlider::sliderToDb(s.getValue()));
-    repaint(&s == &hp_ ? hpValue_.toNearestInt() : vwValue_.toNearestInt());
+void ChannelRow::sendLevel(float db) {
+    if (d_.slot < 0) return;
+    lastUserMs_ = juce::Time::getMillisecondCounter();
+    ed_.proc().send(d_.slot, ed_.levelsShowHeadphones() ? ParamId::MonTrimDb : ParamId::StrGainDb, db);
+    value_.setValue(juce::jmax(valuetext::kFloorDb, db));
 }
 
-// "370 ms" next to the name while a viewers delay is set (auto sync or by hand). True when it changed.
-static bool showDelay(Badge& b, float ms) {
-    const auto text = ms >= 0.5f ? juce::String(juce::roundToInt(ms)) + " ms" : juce::String();
-    if (text == b.getTitle()) return false;
-    b.setTitle(text);
-    b.setText(text);
-    b.setTooltip(tr(Str::ViewersDelay));
-    b.setVisible(text.isNotEmpty());
-    return true;
-}
-
-void TrackRow::update(const TrackView& v, int shadeIndex) {
-    const bool nameChanged = showDelay(delay_, v.delayMs) || v.name != view_.name || v.colourARGB != view_.colourARGB || shadeIndex != shade_;
-    const bool textChanged = nameChanged || v.mon != view_.mon || v.str != view_.str || view_.slot < 0;
-    const double hpBefore = hp_.getValue(), vwBefore = vw_.getValue();
-    view_ = v;
-    shade_ = shadeIndex;
-    mon_.setOn(v.mon);
-    str_.setOn(v.str);
-    if (textChanged) {   // accessibility titles: no string building while nothing changes
-        mon_.setTitle(tr(Str::MonLabel) + " " + v.name + ": " + (v.mon ? tr(Str::StateOn) : tr(Str::StateOff)));
-        str_.setTitle(tr(Str::StrLabel) + " " + v.name + ": " + (v.str ? tr(Str::StateOn) : tr(Str::StateOff)));
-        hp_.setTitle(tr(Str::HeadphoneLevel) + " " + v.name);
-        vw_.setTitle(tr(Str::ViewersLevel) + " " + v.name);
+juce::String ChannelRow::statusText(Dot& dot) const {
+    dot = Dot::None;
+    if (d_.kind != RowData::Kind::Program) return {};
+    if (!d_.on) { dot = Dot::Muted; return tr(Str::AppOffShort); }
+    switch (d_.capture) {   // AppCapture::State: Idle, Starting, Running, NotRunning, Failed
+        case 2: dot = Dot::Ok; return d_.app == kLinkIn ? tr(Str::SenderOn) : d_.app.startsWith("http") ? tr(Str::AppLinkReceiving) : tr(Str::AppRunning);
+        case 1: dot = Dot::Muted; return tr(Str::AppStarting);
+        case 3: dot = Dot::Warn; return d_.app == kLinkIn ? tr(Str::SenderOff) : d_.app.startsWith("http") ? tr(Str::AppLinkOffline) : tr(Str::AppNotRunning);
+        case 4: dot = Dot::Rec; return tr(Str::AppFailed);
+        default: break;
     }
-    hp_.setEnabled(v.mon);
-    vw_.setEnabled(v.str);
+    dot = Dot::Muted;
+    return tr(Str::AppNone);
+}
 
-    // Sliders show the Track's real value, except while (or just after) the user moves them.
+void ChannelRow::update(const RowData& d) {
+    const bool kindChanged = first_ || d.kind != d_.kind;
+    const bool layoutChanged = kindChanged || d.name != d_.name || d.delayMs != d_.delayMs || d.solo != d_.solo || d.active != d_.active
+                            || d.recording != d_.recording || d.warnTip != d_.warnTip || d.app != d_.app;
+    d_ = d;
+    first_ = false;
+    const bool program = d.kind == RowData::Kind::Program, friendRow = d.kind == RowData::Kind::Friend;
+    name_.setVisible(!program);
+    picker_.setVisible(program);
+    status_.setVisible(program || friendRow);
+    meter_.setVisible(!program && !friendRow);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &you_, &viewers_, &level_, &value_, &more_ }) c->setVisible(true);
+
+    name_.setName(d.name, {});
+    name_.setEnabled(d.kind == RowData::Kind::Track);
+    if (program) picker_.set(HubEditor::programIcon(d.app), HubEditor::programLabel(d.app));
+    Dot dot;
+    status_.setText(statusText(dot));
+    status_.setDot(dot);
+    you_.setOn(d.you, isShowing());
+    viewers_.setOn(d.viewers, isShowing());
+    you_.setSubject(d.name);
+    viewers_.setSubject(d.name);
+    you_.setEnabled(d.linked);
+    viewers_.setEnabled(d.linked);
+    const bool hp = ed_.levelsShowHeadphones();
+    const bool sideOn = hp ? d.you : d.viewers;
+    level_.setDim(!sideOn);
+    value_.setDim(!sideOn);
+    level_.setEnabled(d.linked);
+    value_.setEnabled(d.linked);
+    level_.setTitle((hp ? tr(Str::HeadphoneLevel) : tr(Str::ViewersLevel)) + " " + d.name);
+    const float db = hp ? d.hpDb : d.vwDb;
     const auto now = juce::Time::getMillisecondCounter();
-    const juce::ScopedValueSetter<bool> svs(updating_, true);
-    if (!hp_.isMouseButtonDown() && now - lastUserMs_[0] > 400) hp_.setValue(LevelSlider::dbToSlider(v.trimDb), juce::dontSendNotification);
-    if (!vw_.isMouseButtonDown() && now - lastUserMs_[1] > 400) vw_.setValue(LevelSlider::dbToSlider(v.gainDb), juce::dontSendNotification);
-    in_.setLevel(meterPosition(v.peakIn));
-
-    // status badges
-    juce::String warnTip;
-    if (v.hubStatus & ssbus::kHubStatusRateMismatch) warnTip = tr(Str::RateMismatch);
-    else if (v.hubStatus & ssbus::kHubStatusAhead) warnTip = tr(Str::AheadWarning);
-    else if (v.bypassed) warnTip = tr(Str::BypassedTip);
-    warn_.setVisible(warnTip.isNotEmpty());
-    warn_.setTooltip(warnTip);
-    juce::String badge, badgeTip;
-    if (!v.active) { badge = tr(Str::Inactive); badgeTip = tr(Str::InactiveTip); }
-    else if (v.solo) { badge = tr(Str::SoloBadge); badgeTip = tr(Str::StreamSolo); }
-    state_.setVisible(badge.isNotEmpty());
-    state_.setText(badge);
-    state_.setTooltip(badgeTip);
-    setAlpha(v.active ? 1.0f : 0.5f);
-    if (nameChanged) resized();
-    if (textChanged || hp_.getValue() != hpBefore || vw_.getValue() != vwBefore)
-        repaint(hpValue_.getUnion(vwValue_).getUnion(hpIcon_).getUnion(vwIcon_).toNearestInt().expanded(2));
-    if (nameChanged) repaint();
-}
-
-void TrackRow::resized() {
-    const auto cols = rowCols(float(getWidth()));
-    const bool narrow = cols.tier == RowTier::Narrow;
-    auto r = getLocalBounds().toFloat().reduced(0.0f, 10.0f).withTrimmedLeft(kPadL).withTrimmedRight(kPadR);
-    hp_.setVisible(!narrow);
-    vw_.setVisible(!narrow);
-    mon_.setPrefix(narrow ? tr(Str::PillPrefixYou) : juce::String());
-    str_.setPrefix(narrow ? tr(Str::PillPrefixViewers) : juce::String());
-    if (narrow) {   // [dot name  badges meter ...] / [you hear][viewers hear]
-        auto top = r.removeFromTop(30.0f);
-        more_.setBounds(top.removeFromRight(kMoreW).withSizeKeepingCentre(kMoreW, kMoreW).toNearestInt());
-        top.removeFromRight(8.0f);
-        in_.setBounds(top.removeFromRight(48.0f).withSizeKeepingCentre(48.0f, 6.0f).toNearestInt());
-        top.removeFromRight(8.0f);
-        nameArea_ = top.withRight(placeBadges(top, { &state_, &delay_ }, &warn_));
-        layoutPills(r, mon_, str_);
-        hpIcon_ = vwIcon_ = hpValue_ = vwValue_ = {};
-        return;
-    }
-    auto level = r.removeFromRight(cols.levelW);
-    r.removeFromRight(kGap);
-    str_.setBounds(r.removeFromRight(cols.pillW).withSizeKeepingCentre(cols.pillW, 44.0f).toNearestInt());
-    r.removeFromRight(kGap);
-    mon_.setBounds(r.removeFromRight(cols.pillW).withSizeKeepingCentre(cols.pillW, 44.0f).toNearestInt());
-    r.removeFromRight(kGap);
-
-    // name column: [dot name  badges ...] [more]
-    more_.setBounds(r.removeFromRight(kMoreW).withSizeKeepingCentre(kMoreW, kMoreW).toNearestInt());
-    r.removeFromRight(6.0f);
-    auto top = r.removeFromTop(r.getHeight() * 0.55f);
-    const float mw = juce::jmin(72.0f, r.getWidth() - 18.0f);
-    in_.setBounds(r.withTrimmedLeft(18.0f).withWidth(mw).withSizeKeepingCentre(mw, 6.0f).toNearestInt());
-    nameArea_ = top.withRight(placeBadges(top, { &state_, &delay_ }, &warn_));
-    layoutLevels(level, hpIcon_, hpValue_, hp_, vwIcon_, vwValue_, vw_);
-}
-
-int TrackRow::heightFor(float width) {
-    return juce::roundToInt(rowCols(width).tier == RowTier::Narrow ? theme::layout::rowNarrowH : theme::layout::rowH);
-}
-
-void TrackRow::paint(juce::Graphics& g) {
-    const auto& p = paletteOf(*this);
-    drawInset(g, getLocalBounds().toFloat().reduced(0.5f), theme::radius::row, p);
-
-    auto n = nameArea_;
-    const auto dot = n.removeFromLeft(9.0f).withSizeKeepingCentre(9.0f, 9.0f);
-    const bool useHost = SharedSettings()->hostColours() && (view_.colourARGB >> 24) != 0;
-    g.setColour(useHost ? juce::Colour(view_.colourARGB).withAlpha(1.0f) : shadeFor(p, shade_));
-    g.fillEllipse(dot);
-    n.removeFromLeft(9.0f);
-    g.setColour(p.ink);
-    g.setFont(uiFont(14.0f, Weight::Medium));
-    g.drawText(view_.name, n, juce::Justification::centredLeft, true);
-
-    if (hpIcon_.isEmpty()) return;   // narrow row: the levels are in the "..." panel
-    icons::draw(g, icons::Icon::Headphones, hpIcon_.withSizeKeepingCentre(14.0f, 14.0f), view_.mon ? p.graphite : p.muted);
-    icons::draw(g, icons::Icon::Broadcast, vwIcon_.withSizeKeepingCentre(14.0f, 14.0f), view_.str ? p.graphite : p.muted);
-    g.setFont(uiFont(12.0f));
-    g.setColour(view_.mon ? p.ink : p.muted);
-    g.drawText(formatDb(float(hp_.getValue())), hpValue_, juce::Justification::centredRight, false);
-    g.setColour(view_.str ? p.ink : p.muted);
-    g.drawText(formatDb(float(vw_.getValue())), vwValue_, juce::Justification::centredRight, false);
-}
-
-void TrackRow::mouseUp(const juce::MouseEvent& e) {
-    if (e.mods.isPopupMenu()) showMenu();
-}
-
-void TrackRow::showMenu() {
-    juce::PopupMenu m;
-    m.setLookAndFeel(&ed_.lnf());
-    m.addItem(1, tr(Str::StreamSolo), true, view_.solo);
-    m.addItem(2, tr(Str::AdvancedSettings));
-    m.addItem(3, tr(Str::RenameDisplay));
-    juce::Component::SafePointer<TrackRow> self(this);
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&more_), [self](int r) {
-        if (self == nullptr || r == 0) return;
-        auto& row = *self;
-        if (r == 1) row.ed_.proc().send(row.view_.slot, ParamId::StrSolo, row.view_.solo ? 0.0f : 1.0f);
-        if (r == 2) row.ed_.showTrackPanel(row.view_.slot, row.more_);
-        if (r == 3) {
-            const int slot = row.view_.slot;
-            auto* ed = &row.ed_;
-            ed->askRename(tr(Str::RenameDisplay), row.view_.name, [ed, slot](juce::String name) { ed->proc().rename(slot, name); });
-        }
-    });
-}
-
-// =============================================================================================
-// SourceRow
-
-SourceRow::SourceRow(HubEditor& ed) : ed_(ed) {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &mon_, &str_, &hp_, &vw_, &meter_, &more_, &state_, &delay_ })
-        addAndMakeVisible(c);
-    delay_.setVisible(false);
-    mon_.onClick = [this] { if (view_.slot >= 0) ed_.proc().send(view_.slot, ParamId::Mon, view_.mon ? 0.0f : 1.0f); };
-    str_.onClick = [this] { if (view_.slot >= 0) ed_.proc().send(view_.slot, ParamId::Str, view_.str ? 0.0f : 1.0f); };
-    hp_.onValueChange = [this] { sendLevel(hp_, ParamId::MonTrimDb); };
-    vw_.onValueChange = [this] { sendLevel(vw_, ParamId::StrGainDb); };
-    more_.onClick = [this] { showMenu(); };
-    refreshTexts();
-}
-
-void SourceRow::refreshTexts() {
-    more_.setTooltip(tr(Str::AdvancedSettings));
-    hp_.setTooltip(tr(Str::HeadphoneTip));
-    vw_.setTooltip(tr(Str::ViewersLevel));
-}
-
-void SourceRow::sendLevel(LevelSlider& s, ParamId id) {
-    if (updating_ || view_.slot < 0) return;
-    lastUserMs_[&s == &hp_ ? 0 : 1] = juce::Time::getMillisecondCounter();
-    ed_.proc().send(view_.slot, id, LevelSlider::sliderToDb(s.getValue()));
-    repaint(&s == &hp_ ? hpValue_.toNearestInt() : vwValue_.toNearestInt());
-}
-
-void SourceRow::update(const SourceView& v, int shadeIndex) {
-    const bool textChanged = v.name != view_.name || v.app != view_.app || v.colourARGB != view_.colourARGB || v.flags != view_.flags
-                          || v.capture != view_.capture || v.mon != view_.mon || v.str != view_.str || shadeIndex != shade_ || view_.index < 0;
-    const double hpBefore = hp_.getValue(), vwBefore = vw_.getValue();
-    const bool recBefore = view_.recording();
-    const int secBefore = int(view_.recordSec);
-    view_ = v;
-    shade_ = shadeIndex;
-    mon_.setOn(v.mon);
-    str_.setOn(v.str);
-    const bool linked = v.slot >= 0;   // an older App Audio has no headphone slot
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &mon_, &str_ }) c->setEnabled(linked);
-    hp_.setEnabled(linked && v.mon);
-    vw_.setEnabled(linked && v.str);
-    if (textChanged) {
-        mon_.setTitle(tr(Str::MonLabel) + " " + v.name + ": " + (v.mon ? tr(Str::StateOn) : tr(Str::StateOff)));
-        str_.setTitle(tr(Str::StrLabel) + " " + v.name + ": " + (v.str ? tr(Str::StateOn) : tr(Str::StateOff)));
-        hp_.setTitle(tr(Str::HeadphoneLevel) + " " + v.name);
-        vw_.setTitle(tr(Str::ViewersLevel) + " " + v.name);
-    }
-    const auto now = juce::Time::getMillisecondCounter();
-    {
+    if (!level_.isMouseButtonDown() && now - lastUserMs_ > 400) {
         const juce::ScopedValueSetter<bool> svs(updating_, true);
-        if (!hp_.isMouseButtonDown() && now - lastUserMs_[0] > 400) hp_.setValue(LevelSlider::dbToSlider(v.trimDb), juce::dontSendNotification);
-        if (!vw_.isMouseButtonDown() && now - lastUserMs_[1] > 400) vw_.setValue(LevelSlider::dbToSlider(v.gainDb), juce::dontSendNotification);
+        level_.setValue(LevelSlider::dbToSlider(db), juce::dontSendNotification);
+        if (!value_.isEditing()) value_.setValue(juce::jmax(valuetext::kFloorDb, db));
     }
-    meter_.setLevel(meterPosition(v.peak));
-
-    // badges: switched off, recording (with its length), recording with the DAW, lost audio
-    juce::String badge, tip;
-    if (!v.active) { badge = tr(Str::Inactive); tip = tr(Str::InactiveTip); }
-    else if (!v.on()) { badge = tr(Str::PowerOff); tip = tr(Str::PowerTip); }
-    else if (v.recording()) { badge = "REC " + clock(v.recordSec); tip = tr(Str::Recording); }
-    else if (v.flags & ssbus::kSrcFollowRec) { badge = "REC"; tip = tr(Str::FollowRecordTip); }
-    else if (v.flags & ssbus::kSrcDropped) { badge = "!"; tip = tr(Str::TakeDropped); }
-    const bool badgeChanged = showDelay(delay_, v.delayMs) || badge != state_.getTitle() || v.recording() != recBefore
-                           || int(v.recordSec) != secBefore;
-    state_.setVisible(badge.isNotEmpty());
-    state_.setText(badge);
-    state_.setTitle(badge);
-    state_.setTooltip(tip);
-    setAlpha(v.active ? 1.0f : 0.5f);
-    if (textChanged || badgeChanged) { resized(); repaint(); }
-    else if (hp_.getValue() != hpBefore || vw_.getValue() != vwBefore)
-        repaint(hpValue_.getUnion(vwValue_).toNearestInt().expanded(2));
+    meter_.setLevel(meterPosition(d.meter));
+    setAlpha(d.active ? 1.0f : 0.5f);
+    more_.setTitle(tr(Str::OptionsFor).replace("%s", d.name));
+    if (layoutChanged) { resized(); repaint(); }
 }
 
-void SourceRow::resized() {
-    const auto cols = rowCols(float(getWidth()));
-    const bool narrow = cols.tier == RowTier::Narrow;
-    auto r = getLocalBounds().toFloat().reduced(0.0f, 10.0f).withTrimmedLeft(kPadL).withTrimmedRight(kPadR);
-    hp_.setVisible(!narrow);
-    vw_.setVisible(!narrow);
-    mon_.setPrefix(narrow ? tr(Str::PillPrefixYou) : juce::String());
-    str_.setPrefix(narrow ? tr(Str::PillPrefixViewers) : juce::String());
-    juce::Rectangle<float> top, bottom;
-    if (narrow) {   // [dot name  badges ...] / [program v] [meter] / [you hear][viewers hear]
-        top = r.removeFromTop(30.0f);
-        more_.setBounds(top.removeFromRight(kMoreW).withSizeKeepingCentre(kMoreW, kMoreW).toNearestInt());
+void ChannelRow::resized() {
+    auto r = getLocalBounds().toFloat();
+    const bool friendRow = d_.kind == RowData::Kind::Friend, program = d_.kind == RowData::Kind::Program;
+    const auto badgeFont = uiFont(11.0f, Weight::Medium);
+    float badgesW = 0.0f;
+    if (d_.kind == RowData::Kind::Track && d_.delayMs >= 0.5f) badgesW += badgeWidth(valuetext::formatMs(d_.delayMs)) + 6.0f;
+    if (d_.solo) badgesW += badgeWidth(tr(Str::SoloBadge), BadgeStyle::Solid) + 6.0f;
+    if (!d_.active) badgesW += badgeWidth(tr(Str::Inactive)) + 6.0f;
+    if (d_.warnTip.isNotEmpty()) badgesW += 22.0f;
+    juce::ignoreUnused(badgeFont);
+
+    if (narrow_) {   // two lines: [dot name badges  you viewers] / [slider value ⋯]
+        auto in = r.withTrimmedLeft(14.0f).withTrimmedRight(8.0f).withTrimmedTop(10.0f).withTrimmedBottom(8.0f);
+        auto top = in.removeFromTop(36.0f);
+        viewers_.setBounds(top.removeFromRight(44.0f).toNearestInt());
         top.removeFromRight(8.0f);
-        r.removeFromTop(4.0f);
-        bottom = r.removeFromTop(24.0f).withTrimmedLeft(18.0f);
-        layoutPills(r, mon_, str_);
-        hpIcon_ = vwIcon_ = hpValue_ = vwValue_ = {};
-    } else {
-        auto level = r.removeFromRight(cols.levelW);
-        r.removeFromRight(kGap);
-        str_.setBounds(r.removeFromRight(cols.pillW).withSizeKeepingCentre(cols.pillW, 44.0f).toNearestInt());
-        r.removeFromRight(kGap);
-        mon_.setBounds(r.removeFromRight(cols.pillW).withSizeKeepingCentre(cols.pillW, 44.0f).toNearestInt());
-        r.removeFromRight(kGap);
-        more_.setBounds(r.removeFromRight(kMoreW).withSizeKeepingCentre(kMoreW, kMoreW).toNearestInt());
-        r.removeFromRight(6.0f);
-        top = r.removeFromTop(r.getHeight() * 0.55f);
-        bottom = r.withTrimmedLeft(18.0f);   // second line: [program v] [meter]
-        layoutLevels(level, hpIcon_, hpValue_, hp_, vwIcon_, vwValue_, vw_);
+        you_.setBounds(top.removeFromRight(44.0f).toNearestInt());
+        top.removeFromRight(8.0f);
+        if (friendRow) { avatar_ = top.removeFromLeft(28.0f).withSizeKeepingCentre(28.0f, 28.0f); top.removeFromLeft(10.0f); }
+        else if (!program) { dot_ = top.removeFromLeft(8.0f).withSizeKeepingCentre(8.0f, 8.0f); top.removeFromLeft(8.0f); }
+        badges_ = top.removeFromRight(juce::jmin(badgesW, top.getWidth() * 0.5f));
+        if (program) {
+            auto nameCol = top.withSizeKeepingCentre(top.getWidth(), 42.0f);
+            picker_.setBounds(nameCol.removeFromTop(24.0f).withTrimmedLeft(-6.0f).withWidth(juce::jmin(nameCol.getWidth() + 6.0f, float(picker_.idealWidth()))).toNearestInt());
+            nameCol.removeFromTop(2.0f);
+            status_.setBounds(nameCol.toNearestInt());
+        } else if (friendRow) {
+            auto nameCol = top.withSizeKeepingCentre(top.getWidth(), 38.0f);
+            name_.setBounds(nameCol.removeFromTop(20.0f).toNearestInt());
+            status_.setBounds(nameCol.withTrimmedTop(2.0f).toNearestInt());
+        } else {
+            name_.setBounds(top.withTrimmedLeft(-7.0f).withSizeKeepingCentre(top.getWidth() + 7.0f, 26.0f).toNearestInt());
+            meter_.setBounds({});
+        }
+        in.removeFromTop(8.0f);
+        auto bottom = in;
+        more_.setBounds(bottom.removeFromRight(kMoreW).withSizeKeepingCentre(kMoreW, kMoreW).toNearestInt());
+        bottom.removeFromRight(8.0f);
+        value_.setBounds(bottom.removeFromRight(62.0f).withSizeKeepingCentre(62.0f, 26.0f).toNearestInt());
+        bottom.removeFromRight(8.0f);
+        level_.setBounds(bottom.withSizeKeepingCentre(bottom.getWidth(), 20.0f).toNearestInt());
+        return;
     }
-    nameArea_ = top.withRight(placeBadges(top, { &state_, &delay_ }, nullptr));
-    const auto label = view_.app.isEmpty() ? tr(Str::AppPick) : programLabel(view_.app);
-    // the program chip gets the room it needs; the meter only shows when there is space left
-    const float aw = juce::jmin(bottom.getWidth(), textWidth(uiFont(12.0f, Weight::Medium), label) + 34.0f);
-    appArea_ = bottom.removeFromLeft(aw).withSizeKeepingCentre(aw, 20.0f);
-    bottom.removeFromLeft(8.0f);
-    meter_.setVisible(bottom.getWidth() >= 30.0f);
-    const float mw = juce::jmin(72.0f, bottom.getWidth());
-    meter_.setBounds(bottom.withSizeKeepingCentre(bottom.getWidth(), 6.0f).withWidth(mw).toNearestInt());
+
+    // wide grid: name 1fr | 48 | 48 | 206 | 32, padding 0 10 0 14 (friends 12), gap 10
+    auto in = r.withTrimmedLeft(friendRow ? 12.0f : 14.0f).withTrimmedRight(10.0f);
+    more_.setBounds(in.removeFromRight(kMoreW).withSizeKeepingCentre(kMoreW, kMoreW).toNearestInt());
+    in.removeFromRight(kColGap);
+    auto lvl = in.removeFromRight(kLevelW);
+    value_.setBounds(lvl.removeFromRight(62.0f).withSizeKeepingCentre(62.0f, 26.0f).toNearestInt());
+    lvl.removeFromRight(8.0f);
+    level_.setBounds(lvl.withSizeKeepingCentre(lvl.getWidth(), 20.0f).toNearestInt());
+    in.removeFromRight(kColGap);
+    viewers_.setBounds(in.removeFromRight(kToggleW).withSizeKeepingCentre(kToggleW, 38.0f).toNearestInt());
+    in.removeFromRight(kColGap);
+    you_.setBounds(in.removeFromRight(kToggleW).withSizeKeepingCentre(kToggleW, 38.0f).toNearestInt());
+    in.removeFromRight(kColGap);
+    if (program) {
+        auto col = in.withSizeKeepingCentre(in.getWidth(), 26.0f + 3.0f + 16.0f);
+        const float pw = juce::jmin(col.getWidth() + 6.0f, float(picker_.idealWidth()));
+        picker_.setBounds(col.removeFromTop(26.0f).withTrimmedLeft(-6.0f).withWidth(pw).toNearestInt());
+        col.removeFromTop(3.0f);
+        badges_ = col.removeFromRight(juce::jmin(badgesW + (d_.recording ? badgeWidth(tr(Str::RecordingBadge), BadgeStyle::Rec) + 6.0f : 0.0f), col.getWidth() * 0.6f));
+        status_.setBounds(col.toNearestInt());
+        return;
+    }
+    if (friendRow) {
+        avatar_ = in.removeFromLeft(28.0f).withSizeKeepingCentre(28.0f, 28.0f);
+        in.removeFromLeft(10.0f);
+        auto col = in.withSizeKeepingCentre(in.getWidth(), 20.0f + 3.0f + 16.0f);
+        name_.setBounds(col.removeFromTop(20.0f).toNearestInt());
+        col.removeFromTop(3.0f);
+        status_.setBounds(col.toNearestInt());
+        return;
+    }
+    auto col = in.withSizeKeepingCentre(in.getWidth(), 26.0f + 8.0f + 3.0f);
+    auto line = col.removeFromTop(26.0f);
+    dot_ = line.removeFromLeft(8.0f).withSizeKeepingCentre(8.0f, 8.0f);
+    line.removeFromLeft(8.0f);
+    const float nameW = juce::jmin(float(name_.idealWidth()), juce::jmax(60.0f, line.getWidth() - badgesW));
+    name_.setBounds(line.removeFromLeft(nameW).withTrimmedLeft(-7.0f).toNearestInt());
+    badges_ = line.removeFromLeft(juce::jmin(line.getWidth(), badgesW)).withTrimmedLeft(2.0f);
+    col.removeFromTop(8.0f);
+    meter_.setBounds(col.withWidth(juce::jmin(120.0f, col.getWidth())).toNearestInt());
 }
 
-int SourceRow::heightFor(float width) {
-    // narrow rows add a line for the program chip
-    return juce::roundToInt(rowCols(width).tier == RowTier::Narrow ? theme::layout::rowNarrowH + 28.0f : theme::layout::rowH);
-}
-
-void SourceRow::paint(juce::Graphics& g) {
+void ChannelRow::paint(juce::Graphics& g) {
     const auto& p = paletteOf(*this);
-    drawInset(g, getLocalBounds().toFloat().reduced(0.5f), theme::radius::row, p);
+    const auto r = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(p.inset);
+    g.fillRoundedRectangle(r, theme::radius::row);
+    g.setColour(p.hairline1);
+    g.drawRoundedRectangle(r, theme::radius::row, 1.0f);
 
-    auto n = nameArea_;
-    const auto dot = n.removeFromLeft(9.0f).withSizeKeepingCentre(9.0f, 9.0f);
-    const bool useHost = SharedSettings()->hostColours() && (view_.colourARGB >> 24) != 0;
-    g.setColour(useHost ? juce::Colour(view_.colourARGB).withAlpha(1.0f) : shadeFor(p, shade_));
-    g.fillEllipse(dot);
-    n.removeFromLeft(9.0f);
-    g.setColour(p.ink);
-    g.setFont(uiFont(14.0f, Weight::Medium));
-    g.drawText(view_.name, n, juce::Justification::centredLeft, true);
-
-    // program chooser chip; greyed while the program isn't delivering sound
-    const bool running = view_.capture == 2;   // AppCapture::State::Running
-    const bool hover = isMouseOver() && appArea_.contains(getMouseXYRelative().toFloat());
-    g.setColour(p.ink.withAlpha(hover ? 0.12f : 0.06f));
-    g.fillRoundedRectangle(appArea_, appArea_.getHeight() * 0.5f);
-    auto a = appArea_.reduced(9.0f, 0.0f);
-    const auto t = a.removeFromRight(8.0f).withSizeKeepingCentre(8.0f, 5.0f);
-    juce::Path tri;
-    tri.addTriangle(t.getX(), t.getY(), t.getRight(), t.getY(), t.getCentreX(), t.getBottom());
-    g.setColour(p.graphite);
-    g.fillPath(tri);
-    g.setColour(view_.app.isEmpty() || (view_.on() && !running) ? p.graphite : p.ink);
-    g.setFont(uiFont(12.0f, Weight::Medium));
-    g.drawText(view_.app.isEmpty() ? tr(Str::AppPick) : programLabel(view_.app), a.withTrimmedRight(4.0f), juce::Justification::centredLeft, true);
-
-    const bool linked = view_.slot >= 0;
-    if (hpIcon_.isEmpty()) return;   // narrow row: the levels are in the "..." menu
-    icons::draw(g, icons::Icon::Headphones, hpIcon_.withSizeKeepingCentre(14.0f, 14.0f), linked && view_.mon ? p.graphite : p.muted);
-    icons::draw(g, icons::Icon::Broadcast, vwIcon_.withSizeKeepingCentre(14.0f, 14.0f), linked && view_.str ? p.graphite : p.muted);
-    g.setFont(uiFont(12.0f));
-    g.setColour(linked && view_.mon ? p.ink : p.muted);
-    g.drawText(formatDb(float(hp_.getValue())), hpValue_, juce::Justification::centredRight, false);
-    g.setColour(linked && view_.str ? p.ink : p.muted);
-    g.drawText(formatDb(float(vw_.getValue())), vwValue_, juce::Justification::centredRight, false);
-}
-
-void SourceRow::mouseMove(const juce::MouseEvent& e) {
-    setMouseCursor(appArea_.contains(e.position) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
-    repaint(appArea_.toNearestInt().expanded(1));
-}
-
-void SourceRow::mouseUp(const juce::MouseEvent& e) {
-    if (e.mods.isPopupMenu()) showMenu();
-    else if (appArea_.contains(e.position)) pickApp();
-}
-
-void SourceRow::pickApp() {
-    const auto apps = AppCapture::listAudioApps();
-    juce::PopupMenu m;
-    m.setLookAndFeel(&ed_.lnf());
-    m.addItem(1, tr(Str::AppSystem), true, view_.app == kSystemAudio);
-    m.addSeparator();
-    bool listed = false;
-    for (size_t i = 0; i < apps.size(); ++i) {
-        const bool cur = juce::String(apps[i].exe).equalsIgnoreCase(view_.app);
-        listed = listed || cur;
-        m.addItem(int(i) + 2, juce::String(apps[i].name), true, cur);
+    if (d_.kind == RowData::Kind::Track && !dot_.isEmpty()) {
+        g.setColour(ed_.shadeColour(d_));
+        g.fillEllipse(dot_);
     }
-    if (!listed && view_.app.isNotEmpty() && view_.app != kSystemAudio && view_.app != "*link*") m.addItem(1000, programLabel(view_.app), true, true);
-    m.addSeparator();
-    m.addItem(999, tr(Str::AppLinkIn), true, view_.app == "*link*");
-    juce::Component::SafePointer<SourceRow> self(this);
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(localAreaToGlobal(appArea_.toNearestInt())), [self, apps](int r) {
-        if (self == nullptr || r == 0 || r == 1000) return;
-        const juce::String exe = r == 1 ? juce::String(kSystemAudio) : r == 999 ? juce::String("*link*") : juce::String(apps[size_t(r - 2)].exe);
-        self->ed_.proc().chooseSourceApp(self->view_.index, exe);
-    });
+    if (d_.kind == RowData::Kind::Friend) drawAvatar(g, avatar_, d_.name, d_.active, p);
+
+    // badges left to right: delay, solo, recording, inactive, warning
+    auto b = badges_;
+    auto badge = [&](const juce::String& t, BadgeStyle s) {
+        const float w = badgeWidth(t, s);
+        if (b.getWidth() < w) return;
+        drawBadge(g, b.removeFromLeft(w).withSizeKeepingCentre(w, d_.kind == RowData::Kind::Program ? 18.0f : 20.0f), t, s, p);
+        b.removeFromLeft(6.0f);
+    };
+    if (d_.kind == RowData::Kind::Track && d_.delayMs >= 0.5f) badge(valuetext::formatMs(d_.delayMs), BadgeStyle::Chip);
+    if (d_.solo) badge(tr(Str::SoloBadge), BadgeStyle::Solid);
+    if (d_.recording) badge(d_.recordSec > 0.5 ? tr(Str::RecordingBadge) + " " + clock(d_.recordSec) : tr(Str::RecordingBadge), BadgeStyle::Rec);
+    if (!d_.active) badge(tr(Str::Inactive), BadgeStyle::Chip);
+    if (d_.warnTip.isNotEmpty() && b.getWidth() >= 16.0f) icons::draw(g, icons::Icon::Warning, b.removeFromLeft(16.0f).withSizeKeepingCentre(15.0f, 15.0f), p.warn);
 }
 
-void SourceRow::showMenu() {
-    juce::PopupMenu m;
-    m.setLookAndFeel(&ed_.lnf());
-    m.addItem(1, tr(Str::PowerTip), true, view_.on());
-    m.addSeparator();
-    m.addItem(2, view_.recording() ? tr(Str::RecordStop) : tr(Str::RecordTip));
-    m.addItem(3, tr(Str::FollowRecord), true, (view_.flags & ssbus::kSrcFollowRec) != 0);
-    m.addItem(4, tr(Str::OpenFolder));
-    m.addSeparator();
-    m.addItem(5, tr(Str::RowLevels), view_.slot >= 0);
-    juce::Component::SafePointer<SourceRow> self(this);
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&more_), [self](int r) {
-        if (self == nullptr || r == 0) return;
-        auto& v = self->view_;
-        auto& proc = self->ed_.proc();
-        if (r == 1) proc.sendSource(v.index, ssbus::SourceParam::On, v.on() ? 0.0f : 1.0f);
-        if (r == 2) proc.sendSource(v.index, ssbus::SourceParam::Record, v.recording() ? 0.0f : 1.0f);
-        if (r == 3) proc.sendSource(v.index, ssbus::SourceParam::FollowRecord, (v.flags & ssbus::kSrcFollowRec) ? 0.0f : 1.0f);
-        if (r == 4) {
+void ChannelRow::paintOverChildren(juce::Graphics& g) {
+    const auto now = juce::Time::getMillisecondCounter();
+    if (now >= flashUntil_) return;
+    const auto& p = paletteOf(*this);
+    const float a = float(flashUntil_ - now) / 1200.0f;
+    g.setColour(p.ink.withAlpha(0.5f * a));
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), theme::radius::row, 2.0f);
+    juce::Component::SafePointer<ChannelRow> self(this);
+    juce::Timer::callAfterDelay(40, [self] { if (self) self->repaint(); });
+}
+
+void ChannelRow::flash() {
+    flashUntil_ = juce::Time::getMillisecondCounter() + 1200;
+    repaint();
+}
+
+void ChannelRow::mouseUp(const juce::MouseEvent& e) {
+    if (e.mods.isPopupMenu()) showMenu();
+}
+
+Menu ChannelRow::programMenu() {
+    Menu m(270);
+    m.header(tr(Str::AppPick));
+    const auto cur = d_.app;
+    const int index = d_.index;
+    auto& proc = ed_.proc();
+    bool listed = false;
+    for (const auto& a : AppCapture::listAudioApps()) {   // refreshed every time the list opens
+        const juce::String exe(a.exe);
+        listed = listed || exe.equalsIgnoreCase(cur);
+        m.check(HubEditor::programLabel(exe), exe.equalsIgnoreCase(cur), [&proc, index, exe] { proc.chooseSourceApp(index, exe); });
+        m.last().icon = icons::Icon::Window;
+    }
+    if (!listed && cur.isNotEmpty() && cur != kSystemAudio && cur != kLinkIn && !cur.startsWith("http")) {
+        m.check(HubEditor::programLabel(cur), true, [] {});
+        m.last().icon = icons::Icon::Window;
+    }
+    m.check(tr(Str::AppSystem), cur == kSystemAudio, [&proc, index] { proc.chooseSourceApp(index, kSystemAudio); });
+    m.last().icon = icons::Icon::Monitor;
+    m.check(tr(Str::SentInLegacy), cur == kLinkIn, [&proc, index] { proc.chooseSourceApp(index, kLinkIn); });
+    m.last().icon = icons::Icon::Link;
+    if (cur.startsWith("http")) {
+        m.check(HubEditor::programLabel(cur), true, [] {});
+        m.last().icon = icons::Icon::Link;
+    }
+    m.separator();
+    juce::Component::SafePointer<ChannelRow> self(this);
+    m.item(tr(Str::AppLinkAsk), [self, index] {
+        if (self == nullptr) return;
+        auto& ed = self->ed_;
+        ed.overlay().showPopover(std::make_unique<ReceiveLinkPanel>([&ed, index](const juce::String& url) {
+            ed.proc().chooseSourceApp(index, url);
+            ed.overlay().close();
+            ed.toast(tr(Str::AppLinkReceiving));
+            return true;
+        }), self->picker_, true);
+    });
+    return m;
+}
+
+void ChannelRow::showMenu() {
+    auto* o = Overlay::find(*this);
+    if (o == nullptr) return;
+    auto& proc = ed_.proc();
+    const int slot = d_.slot, index = d_.index;
+    juce::Component::SafePointer<ChannelRow> self(this);
+    if (d_.kind == RowData::Kind::Program) {
+        const bool on = d_.on, rec = d_.recording, follow = d_.follow;
+        Menu m(250);
+        m.header(HubEditor::programLabel(d_.app));
+        m.toggle(tr(Str::CaptureProgram), on, [&proc, index, on] { proc.sendSource(index, ssbus::SourceParam::On, on ? 0.0f : 1.0f); });
+        m.item(rec ? tr(Str::StopRecording) : tr(Str::PrintToFile), [&proc, index, rec] { proc.sendSource(index, ssbus::SourceParam::Record, rec ? 0.0f : 1.0f); });
+        m.last().dot = Dot::Rec;
+        m.toggle(tr(Str::RecordWithDaw), follow, [&proc, index, follow] { proc.sendSource(index, ssbus::SourceParam::FollowRecord, follow ? 0.0f : 1.0f); });
+        m.item(tr(Str::OpenRecordings), [] {
             const auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("HEARASIDE").getChildFile("Recordings");
             dir.createDirectory();
             dir.revealToUser();
-        }
-        if (r == 5) self->ed_.showSourceLevels(v.index, self->more_);
-    });
-}
-
-void HubEditor::ListContent::paint(juce::Graphics& g) {
-    const auto& p = paletteOf(*this);
-    if (!startBox.isEmpty()) {   // getting started: three steps that tick themselves
-        drawInset(g, startBox, theme::radius::row, p, true);
-        auto r = startBox.reduced(18.0f, 14.0f);
-        g.setColour(p.ink);
-        g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText(tr(Str::StartTitle), r.removeFromTop(24.0f), juce::Justification::centredLeft, true);
-        r.removeFromTop(6.0f);
-        for (int i = 0; i < 3; ++i) {
-            const auto text = stepText(i);
-            const float h = juce::jmax(24.0f, wrappedHeight(uiFont(13.0f), text, r.getWidth() - 34.0f, 2.0f));
-            auto line = r.removeFromTop(h);
-            const auto dot = line.removeFromLeft(24.0f).withHeight(24.0f).reduced(1.0f);
-            if (steps[i]) {
-                g.setColour(p.ink);
-                g.fillEllipse(dot);
-                icons::draw(g, icons::Icon::Check, dot.reduced(5.0f), p.onInk, 2.2f);
-            } else {
-                g.setColour(p.ink2);
-                g.drawEllipse(dot, 1.2f);
-                g.setFont(uiFont(12.0f, Weight::SemiBold));
-                g.drawText(juce::String(i + 1), dot, juce::Justification::centred, false);
-            }
-            line.removeFromLeft(10.0f);
-            drawWrapped(g, text, uiFont(13.0f), steps[i] ? p.graphite : p.ink, line.withTrimmedTop(juce::jmax(0.0f, (24.0f - uiFont(13.0f).getHeight()) * 0.5f)), 2.0f);
-            r.removeFromTop(8.0f);
-        }
+        });
+        m.separator();
+        m.item(tr(Str::FineSettingsEllipsis), [self] { if (self) self->ed_.showPage(HubEditor::Page::Programs); }, {}, true);
+        more_.setOpen(true);
+        o->showMenu(std::move(m), more_, false, [self] { if (self) self->more_.setOpen(false); });
+        return;
     }
-    if (!sourcesHead.isEmpty()) {
-        auto h = sourcesHead.withTrimmedLeft(4.0f);
-        g.setColour(p.ink);
-        g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText(tr(Str::SourcesTitle), h.removeFromTop(24.0f), juce::Justification::bottomLeft, true);
-        g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f));
-        g.drawText(tr(Str::SourcesSubtitle), h.withTrimmedTop(2.0f), juce::Justification::topLeft, true);
-    }
-}
-
-juce::String HubEditor::ListContent::stepText(int i) const {
-    const Str texts[] = { Str::StartStep1, Str::StartStep2, Str::StartStep3 };
-    auto t = tr(texts[i]);
-    if (i == 0 && !steps[0] && step1Detail.isNotEmpty()) t << "\n" << step1Detail;   // how, in the DAW in use
-    return t;
+    const bool solo = d_.solo;
+    Menu m(236);
+    m.header(d_.name);
+    m.toggle(tr(Str::StreamSolo), solo, [&proc, slot, solo] { proc.send(slot, ParamId::StrSolo, solo ? 0.0f : 1.0f); });
+    m.item(tr(Str::RenameDisplay), [self] { if (self) self->startRename(); }, tr(Str::RenameHint));
+    m.separator();
+    const int panI = juce::roundToInt(d_.pan * 100.0f);
+    m.item(tr(Str::Pan), [self, slot] { if (self) self->ed_.showPage(HubEditor::Page::Track, slot); },
+           panI == 0 ? tr(Str::Center) : valuetext::formatPan(float(panI)));
+    m.item(tr(Str::Delay), [self, slot] { if (self) self->ed_.showPage(HubEditor::Page::Track, slot); }, valuetext::formatMs(d_.delayMs));
+    const auto stemName = d_.stem < 0 ? tr(Str::StemNone)
+                                      : (proc.stemName(d_.stem).isNotEmpty() ? proc.stemName(d_.stem) : trf(Str::StemN, { juce::String(d_.stem + 1) }));
+    m.item(tr(Str::Stem), [self, slot] {
+        if (self == nullptr) return;
+        auto& pr = self->ed_.proc();
+        Menu stems(236);
+        stems.header(tr(Str::Stem));
+        stems.check(tr(Str::StemNone), self->d_.stem < 0, [&pr, slot] { pr.send(slot, ParamId::StemIndex, -1.0f); });
+        for (int i = 0; i < ssbus::kMaxStems; ++i)
+            stems.check(pr.stemName(i).isNotEmpty() ? pr.stemName(i) : trf(Str::StemN, { juce::String(i + 1) }), self->d_.stem == i,
+                        [&pr, slot, i] { pr.send(slot, ParamId::StemIndex, float(i)); });
+        if (auto* ov = Overlay::find(*self)) ov->showMenu(std::move(stems), self->more_);
+    }, stemName + juce::String(juce::CharPointer_UTF8(" \xe2\x80\xba")));
+    m.separator();
+    m.item(tr(Str::FineSettingsEllipsis), [self, slot] { if (self) self->ed_.showPage(HubEditor::Page::Track, slot); }, {}, true);
+    more_.setOpen(true);
+    o->showMenu(std::move(m), more_, false, [self] { if (self) self->more_.setOpen(false); });
 }
 
 // =============================================================================================
@@ -1228,74 +432,79 @@ juce::String HubEditor::ListContent::stepText(int i) const {
 
 HubEditor::HubEditor(HubProcessor& p)
     : EditorShell(p, 1040, 790, int(theme::layout::hubMinW), int(theme::layout::hubMinH), "hub"), proc_(p) {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &obsChip_, &dawChip_, &mute_, &settingsButton_, &previewBanner_,
-                                                                        &panicBanner_, &viewport_, &meterL_, &meterR_, &masterSlider_,
-                                                                        &limiter_, &preview_, &headphoneSlider_ })
-        content_.addAndMakeVisible(c);
-    viewport_.setViewedComponent(&list_, false);
-    viewport_.setScrollBarsShown(true, false);
-    previewBanner_.setVisible(false);
-    panicBanner_.setVisible(false);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &obs_, &share_, &settingsButton_, &compactMore_, &mute_, &back_, &manage_, &autoSync_,
+                                                                        &levelMode_, &tabs_, &silentBanner_, &syncBanner_, &scroll_, &meterL_, &meterR_,
+                                                                        &masterSlider_, &headphoneSlider_, &masterValue_, &headphoneValue_, &limiter_, &preview_ })
+        content_.addChildComponent(c);
+    scroll_.setContent(list_);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &manageTracksLink_, &manageProgramsLink_, &manageFriendsLink_, &startHide_ })
+        list_.addChildComponent(c);
+    manage_.setIcon(icons::Icon::Sliders);
+    autoSync_.setIcon(icons::Icon::Refresh);
+    levelHeadphones_ = settings_->flag("levelModeHeadphones");
 
     mute_.onClick = [this] { toggleParam(hubparam::Panic); };
     preview_.onClick = [this] { toggleParam(hubparam::Preview); };
     limiter_.onClick = [this] { toggleParam(hubparam::LimiterOn); };
-    settingsButton_.onClick = [this] { showSettings(); };
-    shareButton_.onClick = [this] { showShare(); };
-    levelsButton_.onClick = [this] { showLevels(); };
-    setupButton_.onClick = [this] { showSetup(); };
-    content_.addAndMakeVisible(setupButton_);
-    content_.addChildComponent(silentBanner_);
+    share_.onClick = [this] { showPage(Page::Share); };
+    settingsButton_.onClick = [this] { showPage(Page::Settings); };
+    compactMore_.onClick = [this] { showCompactMore(); };
+    back_.onClick = [this] { showPage(Page::Main); };
+    obs_.onClick = [this] { showObsPopover(); };
+    manage_.onClick = [this] { showPage(Page::Tracks); };
+    autoSync_.onClick = [this] { showPage(Page::Sync); };
+    manageTracksLink_.onClick = [this] { showPage(Page::Programs); };
+    manageProgramsLink_.onClick = [this] { showPage(Page::Programs); };
+    manageFriendsLink_.onClick = [this] { showPage(Page::Share); };
+    startHide_.onClick = [this] { settings_->setFlag("startHidden", true); updateStart(); };
+    levelMode_.onChange = [this](int i) {
+        levelHeadphones_ = i == 0;
+        settings_->setFlag("levelModeHeadphones", levelHeadphones_);
+        syncRows();
+    };
+    tabs_.onChange = [this](int i) { tab_ = Tab(i); layout(); content_.repaint(); };
     silentBanner_.setInterceptsMouseClicks(true, false);
     silentBanner_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    silentClick_.fn = [this] { showSetup(); };
+    silentClick_.fn = [this] { showPage(Page::Setup); };   // "viewers hear nothing": how to fix it
     silentBanner_.addMouseListener(&silentClick_, false);
-    content_.addAndMakeVisible(shareButton_);
-    content_.addChildComponent(shareChip_);
-    content_.addChildComponent(levelsButton_);
-    syncButton_.onClick = [this] {
-        const auto ph = proc_.autoSync().phase;
-        if (ph == HubProcessor::SyncPhase::Countdown || ph == HubProcessor::SyncPhase::Reference || ph == HubProcessor::SyncPhase::Microphone)
-            proc_.cancelAutoSync();
-        else
-            proc_.startAutoSync();   // one press: guess the mic and the music, count down, measure, set the delays
-        updateSyncBanner();
-    };
-    syncMore_.onClick = [this] { showSync(); };
-    content_.addAndMakeVisible(syncButton_);
-    content_.addAndMakeVisible(syncMore_);
-    content_.addChildComponent(syncBanner_);
-    list_.addChildComponent(startHide_);
-    startHide_.onClick = [this] {
-        settings_->setFlag("startHidden", true);
-        updateStart();
-    };
+
     masterLink_ = std::make_unique<DbSliderLink>(masterSlider_, *proc_.params().getParameter(hubparam::Master));
     headphoneLink_ = std::make_unique<DbSliderLink>(headphoneSlider_, *proc_.params().getParameter(hubparam::Headphones));
+    masterValueLink_ = std::make_unique<ParamValueLink>(masterValue_, *proc_.params().getParameter(hubparam::Master));
+    headphoneValueLink_ = std::make_unique<ParamValueLink>(headphoneValue_, *proc_.params().getParameter(hubparam::Headphones));
 
-    procListener_.fn = [this] { layout(); content_.repaint(); };
+    procListener_.fn = [this] { layout(); content_.repaint(); if (pageView_) pageView_->refreshTexts(); };
     proc_.stateChanged.addChangeListener(&procListener_);
     refreshTexts();
-    syncTracks();
-    syncSources();
+    syncRows();
     updateStart();
+    slowTick_ = 5;   // the first timer tick fills the OBS chip
     setContent(content_);
+    timerCallback();
     startTimerHz(30);
 }
 
 HubEditor::~HubEditor() {
     proc_.stateChanged.removeChangeListener(&procListener_);
+    pageView_.reset();
 }
 
 bool HubEditor::paramOn(const char* id) const { return proc_.params().getRawParameterValue(id)->load() > 0.5f; }
 
 void HubEditor::toggleParam(const char* id) { proc_.setParam(id, paramOn(id) ? 0.0f : 1.0f); timerCallback(); }
 
+juce::Colour HubEditor::shadeColour(const RowData& d) const {
+    const auto& p = lnf_.pal();
+    if (settings_->hostColours() && (d.colour >> 24) != 0) return juce::Colour(d.colour).withAlpha(1.0f);
+    const juce::Colour shades[] = { p.trackShade1, p.trackShade2, p.trackShade3, p.trackShade4, p.trackShade5 };
+    return shades[juce::jmax(0, d.shade) % 5];
+}
+
 void HubEditor::lookChanged() {
     backdrop_.invalidate();
     refreshTexts();
     for (auto* r : rows_) { r->refreshTexts(); r->resized(); }
-    for (auto* r : sourceRows_) { r->refreshTexts(); r->resized(); }
+    if (pageView_) pageView_->refreshTexts();
     layout();
     content_.repaint();
 }
@@ -1314,114 +523,139 @@ static juce::String step1For(Daw daw) {
 }
 
 void HubEditor::refreshTexts() {
-    mute_.setButtonText(paramOn(hubparam::Panic) ? tr(Str::MuteOn) : tr(Str::MuteOff));
-    mute_.setTitle(mute_.getButtonText());
+    mute_.setActive(paramOn(hubparam::Panic));
     preview_.setButtonText(paramOn(hubparam::Preview) ? tr(Str::PreviewOn) : tr(Str::PreviewOff));
     preview_.setTitle(preview_.getButtonText());
     limiter_.setTitle(tr(Str::Limiter));
     masterSlider_.setTitle(tr(Str::Master));
     headphoneSlider_.setTitle(tr(Str::HeadphoneMaster));
     headphoneSlider_.setTooltip(tr(Str::HeadphoneMasterTip));
-    settingsButton_.setTooltip(tr(Str::Settings));
-    shareButton_.setTooltip(tr(Str::ShareTip));
-    shareButton_.setTitle(tr(Str::ShareTip));
-    levelsButton_.setTooltip(tr(Str::LevelsTip));
-    setupButton_.setTooltip(tr(Str::SetupTitle));
-    setupButton_.setTitle(tr(Str::SetupTitle));
-    silentBanner_.set(Banner::Style::Warning, icons::Icon::SpeakerOff, tr(Str::ViewersSilentBanner));
-    levelsButton_.setTitle(tr(Str::LevelsTitle));
-    syncButton_.setButtonText(tr(Str::SyncButton));
-    syncButton_.setTooltip(tr(Str::SyncTip));
-    syncMore_.setTooltip(tr(Str::SyncOptions));
-    syncMore_.setTitle(tr(Str::SyncOptions));
-    syncText_ = "-";   // re-render the banner in the new language
-    settingsButton_.setTitle(tr(Str::Settings));
+    share_.setTooltip(tr(Str::ShareAudioTip));
+    share_.setTitle(tr(Str::ShareAudioTip));
+    settingsButton_.setTooltip(tr(Str::SettingsTip));
+    settingsButton_.setTitle(tr(Str::SettingsTip));
+    compactMore_.setTitle(tr(Str::MoreMenuAria));
+    compactMore_.setTooltip(tr(Str::More));
+    back_.setTitle(tr(Str::BackTip));
+    back_.setTooltip(tr(Str::BackTip));
+    obs_.setTooltip(tr(Str::ObsChipTip));
+    manage_.setButtonText(tr(Str::Manage));
+    manage_.setTooltip(tr(Str::ManageTracksTip));
+    autoSync_.setButtonText(tr(Str::SyncButton));
+    autoSync_.setTooltip(tr(Str::SyncTip));
+    manageTracksLink_.setButtonText(tr(Str::Manage));
+    manageProgramsLink_.setButtonText(tr(Str::Manage));
+    manageFriendsLink_.setButtonText(tr(Str::Manage));
     startHide_.setButtonText(tr(Str::StartHide));
-    list_.step1Detail = step1For(currentDaw());
-    previewBanner_.set(Banner::Style::Dark, icons::Icon::Headphones, tr(Str::BannerPreview));
-    panicBanner_.set(Banner::Style::Outline, icons::Icon::SpeakerOff, tr(Str::BannerPanic));
+    startHide_.setSmall(true);
+    levelMode_.setSegments({ { tr(Str::LevelModeHeadphones), icons::Icon::Headphones }, { tr(Str::LevelModeViewers), icons::Icon::Broadcast } });
+    levelMode_.setSelected(levelHeadphones_ ? 0 : 1);
+    levelMode_.setTitle(tr(Str::LevelModeTip));
+    levelMode_.setTooltip(tr(Str::LevelModeTip));
+    silentBanner_.set(Banner::Style::Warning, icons::Icon::SpeakerOff, tr(Str::ViewersSilentBanner));
+    step1Detail_ = step1For(currentDaw());
 }
 
-void HubEditor::askRename(const juce::String& title, const juce::String& current, std::function<void(juce::String)> done) {
-    auto* aw = new juce::AlertWindow(title, {}, juce::MessageBoxIconType::NoIcon, this);
-    aw->setLookAndFeel(&lnf_);
-    aw->addTextEditor("name", current, tr(Str::NewName));
-    aw->addButton(tr(Str::Done), 1, juce::KeyPress(juce::KeyPress::returnKey));
-    aw->addButton(tr(Str::Cancel), 0, juce::KeyPress(juce::KeyPress::escapeKey));
-    aw->enterModalState(true, juce::ModalCallbackFunction::create([aw, done](int result) {
-        if (result == 1) {
-            const auto name = aw->getTextEditorContents("name").trim();
-            if (name.isNotEmpty()) done(name);
-        }
-    }), true);
-}
-
-std::unique_ptr<juce::Component> HubEditor::createPanel(Panel which, int slot) {
-    std::unique_ptr<juce::Component> panel;
-    switch (which) {
-        case Panel::Share:        panel = std::make_unique<HubSharePanel>(proc_); break;
-        case Panel::Settings:     panel = std::make_unique<HubSettingsPanel>(proc_); break;
-        case Panel::Sync:         panel = std::make_unique<HubSyncPanel>(proc_); break;
-        case Panel::Track:        panel = std::make_unique<HubTrackPanel>(*this, slot); break;
-        case Panel::Levels:       panel = std::make_unique<HubLevelsPanel>(proc_); break;
-        case Panel::SourceLevels: panel = std::make_unique<HubSourceLevelsPanel>(*this, slot); break;
-        case Panel::Setup:        panel = std::make_unique<HubSetupPanel>(proc_); break;
+void HubEditor::renameRow(int slot, const juce::String& name) {
+    if (slot < 0) return;
+    const auto it = std::find_if(views_.begin(), views_.end(), [slot](const TrackView& v) { return v.slot == slot; });
+    const auto trimmed = valuetext::truncateUtf8(name.trim(), ssbus::kNameBytes - 1);
+    proc_.rename(slot, trimmed);
+    if (trimmed.isNotEmpty()) {
+        toast(trf(Str::RenamedToast, { trimmed }), 2600);
+    } else {   // the Track goes back to the DAW's name: say which once it arrives
+        pendingRevertSlot_ = slot;
+        pendingRevertUntil_ = juce::Time::getMillisecondCounter() + 2000;
+        pendingRevertFrom_ = it != views_.end() ? it->name : juce::String();
     }
-    panel->setLookAndFeel(&lnf_);
-    recolourTextEditors(*panel);
-    return panel;
 }
 
-void HubEditor::showTrackPanel(int slot, juce::Component& anchor) { launchPanel(createPanel(Panel::Track, slot), anchor); }
-void HubEditor::showSourceLevels(int index, juce::Component& anchor) { launchPanel(createPanel(Panel::SourceLevels, index), anchor); }
-void HubEditor::showSync() { launchPanel(createPanel(Panel::Sync), syncMore_); }
-void HubEditor::showShare() { launchPanel(createPanel(Panel::Share), shareButton_); }
-void HubEditor::showSettings() { launchPanel(createPanel(Panel::Settings), settingsButton_); }
-void HubEditor::showLevels() { launchPanel(createPanel(Panel::Levels), levelsButton_); }
-void HubEditor::showSetup() { launchPanel(createPanel(Panel::Setup), setupButton_.isVisible() ? static_cast<juce::Component&>(setupButton_) : silentBanner_); }
-
-void HubEditor::updateSyncBanner() {
-    const auto st = proc_.autoSync();
-    using P = HubProcessor::SyncPhase;
-    const bool busy = st.phase == P::Countdown || st.phase == P::Reference || st.phase == P::Microphone;
-    const bool recent = (st.phase == P::Done || st.phase == P::Failed) && juce::Time::getMillisecondCounter() - proc_.syncFinishedMs() < 12000;
-    const auto text = busy || recent ? HubSyncPanel::syncStatusText(proc_) : juce::String();
-    syncButton_.setButtonText(busy ? tr(Str::SyncCancel) : tr(Str::SyncButton));
-    if (text == syncText_ && syncBanner_.isVisible() == text.isNotEmpty()) return;
-    syncText_ = text;
-    syncBanner_.set(busy ? Banner::Style::Dark : st.phase == P::Failed ? Banner::Style::Warning : Banner::Style::Outline,
-                    busy ? icons::Icon::Headphones : st.phase == P::Failed ? icons::Icon::Warning : icons::Icon::Broadcast, text);
-    syncBanner_.setVisible(text.isNotEmpty());
-    layout();
-    content_.repaint();
+void HubEditor::goToTrack(int slot) {
+    showPage(Page::Main);
+    for (auto* r : rows_)
+        if (r->data().kind == RowData::Kind::Track && r->data().slot == slot) {
+            scroll_.scrollToShow(r->getBounds());
+            r->flash();
+        }
 }
 
-void HubEditor::syncTracks() {
+// ---------------------------------------------------------------------------------------------
+void HubEditor::syncRows() {
     views_ = proc_.tracks();
-    bool structure = views_.size() != size_t(rows_.size());
-    for (size_t i = 0; !structure && i < views_.size(); ++i) structure = rows_[int(i)]->slot() != views_[i].slot;
+    srcViews_ = proc_.sources();
+    std::vector<RowData> data;
+    int shade = 0;
+    for (const auto& v : views_) {
+        RowData d;
+        d.kind = RowData::Kind::Track;
+        d.slot = v.slot;
+        d.name = v.name;
+        d.colour = v.colourARGB;
+        d.shade = shade++;
+        d.you = v.mon;
+        d.viewers = v.str;
+        d.solo = v.solo;
+        d.active = v.active;
+        d.hpDb = v.trimDb;
+        d.vwDb = v.gainDb;
+        d.pan = v.pan;
+        d.delayMs = v.delayMs;
+        d.stem = v.stem;
+        d.meter = v.peakIn;
+        if (v.hubStatus & ssbus::kHubStatusRateMismatch) d.warnTip = tr(Str::RateMismatch);
+        else if (v.hubStatus & ssbus::kHubStatusAhead) d.warnTip = tr(Str::AheadWarning);
+        else if (v.bypassed) d.warnTip = tr(Str::BypassedTip);
+        data.push_back(d);
+    }
+    for (const auto& s : srcViews_) {
+        RowData d;
+        d.kind = RowData::Kind::Program;
+        d.slot = s.slot;
+        d.index = s.index;
+        d.name = programLabel(s.app);
+        d.colour = s.colourARGB;
+        d.shade = shade++;
+        d.you = s.mon;
+        d.viewers = s.str;
+        d.active = s.active;
+        d.linked = s.slot >= 0;
+        d.hpDb = s.trimDb;
+        d.vwDb = s.gainDb;
+        d.delayMs = s.delayMs;
+        d.meter = s.peak;
+        d.app = s.app;
+        d.on = s.on();
+        d.recording = s.recording();
+        d.follow = (s.flags & ssbus::kSrcFollowRec) != 0;
+        d.capture = s.capture;
+        d.recordSec = s.recordSec;
+        d.latencyMs = s.latencyMs;
+        if (s.flags & ssbus::kSrcDropped) d.warnTip = tr(Str::TakeDropped);
+        data.push_back(d);
+    }
+    bool structure = data.size() != size_t(rows_.size());
+    for (size_t i = 0; !structure && i < data.size(); ++i)
+        structure = rows_[int(i)]->data().kind != data[i].kind || rows_[int(i)]->data().slot != data[i].slot || rows_[int(i)]->data().index != data[i].index;
     if (structure) {
         rows_.clear();
-        for (size_t i = 0; i < views_.size(); ++i) list_.addAndMakeVisible(rows_.add(new TrackRow(*this)));
+        for (size_t i = 0; i < data.size(); ++i) list_.addAndMakeVisible(rows_.add(new ChannelRow(*this)));
     }
-    for (size_t i = 0; i < views_.size(); ++i) rows_[int(i)]->update(views_[i], views_[i].slot);
-    if (structure) { updateStart(); layoutList(); content_.repaint(); }
-}
-
-void HubEditor::syncSources() {
-    srcViews_ = proc_.sources();
-    const auto& views = srcViews_;
-    bool structure = views.size() != size_t(sourceRows_.size());
-    for (size_t i = 0; !structure && i < views.size(); ++i) structure = sourceRows_[int(i)]->index() != views[i].index;
-    if (structure) {
-        sourceRows_.clear();
-        for (size_t i = 0; i < views.size(); ++i) list_.addAndMakeVisible(sourceRows_.add(new SourceRow(*this)));
-    }
-    for (size_t i = 0; i < views.size(); ++i) sourceRows_[int(i)]->update(views[i], views[i].index + 3);
+    for (size_t i = 0; i < data.size(); ++i) rows_[int(i)]->update(data[i]);
     if (structure) { updateStart(); layoutList(); }
+
+    // "Back to the DAW's name" once the Track has published it
+    if (pendingRevertSlot_ >= 0) {
+        const auto it = std::find_if(views_.begin(), views_.end(), [this](const TrackView& v) { return v.slot == pendingRevertSlot_; });
+        if (it != views_.end() && it->name != pendingRevertFrom_) {
+            toast(trf(Str::RenameRevertToast, { it->name }), 2600);
+            pendingRevertSlot_ = -1;
+        } else if (juce::Time::getMillisecondCounter() > pendingRevertUntil_) {
+            pendingRevertSlot_ = -1;
+        }
+    }
 }
 
-// Who hears what, from the rows (solo only applies to the viewers).
+// Who hears what (solo only applies to the viewers).
 HubEditor::Lists HubEditor::summaryLists() const {
     Lists l;
     bool solo = false;
@@ -1433,8 +667,8 @@ HubEditor::Lists HubEditor::summaryLists() const {
     };
     for (const auto& v : views_)
         if (v.active) add(v.name, v.mon, v.str && (!solo || v.solo));
-    for (const auto& s : srcViews_)   // App Audio: only while it is switched on and has a slot
-        if (s.active && s.on() && s.slot >= 0) add(s.name, s.mon, s.str && !solo);
+    for (const auto& s : srcViews_)   // App Audio: while it is on and has a slot; the short name ("Whole computer")
+        if (s.active && s.on() && s.slot >= 0) add(s.app == kSystemAudio ? tr(Str::WholeComputerShort) : programLabel(s.app), s.mon, s.str && !solo);
     return l;
 }
 
@@ -1442,401 +676,545 @@ HubEditor::Lists HubEditor::summaryLists() const {
 void HubEditor::updateStart() {
     const bool s1 = !views_.empty() || !srcViews_.empty(), s2 = proc_.obsConnected(), s3 = settings_->flag("triedPreview");
     const bool show = !s1 || (!(s2 && s3) && !settings_->flag("startHidden"));
-    if (show == showStart_ && s1 == list_.steps[0] && s2 == list_.steps[1] && s3 == list_.steps[2]) return;
+    if (show == showStart_ && s1 == steps_[0] && s2 == steps_[1] && s3 == steps_[2]) return;
     showStart_ = show;
-    list_.steps[0] = s1;
-    list_.steps[1] = s2;
-    list_.steps[2] = s3;
+    steps_[0] = s1;
+    steps_[1] = s2;
+    steps_[2] = s3;
     layoutList();
     list_.repaint();
 }
 
-int HubEditor::startHeight(float w) const {
-    float h = 14.0f + 24.0f + 6.0f;
-    for (int i = 0; i < 3; ++i)
-        h += juce::jmax(24.0f, wrappedHeight(uiFont(13.0f), list_.stepText(i), w - 36.0f - 34.0f, 2.0f)) + 8.0f;
-    return juce::roundToInt(h - 8.0f + 14.0f);
+juce::String HubEditor::lufsText() const {
+    if (lastPanic_) return tr(Str::LoudMuted);
+    if (auto* bus = proc_.engine().bus()) {
+        const float v = ssbus::bitsFloat(bus->streamHeader.loudnessSBits.load(std::memory_order_relaxed));
+        return v < -70.0f ? tr(Str::SilentLufs) : minusText(juce::String(v, 1));
+    }
+    return tr(Str::SilentLufs);
+}
+
+juce::String HubEditor::obsLatencyText() const {
+    const auto li = proc_.latency();
+    return juce::String(li.total(), 1) + " ms";
 }
 
 void HubEditor::timerCallback() {
-    const bool preview = paramOn(hubparam::Preview), panic = paramOn(hubparam::Panic), lim = paramOn(hubparam::LimiterOn);
+    const bool preview = paramOn(hubparam::Preview), panic = paramOn(hubparam::Panic);
     if (preview != lastPreview_ || panic != lastPanic_) {
         lastPreview_ = preview;
         lastPanic_ = panic;
         preview_.setActive(preview);
-        mute_.setActive(panic);
         refreshTexts();
-        previewBanner_.setVisible(preview);
-        panicBanner_.setVisible(panic);
         if (preview) { settings_->setFlag("triedPreview", true); updateStart(); }
-        layout();
         content_.repaint();
     }
-    if (lim != lastLimiter_ || limiter_.isOn() != lim) { lastLimiter_ = lim; limiter_.setOn(lim, content_.isShowing()); }
+    limiter_.setOn(paramOn(hubparam::LimiterOn), content_.isShowing());
     masterLink_->update();
     headphoneLink_->update();
-
-    syncTracks();
-    syncSources();
-    updateSyncBanner();
+    masterValueLink_->update();
+    headphoneValueLink_->update();
+    syncRows();
     if (auto* bus = proc_.engine().bus()) {
         const auto& sh = bus->streamHeader;
         meterL_.setLevel(meterPosition(ssbus::bitsFloat(sh.peakBits[0][0].load(std::memory_order_relaxed))));
         meterR_.setLevel(meterPosition(ssbus::bitsFloat(sh.peakBits[0][1].load(std::memory_order_relaxed))));
     }
 
-    if (++slowTick_ % 6 == 0) {   // ~5 Hz: chips, LUFS, summary text
+    if (++slowTick_ % 3 == 0 && pageView_ != nullptr) pageView_->tick();
+    if (slowTick_ % 6 == 0) {   // ~5 Hz: OBS chip, LUFS, summary, banners
         const bool obs = proc_.obsConnected();
-        obsChip_.set(obs ? tr(Str::ObsConnected) : tr(Str::ObsNotConnected), obs ? StatusChip::Dot::Solid : StatusChip::Dot::None);
-        {
-            // DAW latency as plug-ins can see it: the host buffer (audio-interface latency is not exposed)
-            const auto li = proc_.latency();
-            dawChip_.set(li.block > 0 ? "DAW " + juce::String(li.block) + " · " + juce::String(li.dawMs, 1) + " ms"
-                                      : juce::String(juce::CharPointer_UTF8("DAW \xe2\x80\x93")),
-                         StatusChip::Dot::None);
+        const bool compact = mode_ == Mode::Compact;
+        const auto ms = obsLatencyText();
+        obs_.set(compact ? tr(Str::ObsShort) : (obs ? tr(Str::ObsConnected) : tr(Str::ObsNotConnected)), obs ? Dot::Ok : Dot::Warn, ms, !compact);
+        obs_.setTitle(trf(Str::ObsAriaCompact, { obs ? tr(Str::ObsConnected) : tr(Str::ObsNotConnected), juce::String(proc_.latency().total(), 1) }));
+        // auto sync running: viewers hear nothing, say so wherever you are
+        using P = HubProcessor::SyncPhase;
+        const auto ph = proc_.autoSync().phase;
+        const bool busy = ph == P::Countdown || ph == P::Reference || ph == P::Microphone;
+        const bool silent = proc_.viewersSilent() && !panic;
+        bool relayout = false;
+        if (busy != syncBanner_.isVisible()) {
+            syncBanner_.set(Banner::Style::Dark, icons::Icon::Headphones, tr(Str::SyncViewersUntil));
+            syncBanner_.setVisible(busy && page_ == Page::Main);
+            relayout = true;
         }
-        {   // sharing: "Sharing · Listening 2"
-            const auto& sh = proc_.share();
-            const bool on = proc_.sharing() && sh.running();
-            if (on) shareChip_.set(tr(Str::SharingChip) + " · " + tr(Str::Listeners) + " " + juce::String(sh.listeners()), StatusChip::Dot::Solid);
-            if (on != shareChipOn_) { shareChipOn_ = on; layout(); }
-        }
-        // the header is laid out again only when a chip's text changes its width
-        const int widths[3] = { obsChip_.idealWidth(), dawChip_.idealWidth(), shareChip_.idealWidth() };
-        if (!std::equal(std::begin(widths), std::end(widths), std::begin(chipWidths_))) {
-            std::copy(std::begin(widths), std::end(widths), std::begin(chipWidths_));
-            layout();
-        }
-        const bool only = !summaryLists().onlyViewers.isEmpty();
-        if (only != hadOnlyViewers_) { hadOnlyViewers_ = only; layout(); }
+        if (silent != silentBanner_.isVisible() && page_ == Page::Main) { silentBanner_.setVisible(silent); relayout = true; }
         updateStart();
-        content_.repaint(lufsBox_.toNearestInt().expanded(2));
-        content_.repaint(summaryCard_.toNearestInt());
-        content_.repaint(stripCard_.toNearestInt());
-        content_.repaint(masterLabel_.toNearestInt());
+        const auto summary = joinDots(summaryLists().you) + "|" + joinDots(summaryLists().viewers) + lufsText();
+        if (relayout) layout();
+        if (summary != lastSummary_ || relayout) { lastSummary_ = summary; content_.repaint(); }
+        else {
+            content_.repaint(lufs_.toNearestInt().expanded(4));
+            content_.repaint(bottomBar_.toNearestInt());
+        }
+        if (obs_.idealWidth() != lastObsWidth_) { lastObsWidth_ = obs_.idealWidth(); layoutHeader(); }
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// layout (docs/ux-roadmap.md 5.1): Compact = one column; Regular / Wide = tracks on the left,
-// the viewers' cards on the right. Short windows get the condensed right column.
+void HubEditor::showPage(Page p, int slot) {
+    overlay().close();
+    if (p == page_ && p != Page::Track && pageView_ != nullptr) return;
+    pageView_.reset();
+    page_ = p;
+    if (p != Page::Main) {
+        pageView_ = makeHubPage(*this, p, slot);
+        content_.addAndMakeVisible(*pageView_);
+    }
+    layout();
+    content_.repaint();
+    if (p == Page::Main) share_.grabKeyboardFocus();
+    else back_.grabKeyboardFocus();
+}
 
-void HubEditor::updateMode(float w, float h) {
+void HubEditor::showSettings(SettingsSection s) {
+    showPage(Page::Settings);
+    if (auto* sp = dynamic_cast<HubSettingsPage*>(pageView_.get())) sp->select(int(s));
+}
+
+void HubEditor::showObsPopover() {
+    overlay().showPopover(std::make_unique<ObsPopover>(proc_), obs_, false);
+}
+
+void HubEditor::showCompactMore() {
+    Menu m(250);
+    m.item(tr(Str::ShareAudioTip), [this] { showPage(Page::Share); }, {}, true);
+    m.item(tr(Str::SyncButton), [this] { showPage(Page::Sync); }, {}, true);
+    m.item(tr(Str::TracksPageTitle), [this] { showPage(Page::Tracks); }, {}, true);
+    m.item(tr(Str::ProgramsPageTitle), [this] { showPage(Page::Programs); }, {}, true);
+    m.separator();
+    m.item(tr(Str::SettingsTip), [this] { showPage(Page::Settings); }, {}, true);
+    overlay().showMenu(std::move(m), compactMore_);
+}
+
+// ---------------------------------------------------------------------------------------------
+// layout
+
+void HubEditor::updateMode(float w) {
     const float cb = theme::layout::compactBelow, wa = theme::layout::wideAbove, hy = theme::layout::hysteresis * 0.5f;
     if (w < cb - hy) mode_ = Mode::Compact;
     else if (w > wa + hy) mode_ = Mode::Wide;
     else if (w >= cb + hy && w <= wa - hy) mode_ = Mode::Regular;
     else if (w < cb + hy) { if (mode_ == Mode::Wide) mode_ = Mode::Regular; }   // between Compact and Regular: keep
     else if (mode_ == Mode::Compact) mode_ = Mode::Regular;                       // between Regular and Wide: keep
-    // header + the full viewers card + the full summary card (latency box optional)
-    const float need = 2.0f * theme::space::hubPad + 60.0f + theme::space::cardGap + kStreamCardH + theme::space::cardGap + kSummaryFullH;
-    if (h < need - hy) condensed_ = true;
-    else if (h > need + hy) condensed_ = false;
 }
 
-void HubEditor::layoutHeader(bool compact) {
-    auto h = header_.withTrimmedLeft(compact ? 16.0f : 24.0f).withTrimmedRight(10.0f);
-    wordmarkSize_ = compact || header_.getWidth() < 720.0f ? 13.0f : 17.0f;
-    const float wmW = wordmarkSize_ * 10.0f;
-    wordmark_ = h.removeFromLeft(wmW).withSizeKeepingCentre(wmW, wordmarkSize_ * 1.8f);
-    h.removeFromLeft(8.0f);
-    // what fits is decided by importance (Mute stream always stays), then placed right to left in
-    // the usual order; whatever does not fit is hidden (OBS then shows in the viewers card)
-    struct Item { juce::Component* c; float w, height; bool wanted; int importance; };
-    const Item items[] = { { &settingsButton_, 36.0f, 36.0f, true, 1 }, { &shareButton_, 36.0f, 36.0f, true, 2 },
-                           { &setupButton_, 36.0f, 36.0f, true, 3 }, { &mute_, float(mute_.idealWidth()), 40.0f, true, 0 },
-                           { &obsChip_, float(obsChip_.idealWidth()), 36.0f, true, 4 },
-                           { &shareChip_, float(shareChip_.idealWidth()), 36.0f, shareChipOn_, 6 }, { &dawChip_, float(dawChip_.idealWidth()), 36.0f, true, 5 } };
-    bool shown[std::size(items)] = {};
-    float used = 0.0f;
-    for (int rank = 0; rank <= 6; ++rank)
-        for (size_t i = 0; i < std::size(items); ++i)
-            if (items[i].importance == rank && items[i].wanted && used + items[i].w + (used > 0.0f ? 8.0f : 0.0f) <= h.getWidth()) {
-                used += items[i].w + (used > 0.0f ? 8.0f : 0.0f);
-                shown[i] = true;
-            }
-    bool first = true;
-    for (size_t i = 0; i < std::size(items); ++i) {
-        const auto& it = items[i];
-        it.c->setVisible(shown[i]);
-        if (!shown[i]) continue;
-        if (!first) h.removeFromRight(8.0f);
-        it.c->setBounds(h.removeFromRight(it.w).withSizeKeepingCentre(it.w, it.height).toNearestInt());
-        first = false;
+void HubEditor::layoutHeader() {
+    const bool compact = mode_ == Mode::Compact;
+    const bool sub = page_ != Page::Main;
+    auto h = header_.withTrimmedLeft(sub ? 12.0f : (compact ? 16.0f : 24.0f)).withTrimmedRight(compact ? 8.0f : 12.0f);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &obs_, &share_, &settingsButton_, &compactMore_, &back_ })
+        c->setVisible(false);
+    mute_.setVisible(true);
+    mute_.setIconOnly(compact);
+    const float mw = float(mute_.idealWidth());
+    mute_.setBounds(h.removeFromRight(mw).withSizeKeepingCentre(mw, 40.0f).toNearestInt());
+    divider_ = {};
+    if (sub) {
+        back_.setVisible(true);
+        back_.setBounds(h.removeFromLeft(40.0f).withWidth(100.0f).withSizeKeepingCentre(100.0f, 40.0f).toNearestInt());
+        back_.setBounds(back_.getBounds().withWidth(back_.idealWidth()));
+        headerTitle_ = h.withLeft(float(back_.getRight()) + 14.0f).withTrimmedRight(14.0f);
+        wordmark_ = {};
+        return;
     }
-    obsInHeader_ = obsChip_.isVisible();
-}
-
-// The viewers' card when there is little room: title + LUFS, meters, (who hears what), preview + levels.
-float HubEditor::stripHeight(float, bool withSummary) const {
-    const auto lines = float(summaryLineCount());
-    const float summary = withSummary ? lines * kStripLineH + (lines - 1.0f) * 4.0f + 12.0f : 0.0f;
-    return 16.0f + 44.0f + 10.0f + 18.0f + 12.0f + summary + 44.0f + 16.0f;
-}
-
-int HubEditor::summaryLineCount() const { return summaryLists().onlyViewers.isEmpty() ? 2 : 3; }
-
-void HubEditor::layoutStrip(juce::Rectangle<float> card, bool withSummary) {
-    auto c = card.reduced(16.0f);
-    auto top = c.removeFromTop(44.0f);
-    lufsBox_ = top.removeFromRight(110.0f);
-    stripTitle_ = top.withTrimmedRight(8.0f);
-    c.removeFromTop(10.0f);
-    auto meters = c.removeFromTop(18.0f);
-    meterLabels_ = meters.removeFromLeft(18.0f);
-    meterL_.setBounds(meters.removeFromTop(6.0f).toNearestInt());
-    meters.removeFromTop(6.0f);
-    meterR_.setBounds(meters.removeFromTop(6.0f).toNearestInt());
-    c.removeFromTop(12.0f);
-    stripLines_ = {};
-    if (withSummary) {
-        const auto lines = float(summaryLineCount());
-        stripLines_ = c.removeFromTop(lines * kStripLineH + (lines - 1.0f) * 4.0f);
-        c.removeFromTop(12.0f);
+    headerTitle_ = {};
+    if (compact) {
+        h.removeFromRight(6.0f);
+        compactMore_.setVisible(true);
+        compactMore_.setBounds(h.removeFromRight(40.0f).withSizeKeepingCentre(40.0f, 40.0f).toNearestInt());
+        h.removeFromRight(6.0f);
+        const float cw = juce::jmin(float(obs_.idealWidth()), h.getWidth() - 140.0f);
+        obs_.setVisible(cw > 60.0f);
+        obs_.setBounds(h.removeFromRight(cw).withSizeKeepingCentre(cw, 32.0f).toNearestInt());
+        wordmark_ = h.withSizeKeepingCentre(h.getWidth(), 24.0f);
+        return;
     }
-    auto row = c.removeFromTop(44.0f);
-    levelsButton_.setBounds(row.removeFromRight(44.0f).toNearestInt());
-    row.removeFromRight(8.0f);
-    preview_.setBounds(row.toNearestInt());
-}
-
-void HubEditor::layoutTracksCard(bool compact) {
-    const float padX = compact ? 14.0f : 20.0f;
-    auto c = tracksCard_.withTrimmedTop(compact ? 16.0f : 22.0f).withTrimmedBottom(compact ? 14.0f : 20.0f).reduced(padX, 0.0f);
-    // title (+ subtitle) on the left, the sync buttons on the right; they get a line of their own when narrow
-    const float sw = textWidth(uiFont(13.0f, Weight::Medium), syncButton_.getButtonText()) + 32.0f;
-    const float titleW = textWidth(uiFont(20.0f, Weight::SemiBold), tr(Str::TracksTitle));
-    const bool stacked = c.getWidth() < titleW + 24.0f + sw + 6.0f + 34.0f;
-    auto head = c.removeFromTop(stacked ? 26.0f + 8.0f + 34.0f : 48.0f);
-    auto syncRow = stacked ? head.removeFromBottom(34.0f) : head;
-    syncMore_.setBounds(syncRow.removeFromRight(34.0f).withSizeKeepingCentre(34.0f, 34.0f).toNearestInt());
-    syncRow.removeFromRight(6.0f);
-    const float bw = juce::jmin(sw, syncRow.getWidth());
-    syncButton_.setBounds(syncRow.withLeft(syncRow.getRight() - bw).withSizeKeepingCentre(bw, 34.0f).toNearestInt());
-    tracksTitle_ = stacked ? head.removeFromTop(26.0f) : head.withRight(float(syncButton_.getX()) - 12.0f).withTrimmedLeft(4.0f);
-    tracksSubtitle_ = !stacked;
-    c.removeFromTop(4.0f);
-    const bool bannersHere = !compact;   // compact: preview / panic sit above the viewers card
-    for (auto* bn : { &silentBanner_, &syncBanner_, &previewBanner_, &panicBanner_ }) {
-        if (!bn->isVisible() || (!bannersHere && bn != &syncBanner_)) continue;
-        const int h = bn->idealHeight(int(c.getWidth()));
-        bn->setBounds(c.removeFromTop(float(h)).toNearestInt());
-        c.removeFromTop(12.0f);
-    }
-    const float rowW = c.getWidth() - float(viewport_.getScrollBarThickness()) - 4.0f;
-    columns_ = rowCols(rowW).tier == RowTier::Narrow ? juce::Rectangle<float>() : c.removeFromTop(20.0f);
-    if (!columns_.isEmpty()) c.removeFromTop(8.0f);
-    viewport_.setBounds(c.toNearestInt());
-    layoutList();
+    divider_ = h.removeFromRight(9.0f).withSizeKeepingCentre(1.0f, 24.0f);
+    h.removeFromRight(4.0f);
+    settingsButton_.setVisible(true);
+    settingsButton_.setBounds(h.removeFromRight(40.0f).withSizeKeepingCentre(40.0f, 40.0f).toNearestInt());
+    h.removeFromRight(8.0f);
+    share_.setVisible(true);
+    share_.setBounds(h.removeFromRight(40.0f).withSizeKeepingCentre(40.0f, 40.0f).toNearestInt());
+    h.removeFromRight(8.0f);
+    const float cw = juce::jmin(float(obs_.idealWidth()), h.getWidth() - 150.0f);
+    obs_.setVisible(cw > 80.0f);
+    obs_.setBounds(h.removeFromRight(cw).withSizeKeepingCentre(cw, 36.0f).toNearestInt());
+    wordmark_ = h.withSizeKeepingCentre(h.getWidth(), 26.0f);
 }
 
 void HubEditor::layout() {
     const auto all = content_.getLocalBounds().toFloat();
     if (all.isEmpty()) return;
-    updateMode(all.getWidth(), all.getHeight());
+    updateMode(all.getWidth());
     const bool compact = mode_ == Mode::Compact;
     const float pad = compact ? theme::layout::compactPad : theme::space::hubPad;
-    const float gap = compact ? theme::layout::compactPad : theme::space::cardGap;
+    const float gap = compact ? 10.0f : theme::space::cardGap;
     auto r = all.reduced(pad);
-
-    header_ = r.removeFromTop(compact ? 52.0f : 60.0f);
+    header_ = r.removeFromTop(compact ? kCompactHeaderH : kHeaderH);
     r.removeFromTop(gap);
-    layoutHeader(compact);
+    layoutHeader();
 
-    const bool showMain = proc_.connected() && proc_.engine().role() != ssengine::HubEngine::Role::Secondary;
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &viewport_, &syncButton_, &syncMore_, &meterL_, &meterR_, &preview_ })
-        c->setVisible(showMain);
-    if (!showMain) {
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &previewBanner_, &panicBanner_, &syncBanner_, &silentBanner_, &masterSlider_, &limiter_,
-                                                                            &headphoneSlider_, &levelsButton_ })
-            c->setVisible(false);
-        messageCard_ = r.withSizeKeepingCentre(juce::jmin(600.0f, r.getWidth()), juce::jmin(250.0f, r.getHeight()));
-        tracksCard_ = streamCard_ = summaryCard_ = stripCard_ = {};
-        backdrop_.setCards({ { header_, theme::radius::header }, { messageCard_, theme::radius::card } });
+    // hide everything of the main screen, then show what this layout uses
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &manage_, &autoSync_, &levelMode_, &tabs_, &scroll_, &meterL_, &meterR_, &masterSlider_,
+                                                                        &headphoneSlider_, &masterValue_, &headphoneValue_, &limiter_, &preview_ })
+        c->setVisible(false);
+    if (page_ != Page::Main) silentBanner_.setVisible(false);
+    if (page_ != Page::Main) syncBanner_.setVisible(false);
+    tracksCard_ = viewersCard_ = rightNow_ = bottomBar_ = messageCard_ = columns_ = tracksHead_ = slidersSetLabel_ = {};
+
+    std::vector<GlassCard> cards { { header_, theme::radius::header } };
+    if (page_ != Page::Main && pageView_ != nullptr) {
+        pageView_->setBounds(r.toNearestInt());
+        for (auto c : pageView_->cards()) cards.push_back({ c.bounds + pageView_->getPosition().toFloat(), c.radius });
+        backdrop_.setCards(std::move(cards));
         return;
     }
-    previewBanner_.setVisible(lastPreview_);
-    panicBanner_.setVisible(lastPanic_);
-    silentBanner_.setVisible(proc_.viewersSilent());
 
-    streamCard_ = summaryCard_ = stripCard_ = {};
-    if (compact) {
-        // what reaches the viewers comes first: mute / preview / silence banners, then the viewers card
-        for (auto* bn : { &silentBanner_, &panicBanner_, &previewBanner_ }) {
-            if (!bn->isVisible()) continue;
-            bn->setBounds(r.removeFromTop(float(bn->idealHeight(int(r.getWidth())))).toNearestInt());
-            r.removeFromTop(gap);
-        }
-        stripCard_ = r.removeFromTop(stripHeight(r.getWidth(), true));
-        layoutStrip(stripCard_, true);
-        r.removeFromTop(gap);
-        tracksCard_ = r;
-    } else {
-        const float rightW = mode_ == Mode::Wide ? 340.0f : 300.0f;
-        auto right = r.removeFromRight(rightW);
-        r.removeFromRight(gap);
-        tracksCard_ = r;
-        if (condensed_) {
-            stripCard_ = right.removeFromTop(stripHeight(rightW, false));
-            layoutStrip(stripCard_, false);
-            right.removeFromTop(gap);
-            const auto lines = float(summaryLineCount());
-            const float latency = proc_.latency().obs ? kStripLineH : wrappedHeight(uiFont(12.0f), tr(Str::ObsHint), rightW - 36.0f, 2.0f);
-            summaryCard_ = right.withHeight(juce::jmin(right.getHeight(), 18.0f + 24.0f + 10.0f + lines * (16.0f + kStripLineH + 6.0f) + latency + 18.0f));
-            summaryTitle_ = summaryCard_.reduced(18.0f).removeFromTop(24.0f);
-            stripLines_ = {};
-        } else {
-            streamCard_ = right.removeFromTop(kStreamCardH);
-            auto c = streamCard_.reduced(18.0f);
-            auto top = c.removeFromTop(56.0f);
-            lufsBox_ = top.removeFromRight(118.0f);
-            streamTitle_ = top;
-            c.removeFromTop(14.0f);
-            auto meters = c.removeFromTop(18.0f);
-            meterLabels_ = meters.removeFromLeft(18.0f);
-            meterL_.setBounds(meters.removeFromTop(6.0f).toNearestInt());
-            meters.removeFromTop(6.0f);
-            meterR_.setBounds(meters.removeFromTop(6.0f).toNearestInt());
-            c.removeFromTop(14.0f);
-            masterLabel_ = c.removeFromTop(18.0f);
-            c.removeFromTop(6.0f);
-            masterSlider_.setBounds(c.removeFromTop(22.0f).toNearestInt());
-            c.removeFromTop(14.0f);
-            auto limRow = c.removeFromTop(36.0f);
-            limiter_.setBounds(limRow.removeFromRight(50.0f).withSizeKeepingCentre(50.0f, 30.0f).toNearestInt());
-            limiterText_ = limRow;
-            c.removeFromTop(14.0f);
-            preview_.setBounds(c.removeFromTop(48.0f).toNearestInt());
-            right.removeFromTop(gap);
-
-            summaryCard_ = right;
-            auto s = summaryCard_.reduced(18.0f);
-            summaryTitle_ = s.removeFromTop(24.0f);
-            s.removeFromTop(12.0f);
-            youBox_ = s.removeFromTop(96.0f);
-            {
-                auto in = youBox_.reduced(14.0f, 10.0f);
-                youText_ = in.removeFromTop(38.0f);
-                in.removeFromTop(4.0f);
-                hpLabel_ = in.removeFromTop(16.0f);
-                in.removeFromTop(2.0f);
-                headphoneSlider_.setBounds(in.withSizeKeepingCentre(in.getWidth(), 20.0f).toNearestInt());
-            }
-            s.removeFromTop(8.0f);
-            viewersBox_ = s.removeFromTop(62.0f);
-            s.removeFromTop(8.0f);
-            onlyBox_ = {};
-            if (hadOnlyViewers_ && s.getHeight() >= 44.0f) {
-                onlyBox_ = s.removeFromTop(44.0f);
-                s.removeFromTop(8.0f);
-            }
-            latencyBox_ = s.removeFromTop(juce::jmin(s.getHeight(), 58.0f));
-        }
+    const bool showMain = proc_.connected() && proc_.engine().role() != ssengine::HubEngine::Role::Secondary;
+    if (!showMain) {
+        messageCard_ = r.withSizeKeepingCentre(juce::jmin(600.0f, r.getWidth()), juce::jmin(250.0f, r.getHeight()));
+        cards.push_back({ messageCard_, theme::radius::card });
+        backdrop_.setCards(std::move(cards));
+        return;
     }
-    const bool strip = !stripCard_.isEmpty();
-    masterSlider_.setVisible(!strip);
-    limiter_.setVisible(!strip);
-    headphoneSlider_.setVisible(!strip);
-    levelsButton_.setVisible(strip);
-    layoutTracksCard(compact);
-
-    std::vector<GlassCard> cards { { header_, theme::radius::header }, { tracksCard_, theme::radius::card } };
-    for (auto* c : { &streamCard_, &stripCard_, &summaryCard_ })
-        if (!c->isEmpty()) cards.push_back({ *c, theme::radius::card });
+    layoutMain(r);
+    cards.push_back({ tracksCard_, theme::radius::card });
+    for (auto* c : { &viewersCard_, &rightNow_, &bottomBar_ })
+        if (!c->isEmpty()) cards.push_back({ *c, c == &bottomBar_ ? 20.0f : theme::radius::card });
     backdrop_.setCards(std::move(cards));
 }
 
+void HubEditor::layoutMain(juce::Rectangle<float> r) {
+    const bool compact = mode_ == Mode::Compact;
+    if (compact) {
+        tabs_.setVisible(true);
+        tabs_.setTall(true);
+        tabs_.setSegments({ { trf(Str::TabTracks, { juce::String(rows_.size()) }) }, { tr(Str::TabLevels) }, { tr(Str::TabSummary) } });
+        tabs_.setSelected(int(tab_));
+        tabs_.setBounds(r.removeFromTop(38.0f).toNearestInt());
+        r.removeFromTop(10.0f);
+        bottomBar_ = r.removeFromBottom(64.0f);
+        r.removeFromBottom(10.0f);
+        {
+            auto b = bottomBar_.reduced(16.0f, 10.0f);
+            const float pw = juce::jmin(b.getWidth() * 0.5f, textWidth(uiFont(13.5f, Weight::SemiBold), preview_.getButtonText()) + 18.0f + 8.0f + 36.0f);
+            preview_.setVisible(true);
+            preview_.setBounds(b.removeFromRight(pw).withSizeKeepingCentre(pw, 44.0f).toNearestInt());
+        }
+        if (tab_ == Tab::Levels) {
+            viewersCard_ = r.withHeight(juce::jmin(r.getHeight(), 380.0f));
+            layoutViewersCard(viewersCard_, false);
+            preview_.setVisible(true);
+            return;
+        }
+        if (tab_ == Tab::Summary) {
+            rightNow_ = r.withHeight(juce::jmin(r.getHeight(), 320.0f));
+            return;
+        }
+        tracksCard_ = r;
+        auto c = r.reduced(12.0f);
+        auto line = c.removeFromTop(38.0f);
+        slidersSetLabel_ = line.removeFromLeft(textWidth(uiFont(12.0f), tr(Str::SlidersSet)) + 14.0f);
+        levelMode_.setVisible(true);
+        levelMode_.setTall(true);
+        levelMode_.setBounds(line.toNearestInt());
+        c.removeFromTop(10.0f);
+        for (auto* bn : { &silentBanner_, &syncBanner_ }) {
+            if (!bn->isVisible()) continue;
+            bn->setBounds(c.removeFromTop(float(bn->idealHeight(int(c.getWidth())))).toNearestInt());
+            c.removeFromTop(10.0f);
+        }
+        narrowRows_ = true;
+        scroll_.setVisible(true);
+        scroll_.setBounds(c.withTrimmedRight(-10.0f).toNearestInt());
+        scroll_.setFadeColour(lnf_.pal().paper.overlaidWith(lnf_.pal().glass));
+        layoutList();
+        return;
+    }
+
+    const float rightW = mode_ == Mode::Wide ? kRightWideW : kRightW;
+    auto right = r.removeFromRight(rightW);
+    r.removeFromRight(theme::space::cardGap);
+    tracksCard_ = r;
+
+    // right column: as much of the two cards as the height allows (prompt 3.3)
+    const float fullViewers = 377.0f, condViewers = 300.0f, rightNowFull = 260.0f, rightNowCounts = 150.0f;
+    const float h = right.getHeight();
+    condensed_ = h < fullViewers + theme::space::cardGap + rightNowCounts;
+    rightNowLists_ = h >= fullViewers + theme::space::cardGap + rightNowFull;
+    rightNowShown_ = h >= (condensed_ ? condViewers : fullViewers) + theme::space::cardGap + 120.0f;
+    viewersCard_ = right.removeFromTop(juce::jmin(h, condensed_ ? condViewers : fullViewers));
+    layoutViewersCard(viewersCard_, condensed_);
+    right.removeFromTop(theme::space::cardGap);
+    if (rightNowShown_) rightNow_ = right;
+
+    // tracks card: head, column header, the list
+    auto c = tracksCard_.reduced(20.0f);
+    tracksHead_ = c.removeFromTop(42.0f);
+    {
+        auto head = tracksHead_;
+        manage_.setVisible(true);
+        autoSync_.setVisible(true);
+        const float sw = float(autoSync_.idealWidth()), mw = float(manage_.idealWidth());
+        autoSync_.setBounds(head.removeFromRight(sw).withHeight(36.0f).toNearestInt());
+        head.removeFromRight(12.0f);
+        manage_.setBounds(head.removeFromRight(mw).withHeight(36.0f).toNearestInt());
+    }
+    c.removeFromTop(14.0f);
+    for (auto* bn : { &silentBanner_, &syncBanner_ }) {
+        if (!bn->isVisible()) continue;
+        bn->setBounds(c.removeFromTop(float(bn->idealHeight(int(c.getWidth())))).toNearestInt());
+        c.removeFromTop(12.0f);
+    }
+    const float rowW = c.getWidth();
+    narrowRows_ = rowW < 520.0f;
+    levelMode_.setVisible(true);
+    levelMode_.setTall(false);
+    if (narrowRows_) {   // two-line rows: the level switch gets a line of its own
+        auto line = c.removeFromTop(38.0f);
+        slidersSetLabel_ = line.removeFromLeft(textWidth(uiFont(12.0f), tr(Str::SlidersSet)) + 14.0f);
+        levelMode_.setBounds(line.toNearestInt());
+    } else {
+        columns_ = c.removeFromTop(32.0f);
+        auto col = columns_.withTrimmedLeft(14.0f).withTrimmedRight(10.0f);
+        col.removeFromRight(kMoreW + kColGap);
+        levelMode_.setBounds(col.removeFromRight(kLevelW).toNearestInt());
+    }
+    c.removeFromTop(14.0f);
+    scroll_.setVisible(true);
+    scroll_.setBounds(c.withTrimmedRight(-14.0f).toNearestInt());
+    scroll_.setFadeColour(lnf_.pal().paper.overlaidWith(lnf_.pal().glass));
+    layoutList();
+}
+
+void HubEditor::layoutViewersCard(juce::Rectangle<float> card, bool condensed) {
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &meterL_, &meterR_, &masterSlider_, &masterValue_, &limiter_, &preview_ })
+        c->setVisible(true);
+    headphoneSlider_.setVisible(!condensed);
+    headphoneValue_.setVisible(!condensed);
+    auto c = card.reduced(20.0f);
+    auto top = c.removeFromTop(40.0f);
+    lufs_ = top.removeFromRight(110.0f);
+    lufsLabel_ = top;
+    c.removeFromTop(14.0f);
+    auto meters = c.removeFromTop(19.0f);
+    meterLabels_ = meters.removeFromLeft(16.0f);
+    meterL_.setBounds(meters.removeFromTop(7.0f).toNearestInt());
+    meters.removeFromTop(5.0f);
+    meterR_.setBounds(meters.removeFromTop(7.0f).toNearestInt());
+    c.removeFromTop(14.0f);
+    masterLabel_ = c.removeFromTop(26.0f);
+    masterValue_.setBounds(masterLabel_.withLeft(masterLabel_.getRight() - 62.0f).withTrimmedRight(-6.0f).withRight(masterLabel_.getRight()).toNearestInt());
+    c.removeFromTop(6.0f);
+    masterSlider_.setBounds(c.removeFromTop(20.0f).toNearestInt());
+    c.removeFromTop(14.0f);
+    if (!condensed) {
+        hpLabel_ = c.removeFromTop(26.0f);
+        headphoneValue_.setBounds(hpLabel_.withLeft(hpLabel_.getRight() - 62.0f).toNearestInt());
+        c.removeFromTop(6.0f);
+        headphoneSlider_.setBounds(c.removeFromTop(20.0f).toNearestInt());
+        c.removeFromTop(14.0f);
+    } else {
+        hpLabel_ = {};
+    }
+    sep_ = c.removeFromTop(1.0f);
+    c.removeFromTop(14.0f);
+    auto lim = c.removeFromTop(condensed ? 26.0f : 36.0f);
+    limiter_.setBounds(lim.removeFromRight(46.0f).withSizeKeepingCentre(46.0f, 26.0f).toNearestInt());
+    limiterText_ = lim;
+    c.removeFromTop(14.0f);
+    preview_.setBounds(c.removeFromTop(48.0f).toNearestInt());
+}
+
 void HubEditor::layoutList() {
-    const int gapY = int(theme::space::rowGap);
-    auto total = [&](float w) {
-        int t = showStart_ ? startHeight(w) + gapY : 0;
-        t += rows_.size() * (TrackRow::heightFor(w) + gapY);
-        if (!sourceRows_.isEmpty()) t += gapY + kSourcesHeadH + sourceRows_.size() * (SourceRow::heightFor(w) + gapY);
-        return t - gapY;
-    };
-    float w = float(viewport_.getWidth());
-    if (total(w) > viewport_.getHeight()) w -= float(viewport_.getScrollBarThickness() + 4);
-    const int wi = juce::jmax(1, int(w));
+    const int w = juce::jmax(1, scroll_.contentWidth());
+    const int gap = int(theme::space::rowGap);
     int y = 0;
-    list_.startBox = {};
-    list_.sourcesHead = {};
+    startBox_ = programsHead_ = friendsHead_ = {};
     startHide_.setVisible(false);
     if (showStart_) {
-        const int h = startHeight(w);
-        list_.startBox = juce::Rectangle<float>(0.0f, 0.0f, w, float(h));
-        if (list_.steps[0]) {   // can be hidden once there are tracks
-            const int bw = juce::roundToInt(textWidth(uiFont(13.0f, Weight::Medium), startHide_.getButtonText()) + 28.0f);
-            startHide_.setBounds(wi - bw - 12, 12, bw, int(theme::layout::minTarget));
+        const float sw = float(w) - 36.0f - 34.0f;
+        float h = 14.0f + 24.0f + 6.0f;
+        for (int i = 0; i < 3; ++i) {
+            auto t = tr(i == 0 ? Str::StartStep1 : i == 1 ? Str::StartStep2 : Str::StartStep3);
+            if (i == 0 && !steps_[0] && step1Detail_.isNotEmpty()) t << "\n" << step1Detail_;
+            h += juce::jmax(24.0f, wrappedHeight(uiFont(13.0f), t, sw, 2.0f)) + 8.0f;
+        }
+        h += 6.0f;
+        startBox_ = { 0.0f, 0.0f, float(w), h };
+        if (steps_[0]) {
+            const int bw = startHide_.idealWidth();
+            startHide_.setBounds(w - bw - 12, 12, bw, 30);
             startHide_.setVisible(true);
         }
-        y = h + gapY;
+        y = juce::roundToInt(h) + kGroupGap;
     }
+    const int rh = ChannelRow::heightFor(narrowRows_);
+    bool programsStarted = false;
     for (auto* row : rows_) {
-        const int h = TrackRow::heightFor(w);
-        row->setBounds(0, y, wi, h);
-        y += h + gapY;
-    }
-    if (!sourceRows_.isEmpty()) {
-        y += gapY;
-        list_.sourcesHead = juce::Rectangle<float>(0.0f, float(y), w, float(kSourcesHeadH - gapY));
-        y += kSourcesHeadH;
-        for (auto* row : sourceRows_) {
-            const int h = SourceRow::heightFor(w);
-            row->setBounds(0, y, wi, h);
-            y += h + gapY;
+        row->setNarrow(narrowRows_);
+        if (row->data().kind == RowData::Kind::Program && !programsStarted) {
+            programsStarted = true;
+            y += kGroupGap - gap + 4;
+            programsHead_ = { 0.0f, float(y), float(w), 22.0f };
+            y += 22 + kGroupGap;
         }
+        row->setBounds(0, y, w, rh);
+        y += rh + gap;
     }
-    list_.setSize(wi, juce::jmax(1, y - gapY));
+    if (!rows_.isEmpty()) y -= gap;
+    // Friends (the room comes with S2): the group is there so people find it
+    y += kGroupGap + 4;
+    friendsHead_ = { 0.0f, float(y), float(w), 22.0f };
+    y += 22;
+    manageProgramsLink_.setVisible(programsStarted);
+    manageTracksLink_.setVisible(false);
+    manageFriendsLink_.setVisible(true);
+    auto placeLink = [&](LinkButton& l, juce::Rectangle<float> head) {
+        const int lw = l.idealWidth();
+        l.setBounds(juce::Rectangle<float>(head.getRight() - float(lw) - 2.0f, head.getY(), float(lw) + 2.0f, head.getHeight()).toNearestInt());
+    };
+    if (programsStarted) placeLink(manageProgramsLink_, programsHead_);
+    placeLink(manageFriendsLink_, friendsHead_);
+    list_.setSize(w, juce::jmax(1, y + 4));
     list_.repaint();
 }
 
-// "In your headphones: a, b" lines (condensed / compact viewers card and summary)
-void HubEditor::paintSummaryLines(juce::Graphics& g, juce::Rectangle<float> area, bool stacked) {
+// ---------------------------------------------------------------------------------------------
+// painting
+
+void HubEditor::paintHeader(juce::Graphics& g) {
+    const auto& p = lnf_.pal();
+    if (!wordmark_.isEmpty()) {
+        const bool compact = mode_ == Mode::Compact;
+        drawWordmark(g, wordmark_, "HUB", compact ? 14.0f : 16.0f, p.ink);
+    }
+    if (!divider_.isEmpty()) {
+        g.setColour(p.hairline3);
+        g.fillRect(divider_);
+    }
+    if (!headerTitle_.isEmpty()) {
+        Str title = Str::Settings, cap = Str::SettingsSubtitle;
+        switch (page_) {
+            case Page::Share:    title = Str::SharePageTitle; cap = Str::SharePageSubtitle; break;
+            case Page::Settings: title = Str::Settings; cap = Str::SettingsSubtitle; break;
+            case Page::Track:    title = Str::TrackFineTitle; cap = Str::TrackFineSubtitle; break;
+            case Page::Sync:     title = Str::SyncButton; cap = Str::SyncSubtitle; break;
+            case Page::Tracks:   title = Str::TracksPageTitle; cap = Str::TracksPageSubtitle; break;
+            case Page::Programs: title = Str::ProgramsPageTitle; cap = Str::ProgramsPageSubtitle; break;
+            case Page::Setup:    title = Str::SetupTitle; cap = Str::SetupCheckCap; break;
+            case Page::Main:     break;
+        }
+        auto t = headerTitle_.withSizeKeepingCentre(headerTitle_.getWidth(), 20.0f + 2.0f + 16.0f);
+        g.setColour(p.ink);
+        g.setFont(uiFont(17.0f, Weight::SemiBold));
+        g.drawText(ellipsize(uiFont(17.0f, Weight::SemiBold), tr(title), t.getWidth()), t.removeFromTop(20.0f), juce::Justification::centredLeft, false);
+        t.removeFromTop(2.0f);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.0f));
+        g.drawText(ellipsize(uiFont(12.0f), tr(cap), t.getWidth()), t, juce::Justification::centredLeft, false);
+    }
+}
+
+void HubEditor::paintViewersCard(juce::Graphics& g) {
+    const auto& p = lnf_.pal();
+    auto t = lufsLabel_;
+    g.setColour(p.ink);
+    g.setFont(uiFont(17.0f, Weight::SemiBold));
+    g.drawText(ellipsize(uiFont(17.0f, Weight::SemiBold), tr(Str::StreamTitle), t.getWidth()), t.removeFromTop(22.0f), juce::Justification::centredLeft, false);
+    t.removeFromTop(3.0f);
+    g.setColour(p.graphite);
+    g.setFont(uiFont(12.0f));
+    g.drawText(tr(Str::Loudness), t, juce::Justification::topLeft, true);
+    g.setColour(lastPanic_ ? p.danger : p.ink);
+    g.setFont(uiFont(lastPanic_ || lufsText().containsAnyOf("0123456789") ? 28.0f : 22.0f, Weight::SemiBold));
+    g.drawFittedText(lufsText(), lufs_.withHeight(34.0f).toNearestInt(), juce::Justification::centredRight, 1, 0.7f);
+    auto ml = meterLabels_;
+    g.setColour(p.graphite);
+    g.setFont(uiFont(10.0f));
+    g.drawText("L", ml.removeFromTop(7.0f).expanded(0, 3), juce::Justification::centredLeft, false);
+    ml.removeFromTop(5.0f);
+    g.drawText("R", ml.expanded(0, 3), juce::Justification::centredLeft, false);
+    g.setColour(p.ink);
+    g.setFont(uiFont(12.5f));
+    g.drawText(tr(Str::Master), masterLabel_, juce::Justification::centredLeft, true);
+    if (!hpLabel_.isEmpty()) g.drawText(tr(Str::HeadphoneMaster), hpLabel_, juce::Justification::centredLeft, true);
+    g.setColour(p.hairline2);
+    g.fillRect(sep_);
+    auto lt = limiterText_;
+    const bool cond = lt.getHeight() < 30.0f;
+    auto block = lt.withSizeKeepingCentre(lt.getWidth(), cond ? 20.0f : 36.0f);
+    g.setColour(p.ink);
+    g.setFont(uiFont(13.5f, Weight::Medium));
+    g.drawText(tr(Str::Limiter), block.removeFromTop(19.0f), juce::Justification::centredLeft, true);
+    if (!cond) {
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.0f));
+        g.drawText(tr(Str::LimiterCaption), block.withTrimmedTop(1.0f), juce::Justification::centredLeft, true);
+    }
+}
+
+void HubEditor::paintRightNow(juce::Graphics& g, juce::Rectangle<float> area, bool lists) {
     const auto& p = lnf_.pal();
     const auto l = summaryLists();
-    struct Line { Str label; juce::String text; };
-    std::vector<Line> lines {
-        { Str::MonLabel, lastPreview_ ? tr(Str::SummaryPreviewing) : (l.you.isEmpty() ? tr(Str::None) : l.you.joinIntoString(", ")) },
-        { Str::StrLabel, lastPanic_ ? tr(Str::SummaryPanic) : (l.viewers.isEmpty() ? tr(Str::None) : l.viewers.joinIntoString(", ")) } };
-    if (!l.onlyViewers.isEmpty()) lines.push_back({ Str::SummaryOnlyViewers, l.onlyViewers.joinIntoString(", ") });
-    const auto lf = uiFont(12.0f), vf = uiFont(13.0f, Weight::Medium);
-    float labelW = 0.0f;
-    for (const auto& ln : lines) labelW = juce::jmax(labelW, textWidth(lf, tr(ln.label)));
-    labelW = juce::jmin(labelW, area.getWidth() * 0.42f);
-    for (const auto& ln : lines) {
-        auto row = area.removeFromTop(stacked ? 16.0f + kStripLineH : kStripLineH);
-        area.removeFromTop(stacked ? 6.0f : 4.0f);
+    auto c = area;
+    g.setColour(p.ink);
+    g.setFont(uiFont(17.0f, Weight::SemiBold));
+    g.drawText(tr(Str::SummaryTitle), c.removeFromTop(22.0f), juce::Justification::centredLeft, true);
+    c.removeFromTop(12.0f);
+    auto block = [&](icons::Icon icon, Str label, const juce::String& count, juce::Colour countColour, const juce::String& text) {
+        auto head = c.removeFromTop(17.0f);
+        icons::draw(g, icon, head.removeFromLeft(14.0f).withSizeKeepingCentre(14.0f, 14.0f), p.graphite);
+        head.removeFromLeft(8.0f);
+        g.setColour(countColour);
+        g.setFont(uiFont(12.0f, Weight::SemiBold));
+        const float cw = textWidth(uiFont(12.0f, Weight::SemiBold), count) + 2.0f;
+        g.drawText(count, head.removeFromRight(cw), juce::Justification::centredRight, false);
         g.setColour(p.graphite);
-        g.setFont(lf);
-        const auto label = stacked ? row.removeFromTop(16.0f) : row.removeFromLeft(labelW);
-        if (!stacked) row.removeFromLeft(10.0f);
-        g.drawFittedText(tr(ln.label), label.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
-        g.setColour(p.ink);
-        g.setFont(vf);
-        g.drawFittedText(ln.text, row.toNearestInt(), juce::Justification::centredLeft, 1, 0.9f);
-    }
-    if (stacked && area.getHeight() >= kStripLineH) {   // + how late the stream is
-        const auto li = proc_.latency();
-        g.setColour(p.graphite);
-        g.setFont(lf);
-        if (li.obs) {
-            auto row = area.removeFromTop(kStripLineH);
-            g.drawFittedText(tr(Str::LatencyToObs), row.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
-            g.setColour(p.ink);
-            g.setFont(uiFont(12.0f, Weight::SemiBold));
-            g.drawText(juce::String(li.total(), 1) + " ms", row, juce::Justification::centredRight, false);
-        } else {
-            drawWrapped(g, tr(Str::ObsHint), lf, p.graphite, area, 2.0f);
+        g.setFont(uiFont(12.0f));
+        g.drawText(tr(label), head, juce::Justification::centredLeft, true);
+        if (lists) {
+            c.removeFromTop(4.0f);
+            const auto f = uiFont(13.0f);
+            const float th = juce::jmin(2.0f * f.getHeight() + 6.5f, wrappedHeight(f, text, c.getWidth(), 6.5f));
+            drawWrapped(g, text, f, p.ink2, c.removeFromTop(th + 1.0f), 6.5f, juce::Justification::left, 2);
         }
+    };
+    const auto none = tr(Str::None);
+    block(icons::Icon::Headphones, Str::SummaryYou, lastPreview_ ? tr(Str::PreviewOff) : trf(Str::TracksCount, { juce::String(l.you.size()) }), p.ink,
+          lastPreview_ ? tr(Str::SummaryPreviewing) : (l.you.isEmpty() ? none : joinDots(l.you)));
+    c.removeFromTop(12.0f);
+    g.setColour(p.hairline2);
+    g.fillRect(c.removeFromTop(1.0f));
+    c.removeFromTop(12.0f);
+    block(icons::Icon::Broadcast, Str::SummaryViewers, lastPanic_ ? tr(Str::LoudMuted) : trf(Str::TracksCount, { juce::String(l.viewers.size()) }),
+          lastPanic_ ? p.danger : p.ink, lastPanic_ ? tr(Str::SummaryPanic) : (l.viewers.isEmpty() ? none : joinDots(l.viewers)));
+    if (!lastPanic_ && !lastPreview_ && !l.onlyViewers.isEmpty()) {
+        const auto lf = uiFont(12.0f), bf = uiFont(12.0f, Weight::SemiBold);
+        const auto label = tr(Str::OnlyViewersLabel) + " ", names = joinDots(l.onlyViewers);
+        const float bh = 18.0f + 18.0f;
+        auto box = juce::Rectangle<float>(area.getX(), juce::jmax(c.getY() + 10.0f, area.getBottom() - bh), area.getWidth(), bh);
+        g.setColour(p.inset);
+        g.fillRoundedRectangle(box, 12.0f);
+        auto in = box.reduced(12.0f, 9.0f);
+        g.setColour(p.ink2);
+        g.setFont(lf);
+        const float lw = textWidth(lf, label);
+        g.drawText(label, in.removeFromLeft(juce::jmin(lw, in.getWidth() * 0.6f)), juce::Justification::centredLeft, true);
+        g.setColour(p.ink);
+        g.setFont(bf);
+        g.drawText(ellipsize(bf, names, in.getWidth()), in, juce::Justification::centredLeft, false);
     }
 }
 
 void HubEditor::paintContent(juce::Graphics& g) {
     const auto& p = lnf_.pal();
     backdrop_.paint(g, content_.getLocalBounds(), p, settings_->glassAlpha(), lnf_.isDark());
-
-    g.setColour(p.ink);
-    drawWordmark(g, wordmark_, "HUB", wordmarkSize_, p.ink);
+    paintHeader(g);
+    if (page_ != Page::Main) return;
 
     const bool secondary = proc_.engine().role() == ssengine::HubEngine::Role::Secondary;
     if (!proc_.connected() || secondary) {
@@ -1847,198 +1225,103 @@ void HubEditor::paintContent(juce::Graphics& g) {
         const juce::String body = secondary ? tr(Str::SecondHubBody) : tr(Str::HubBusError);
         g.drawFittedText(title, c.removeFromTop(30.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
         c.removeFromTop(10.0f);
-        drawTextBlock(g, body, uiFont(14.0f), p.graphite, c, 4.0f);
+        drawWrapped(g, body, uiFont(14.0f), p.graphite, c, 4.0f);
         return;
     }
 
-    // ---- tracks card ------------------------------------------------------------------------
-    {
-        auto t = tracksTitle_;
+    if (!tracksHead_.isEmpty()) {
+        auto t = tracksHead_.withRight(float(manage_.getX()) - 12.0f);
         g.setColour(p.ink);
         g.setFont(uiFont(20.0f, Weight::SemiBold));
-        g.drawText(tr(Str::TracksTitle), t.removeFromTop(26.0f), juce::Justification::centredLeft, true);
-        if (tracksSubtitle_) {
-            g.setColour(p.graphite);
-            g.setFont(uiFont(13.0f));
-            g.drawText(tr(Str::TracksSubtitle), t.withTrimmedTop(4.0f), juce::Justification::topLeft, true);
-        }
-
-        // column header (aligned with the rows; narrow rows label their own pills)
-        if (!columns_.isEmpty()) {
-            const auto cols = rowCols(float(list_.getWidth()));
-            auto c = columns_.withWidth(float(list_.getWidth())).withTrimmedLeft(kPadL).withTrimmedRight(kPadR);
-            auto level = c.removeFromRight(cols.levelW);
-            c.removeFromRight(kGap);
-            auto strCol = c.removeFromRight(cols.pillW);
-            c.removeFromRight(kGap);
-            auto monCol = c.removeFromRight(cols.pillW);
-            g.setFont(uiFont(12.0f));
-            g.setColour(p.graphite);
-            g.drawText(tr(Str::ColTrack), c, juce::Justification::centredLeft, true);
-            auto head = [&](juce::Rectangle<float> col, icons::Icon icon, const juce::String& text) {
-                const float tw = juce::jmin(textWidth(uiFont(12.0f), text), col.getWidth() - 20.0f);
-                const float x = col.getCentreX() - (14.0f + 6.0f + tw) * 0.5f;
-                icons::draw(g, icon, { x, col.getCentreY() - 7.0f, 14.0f, 14.0f }, p.graphite);
-                g.drawFittedText(text, juce::Rectangle<float>(x + 20.0f, col.getY(), tw + 2.0f, col.getHeight()).toNearestInt(),
-                                 juce::Justification::centredLeft, 1, 0.85f);
-            };
-            head(monCol, icons::Icon::Headphones, tr(Str::MonLabel));
-            head(strCol, icons::Icon::Broadcast, tr(Str::StrLabel));
-            g.drawFittedText(cols.tier == RowTier::Full ? tr(Str::HeadphoneLevel) + " / " + tr(Str::ViewersLevel) : tr(Str::LevelsColumn),
-                             level.toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
-        }
+        g.drawText(tr(Str::TracksTitle), t.removeFromTop(25.0f), juce::Justification::centredLeft, true);
+        t.removeFromTop(4.0f);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.5f));
+        g.drawText(ellipsize(uiFont(12.5f), tr(Str::TracksSubtitle), t.getWidth()), t, juce::Justification::topLeft, false);
     }
-
-    auto paintLufs = [&](juce::Rectangle<float> box) {
-        drawInset(g, box, theme::radius::small, p);
-        auto lb = box.reduced(12.0f, 8.0f);
-        g.setColour(p.graphite);
-        g.setFont(uiFont(11.0f));
-        g.drawFittedText(tr(Str::Loudness), lb.removeFromTop(14.0f).toNearestInt(), juce::Justification::centredRight, 1, 0.8f);
-        juce::String lufs;
-        if (lastPanic_) lufs = tr(Str::LoudMuted);
-        else if (auto* bus = proc_.engine().bus()) {
-            const float v = ssbus::bitsFloat(bus->streamHeader.loudnessSBits.load(std::memory_order_relaxed));
-            lufs = v < -70.0f ? tr(Str::LoudSilent) : minusText(juce::String(v, 1));
-        }
-        g.setColour(p.ink);
-        g.setFont(uiFont(22.0f, Weight::SemiBold));
-        g.drawFittedText(lufs, lb.toNearestInt(), juce::Justification::centredRight, 1, 0.8f);
-    };
-    auto paintMeterLabels = [&] {
-        auto ml = meterLabels_;
-        g.setColour(p.graphite);
-        g.setFont(uiFont(10.0f));
-        g.drawText("L", ml.removeFromTop(6.0f).expanded(0, 3), juce::Justification::centredLeft, false);
-        ml.removeFromTop(6.0f);
-        g.drawText("R", ml.expanded(0, 3), juce::Justification::centredLeft, false);
-    };
-
-    // ---- viewers card (full) -----------------------------------------------------------------
-    if (!streamCard_.isEmpty()) {
-        auto t = streamTitle_;
-        g.setColour(p.ink);
-        g.setFont(uiFont(17.0f, Weight::SemiBold));
-        g.drawFittedText(tr(Str::StreamTitle), t.removeFromTop(24.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
+    if (!columns_.isEmpty()) {
+        auto col = columns_.withTrimmedLeft(14.0f).withTrimmedRight(10.0f);
+        col.removeFromRight(kMoreW + kColGap + kLevelW + kColGap);
+        auto viewersCol = col.removeFromRight(kToggleW);
+        col.removeFromRight(kColGap);
+        auto youCol = col.removeFromRight(kToggleW);
         g.setColour(p.graphite);
         g.setFont(uiFont(12.0f));
-        g.drawText(obsInHeader_ ? tr(Str::StreamSubtitle) : obsLine(), t.withTrimmedTop(4.0f), juce::Justification::topLeft, true);
-        paintLufs(lufsBox_);
-        paintMeterLabels();
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(13.0f));
-        g.drawText(tr(Str::Master), masterLabel_, juce::Justification::centredLeft, true);
-        g.setFont(uiFont(12.0f));
-        g.drawText(formatDb(float(masterSlider_.getValue())), masterLabel_, juce::Justification::centredRight, false);
-
-        auto lt = limiterText_;
-        g.setFont(uiFont(13.0f));
-        g.drawText(tr(Str::Limiter), lt.removeFromTop(18.0f), juce::Justification::centredLeft, true);
-        g.setColour(p.graphite);
-        g.setFont(uiFont(11.0f));
-        g.drawText(tr(Str::LimiterCaption), lt, juce::Justification::centredLeft, true);
+        g.drawText(tr(Str::ColTrack), col, juce::Justification::centredLeft, true);
+        g.drawFittedText(tr(Str::ColYou), youCol.expanded(6.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
+        g.drawFittedText(tr(Str::ColViewers), viewersCol.expanded(6.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
     }
-
-    // ---- viewers card (strip: compact / short windows) ------------------------------------------
-    if (!stripCard_.isEmpty()) {
-        auto t = stripTitle_;
-        g.setColour(p.ink);
-        g.setFont(uiFont(17.0f, Weight::SemiBold));
-        g.drawFittedText(tr(Str::StreamTitle), t.removeFromTop(24.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
+    if (!slidersSetLabel_.isEmpty()) {
         g.setColour(p.graphite);
         g.setFont(uiFont(12.0f));
-        g.drawFittedText(obsInHeader_ ? tr(Str::StreamSubtitle) : obsLine(), t.withTrimmedTop(2.0f).toNearestInt(), juce::Justification::topLeft, 1, 0.85f);
-        paintLufs(lufsBox_);
-        paintMeterLabels();
-        if (!stripLines_.isEmpty()) paintSummaryLines(g, stripLines_, false);
+        g.drawText(tr(Str::SlidersSet), slidersSetLabel_.withTrimmedLeft(2.0f), juce::Justification::centredLeft, true);
     }
-
-    // ---- summary card ------------------------------------------------------------------------
-    if (!summaryCard_.isEmpty()) {
-        g.setColour(p.ink);
-        g.setFont(uiFont(17.0f, Weight::SemiBold));
-        g.drawText(tr(Str::SummaryTitle), summaryTitle_, juce::Justification::centredLeft, true);
-    }
-    if (!summaryCard_.isEmpty() && condensed_) {
-        paintSummaryLines(g, summaryCard_.reduced(18.0f).withTrimmedTop(24.0f + 10.0f), true);
-    } else if (!summaryCard_.isEmpty()) {
-        const auto lists = summaryLists();
-        const auto youText = lastPreview_ ? tr(Str::SummaryPreviewing) : (lists.you.isEmpty() ? tr(Str::None) : lists.you.joinIntoString(", "));
-        const auto viewersText = lastPanic_ ? tr(Str::SummaryPanic) : (lists.viewers.isEmpty() ? tr(Str::None) : lists.viewers.joinIntoString(", "));
-
-        drawInset(g, youBox_, theme::radius::small, p);
-        auto yt = youText_;
+    if (!viewersCard_.isEmpty()) paintViewersCard(g);
+    if (!rightNow_.isEmpty()) paintRightNow(g, rightNow_.reduced(20.0f, 18.0f), rightNowLists_ || mode_ == Mode::Compact);
+    if (!bottomBar_.isEmpty()) {
+        auto b = bottomBar_.reduced(16.0f, 10.0f).withRight(float(preview_.getX()) - 10.0f);
+        const auto l = summaryLists();
+        auto block = b.withSizeKeepingCentre(b.getWidth(), 16.0f + 3.0f + 18.0f);
         g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f));
-        g.drawText(tr(Str::SummaryYou), yt.removeFromTop(16.0f), juce::Justification::centredLeft, true);
+        g.setFont(uiFont(12.5f));
+        g.drawText(tr(Str::SummaryTitle), block.removeFromTop(16.0f), juce::Justification::centredLeft, true);
+        block.removeFromTop(3.0f);
         g.setColour(p.ink);
         g.setFont(uiFont(13.0f, Weight::Medium));
-        g.drawFittedText(youText, yt.toNearestInt(), juce::Justification::centredLeft, 1, 0.9f);
-        g.setColour(p.graphite);
-        g.setFont(uiFont(11.0f));
-        g.drawText(tr(Str::HeadphoneMaster), hpLabel_, juce::Justification::centredLeft, true);
-        g.setColour(p.ink);
-        g.setFont(uiFont(12.0f));
-        g.drawText(formatDb(float(headphoneSlider_.getValue())), hpLabel_, juce::Justification::centredRight, false);
-
-        drawInset(g, viewersBox_, theme::radius::small, p);
-        auto vt = viewersBox_.reduced(14.0f, 10.0f);
-        g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f));
-        g.drawText(tr(Str::SummaryViewers), vt.removeFromTop(16.0f), juce::Justification::centredLeft, true);
-        g.setColour(p.ink);
-        g.setFont(uiFont(13.0f, Weight::Medium));
-        g.drawFittedText(viewersText, vt.toNearestInt(), juce::Justification::centredLeft, 2, 0.9f);
-
-        if (!onlyBox_.isEmpty()) {   // the usual surprise: viewers get a track you don't hear
-            drawInset(g, onlyBox_, theme::radius::small, p, true);
-            auto ot = onlyBox_.reduced(14.0f, 6.0f);
-            g.setColour(p.graphite);
-            g.setFont(uiFont(12.0f));
-            g.drawText(tr(Str::SummaryOnlyViewers), ot.removeFromTop(16.0f), juce::Justification::centredLeft, true);
-            g.setColour(p.ink);
-            g.setFont(uiFont(13.0f, Weight::Medium));
-            g.drawFittedText(lists.onlyViewers.joinIntoString(", "), ot.toNearestInt(), juce::Justification::centredLeft, 1, 0.9f);
-        }
-
-        if (latencyBox_.getHeight() > 30.0f) {
-            drawInset(g, latencyBox_, theme::radius::small, p);
-            auto lt = latencyBox_.reduced(14.0f, 8.0f);
-            const auto li = proc_.latency();
-            auto ms = [](double v) { return juce::String(v, 1); };
-            auto line1 = lt.removeFromTop(lt.getHeight() * 0.5f);
-            if (li.obs) {
-                g.setColour(p.graphite);
-                g.setFont(uiFont(12.0f));
-                g.drawText(tr(Str::LatencyToObs), line1, juce::Justification::centredLeft, true);
-                g.setColour(p.ink);
-                g.setFont(uiFont(13.0f, Weight::SemiBold));
-                g.drawText(ms(li.total()) + " ms", line1, juce::Justification::centredRight, false);
-                juce::String parts = "DAW " + ms(li.dawMs);
-                if (li.trackFxMs >= 0.5) parts << " + " << tr(Str::TrackFx) << " " << ms(li.trackFxMs);
-                if (li.masterFxMs >= 0.5) parts << " + " << tr(Str::MasterFx) << " " << ms(li.masterFxMs);
-                parts << " + Hub " << ms(li.hubMs);
-                parts << " + OBS " << ms(li.obsMs);
-                g.setColour(p.graphite);
-                g.setFont(uiFont(11.0f));
-                g.drawFittedText(parts, lt.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
-            } else {
-                g.setColour(p.graphite);
-                g.setFont(uiFont(12.0f));
-                g.drawText(tr(Str::DawBuffer), line1, juce::Justification::centredLeft, true);
-                g.setColour(p.ink);
-                g.setFont(uiFont(12.0f, Weight::SemiBold));
-                g.drawText(juce::String(li.block) + " " + tr(Str::Samples) + " = " + ms(li.dawMs) + " ms", line1,
-                           juce::Justification::centredRight, false);
-                g.setColour(p.graphite);
-                g.setFont(uiFont(11.0f));
-                g.drawFittedText(tr(Str::ObsHint), lt.toNearestInt(), juce::Justification::centredLeft, 1, 0.75f);
-            }
-        }
+        const auto line = lastPanic_ ? trf(Str::CompactSummaryMuted, { juce::String(l.you.size()) })
+                                     : trf(Str::CompactSummary, { juce::String(l.you.size()), juce::String(l.viewers.size()), lufsText() });
+        g.drawText(ellipsize(uiFont(13.0f, Weight::Medium), line, block.getWidth()), block, juce::Justification::centredLeft, false);
     }
 }
 
-juce::String HubEditor::obsLine() const { return proc_.obsConnected() ? tr(Str::ObsConnected) : tr(Str::ObsNotConnected); }
+void HubEditor::paintList(juce::Graphics& g) {
+    const auto& p = lnf_.pal();
+    if (!startBox_.isEmpty()) {   // getting started: three steps that tick themselves
+        drawInset(g, startBox_, theme::radius::row, p, true);
+        auto r = startBox_.reduced(18.0f, 14.0f);
+        g.setColour(p.ink);
+        g.setFont(uiFont(15.0f, Weight::SemiBold));
+        g.drawText(tr(Str::StartTitle), r.removeFromTop(24.0f), juce::Justification::centredLeft, true);
+        r.removeFromTop(6.0f);
+        for (int i = 0; i < 3; ++i) {
+            auto text = tr(i == 0 ? Str::StartStep1 : i == 1 ? Str::StartStep2 : Str::StartStep3);
+            if (i == 0 && !steps_[0] && step1Detail_.isNotEmpty()) text << "\n" << step1Detail_;
+            const float h = juce::jmax(24.0f, wrappedHeight(uiFont(13.0f), text, r.getWidth() - 34.0f, 2.0f));
+            auto line = r.removeFromTop(h);
+            const auto dot = line.removeFromLeft(24.0f).withHeight(24.0f).reduced(1.0f);
+            if (steps_[i]) {
+                g.setColour(p.ink);
+                g.fillEllipse(dot);
+                icons::draw(g, icons::Icon::Check, dot.reduced(5.0f), p.onInk, 2.2f);
+            } else {
+                g.setColour(p.ink2);
+                g.drawEllipse(dot, 1.2f);
+                g.setFont(uiFont(12.0f, Weight::SemiBold));
+                g.drawText(juce::String(i + 1), dot, juce::Justification::centred, false);
+            }
+            line.removeFromLeft(10.0f);
+            drawWrapped(g, text, uiFont(13.0f), steps_[i] ? p.graphite : p.ink, line.withTrimmedTop(juce::jmax(0.0f, (24.0f - uiFont(13.0f).getHeight()) * 0.5f)), 2.0f);
+            r.removeFromTop(8.0f);
+        }
+    }
+    auto groupHead = [&](juce::Rectangle<float> head, Str title, const juce::String& caption, juce::Component* link) {
+        if (head.isEmpty()) return;
+        auto h = head.withTrimmedLeft(2.0f);
+        if (link != nullptr && link->isVisible()) h.setRight(float(link->getX()) - 10.0f);
+        const auto tf = uiFont(15.0f, Weight::SemiBold);
+        const float tw = textWidth(tf, tr(title)) + 2.0f;
+        g.setColour(p.ink);
+        g.setFont(tf);
+        g.drawText(tr(title), h.removeFromLeft(tw), juce::Justification::centredLeft, false);
+        h.removeFromLeft(10.0f);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.0f));
+        g.drawText(ellipsize(uiFont(12.0f), caption, h.getWidth()), h, juce::Justification::centredLeft, false);
+    };
+    groupHead(programsHead_, Str::SourcesTitle, tr(Str::ProgramCaption), &manageProgramsLink_);
+    const auto& sh = proc_.share();
+    const bool sender = proc_.sharing() && sh.running() && sh.senderActive();
+    groupHead(friendsHead_, Str::FriendsTitle, sender ? tr(Str::SenderOn) : tr(Str::FriendsEmptyCaption), &manageFriendsLink_);
+}
 
 } // namespace hearaside

@@ -63,7 +63,7 @@ private:
     void save();
 
     std::unique_ptr<juce::PropertiesFile> file_;
-    Language  language_ = Language::Thai;
+    Language  language_ = Language::English;
     ThemeMode theme_ = ThemeMode::Auto;
     float     scale_ = 1.0f;
     bool      reduceMotion_ = false;

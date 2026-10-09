@@ -95,3 +95,25 @@ export function startDemo(on: Record<string, boolean>, onEnd: () => void) {
     },
   };
 }
+
+/** Local testing only: /demo/test-song.mp3 (gitignored) is played in place of the made-up tune. It is
+ *  one stereo mix, so the switches can only mute or unmute all of it for the side being heard. */
+export async function startSong(isOn: () => boolean, onEnd: () => void) {
+  const res = await fetch('/demo/test-song.mp3');
+  if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('audio')) return null;
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new Ctx();
+  const buf = await ctx.decodeAudioData(await res.arrayBuffer());
+  const gain = ctx.createGain();
+  gain.gain.value = isOn() ? 1 : 0;
+  gain.connect(ctx.destination);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(gain);
+  src.onended = () => { ctx.close(); onEnd(); };
+  src.start();
+  return {
+    stop() { src.onended = null; try { src.stop(); } catch { /* already stopped */ } ctx.close(); },
+    set(next: Record<string, boolean>) { gain.gain.setTargetAtTime(Object.values(next).some(Boolean) ? 1 : 0, ctx.currentTime, 0.03); },
+  };
+}

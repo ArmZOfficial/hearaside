@@ -54,7 +54,7 @@ export default function Download() {
             </div>
             <p className="m-0 text-[15px] leading-relaxed text-ink2">{t('dl.winText')}</p>
             {ready ? (
-              <a className={`btn solid big self-start dl-btn shine ${phase}`} href={release.installer} download
+              <a className={`btn solid big self-start dl-btn ${phase}`} href={release.installer} download
                  onClick={() => phase === 'idle' && setPhase('starting')} aria-live="polite">
                 {phase === 'starting' && <motion.span className="dl-fill" aria-hidden="true" initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: reduce ? 0 : 1.2, ease: 'easeInOut' }} />}
                 <span className="relative flex items-center gap-2">

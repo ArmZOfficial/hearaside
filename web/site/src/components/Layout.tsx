@@ -3,7 +3,7 @@
 //  - minimal nav on sign-up / sign-in pages: wordmark + "Already have an account? Sign in"
 //  - scrolling down turns the nav into a glass card stuck to the top; the current section is underlined
 //  - phones get a full-screen menu that slides down
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Menu, Monitor, Moon, Sun, X } from 'lucide-react';
@@ -13,7 +13,6 @@ import { useAuth } from '../lib/auth';
 import { useMe } from '../lib/api';
 import { Avatar, Wordmark } from './ui/Kit';
 
-const CursorGlow = lazy(() => import('../motion/CursorGlow'));
 
 function useScrolled() {
   const [s, setS] = useState(false);
@@ -205,20 +204,14 @@ export function PageShell({ nav = 'full', children }: { nav?: 'full' | 'signup' 
   const { t } = useT();
   const { pathname } = useLocation();
   const reduce = useReducedMotion();
-  const [glow, setGlow] = useState(false);
   const [initial] = useState(() => (firstPage ? false : { opacity: 0, y: reduce ? 0 : 8 }));
   useEffect(() => { firstPage = false; }, []);
-  useEffect(() => {
-    const id = window.setTimeout(() => setGlow(true), 1200);   // after the page has settled
-    return () => window.clearTimeout(id);
-  }, []);
   useEffect(() => {
     if (!window.location.hash) window.scrollTo(0, 0);
   }, [pathname]);
   return (
     <>
       <a className="skip" href="#main">{t('skip')}</a>
-      {glow && <Suspense fallback={null}><CursorGlow /></Suspense>}
       {nav === 'full' ? <Nav /> : <MinimalNav kind={nav} />}
       <motion.main id="main" key={pathname} className="relative z-[1]" tabIndex={-1}
                    initial={initial} animate={{ opacity: 1, y: 0 }}

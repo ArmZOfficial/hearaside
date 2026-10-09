@@ -7,3 +7,6 @@ dist-ssr/
 .vercel/
 test-results/
 playwright-report/
+
+# customer song used only to test the demo player locally
+public/demo/

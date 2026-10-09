@@ -38,9 +38,11 @@ function MixDemo() {
   const play = async (as: 'you' | 'viewers') => {
     if (playing === as) { player.current?.stop(); player.current = null; setPlaying(null); return; }
     player.current?.stop();
-    const { startDemo } = await import('../motion/demoAudio');
-    player.current = startDemo(Object.fromEntries(rows.map(r => [r.id, as === 'you' ? r.you : r.view])), () => setPlaying(null));
+    const { startDemo, startSong } = await import('../motion/demoAudio');
+    const state = Object.fromEntries(rows.map(r => [r.id, as === 'you' ? r.you : r.view]));
     setPlaying(as);
+    const song = import.meta.env.DEV ? await startSong(() => Object.values(state).some(Boolean), () => setPlaying(null)).catch(() => null) : null;
+    player.current = song ?? startDemo(state, () => setPlaying(null));
   };
 
   const box = (key: 'you' | 'view', title: string) => {
@@ -125,12 +127,11 @@ export default function Home() {
             <div className="rise" style={{ animationDelay: '240ms' }}><HeroWaves /></div>
             <p className="lead max-w-[520px] rise" style={{ animationDelay: '300ms' }}>{t('home.lead')}</p>
             <div className="flex flex-wrap gap-3 pt-1.5 rise" style={{ animationDelay: '360ms' }}>
-              <Link className="btn solid big shine" to={path('/download')}>
+              <Link className="btn solid big" to={path('/download')}>
                 <Download size={18} strokeWidth={1.8} aria-hidden="true" />{t('home.download')}
               </Link>
               <a className="btn big" href="#how">{t('home.seeHow')}</a>
             </div>
-            <p className="text-[13px] muted m-0">{t('home.fine')}</p>
           </div>
           <div className="hero-shot">
             <Tilt><Screenshot name="hub" lang={lang} alt={t('home.shotAlt')} eager width={1040} height={790} /></Tilt>
@@ -140,11 +141,11 @@ export default function Home() {
         <Reveal as="section" aria-label={t('home.worksWith')} className="works">
           <span className="text-[13px] muted mr-1.5">{t('home.worksWith')}</span>
           {['Studio One', 'Cubase', 'Reaper', 'FL Studio', 'Ableton Live', 'OBS Studio'].map(n => <span key={n} className="chiptext">{n}</span>)}
+          <p className="w-full text-[13px] muted m-0 pt-2">{t('home.fine')}</p>
         </Reveal>
 
         <section id="features" className="split">
           <Reveal className="split-text">
-            <span className="eyebrow">{t('home.mix.eyebrow')}</span>
             <h2 className="h2">{t('home.mix.h2')}</h2>
             <p className="body">{t('home.mix.text')}</p>
             <p className="text-sm muted m-0">{t('home.mix.try')}</p>
@@ -154,17 +155,14 @@ export default function Home() {
 
         <section aria-labelledby="plugins-h" className="sect">
           <Reveal>
-            <span className="eyebrow">{t('home.plugins.eyebrow')}</span>
-            <h2 id="plugins-h" className="h2 mt-3 mb-7">{t('home.plugins.h2')}</h2>
+            <h2 id="plugins-h" className="h2 mb-7">{t('home.plugins.h2')}</h2>
           </Reveal>
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+          <div className="plug-grid">
             {features.map((f, i) => (
-              <Reveal key={f.k} className="card p-6 flex flex-col gap-3 lift" delay={i * 80}>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[13px] font-semibold tracking-[.24em]">{f.k}</span>
-                  <span className="text-xs muted">{f.where}</span>
-                </div>
-                <p className="m-0 text-[15px] leading-relaxed text-ink2">{f.text}</p>
+              <Reveal key={f.k} className={`card plug ${i === 0 ? 'plug-main' : ''} lift`} delay={i * 80}>
+                <span className="text-xs muted">{f.where}</span>
+                <span className={i === 0 ? 'h3' : 'text-xl font-semibold'}>{f.k === 'HUB' ? 'Hub' : f.k === 'TRACK' ? 'Track' : 'App Audio'}</span>
+                <p className={`m-0 leading-relaxed text-ink2 ${i === 0 ? 'text-[17px] max-w-[34ch]' : 'text-[15px]'}`}>{f.text}</p>
               </Reveal>
             ))}
           </div>
@@ -192,19 +190,20 @@ export default function Home() {
 
         <section id="how" aria-labelledby="how-h" className="sect">
           <Reveal>
-            <span className="eyebrow">{t('home.how.eyebrow')}</span>
-            <h2 id="how-h" className="h2 mt-3 mb-7">{t('home.how.h2')}</h2>
+            <h2 id="how-h" className="h2 mb-7">{t('home.how.h2')}</h2>
           </Reveal>
           <div className="flex flex-wrap gap-4 items-stretch">
-            <div className="grid gap-4 min-w-0" style={{ flex: '999 1 560px', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              {[1, 2, 3].map((n, i) => (
-                <Reveal key={n} className="card p-6 flex flex-col gap-2.5 lift" delay={i * 80}>
-                  <span className="text-[32px] font-semibold muted">0<CountUp to={n} ms={500} /></span>
-                  <span className="text-lg font-semibold">{t(`home.how.${n}t` as 'home.how.1t')}</span>
-                  <span className="text-[15px] leading-relaxed text-ink2">{t(`home.how.${n}` as 'home.how.1')}</span>
+            <ol className="steps-list min-w-0" style={{ flex: '999 1 520px' }}>
+              {[1, 2, 3].map(n => (
+                <Reveal as="li" key={n} delay={n * 70}>
+                  <span className="step-n" aria-hidden="true">{n}</span>
+                  <span className="flex flex-col gap-1.5 min-w-0">
+                    <span className="text-xl font-semibold">{t(`home.how.${n}t` as 'home.how.1t')}</span>
+                    <span className="text-[15px] leading-relaxed text-ink2 max-w-[48ch]">{t(`home.how.${n}` as 'home.how.1')}</span>
+                  </span>
                 </Reveal>
               ))}
-            </div>
+            </ol>
             <Reveal className="card p-5 grid place-items-center" style={{ flex: '1 1 260px' }} delay={160}>
               <Parallax range={16}>
                 <Screenshot name="track" lang={lang} alt={t('home.how.shotAlt')} className="track-shot" width={380} height={640} />
@@ -216,7 +215,6 @@ export default function Home() {
         <Reveal as="section" aria-labelledby="acct-h" className="sect">
           <div className="card p-8 flex flex-wrap gap-8 items-center justify-between">
             <div className="flex flex-col gap-3 min-w-0" style={{ flex: '1 1 380px' }}>
-              <span className="eyebrow">{t('home.acct.eyebrow')}</span>
               <h2 id="acct-h" className="h3">{t('home.acct.h2')}</h2>
             </div>
             <div className="flex flex-col gap-4 min-w-0" style={{ flex: '1 1 380px' }}>
@@ -235,7 +233,6 @@ export default function Home() {
 
         <section id="guides" aria-labelledby="faq-h" className="sect flex flex-wrap gap-10">
           <Reveal className="flex flex-col gap-3.5 min-w-0" style={{ flex: '1 1 300px' }}>
-            <span className="eyebrow">{t('home.faq.eyebrow')}</span>
             <h2 id="faq-h" className="h2">{t('home.faq.h2')}</h2>
             <p className="m-0 text-[15px] leading-relaxed text-ink2">{t('home.faq.text')}</p>
             <Link className="btn self-start" to={path('/guides')}>{t('home.faq.guides')}</Link>

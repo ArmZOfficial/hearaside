@@ -258,6 +258,9 @@ bool ShareServer::originAllowed(const juce::String& origin) const {
 
 juce::File ShareServer::findCloudflared() {
     juce::StringArray dirs;
+    // the copy the installer puts next to the plug-ins comes first: links work with nothing else installed
+    for (const char* v : { "ProgramFiles", "ProgramW6432" })
+        dirs.add(juce::SystemStats::getEnvironmentVariable(v, {}) + "\\HEARASIDE\\cloudflared");
     dirs.addTokens(juce::SystemStats::getEnvironmentVariable("PATH", {}), ";", "\"");
     for (const char* v : { "ProgramFiles", "ProgramFiles(x86)" })
         dirs.add(juce::SystemStats::getEnvironmentVariable(v, {}) + "\\cloudflared");

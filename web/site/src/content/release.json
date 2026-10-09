@@ -1,11 +1,16 @@
 {
-  "version": "[x.y.z]",
-  "date": "[DATE]",
-  "installer": "/downloads/HEARASIDE-Setup.exe",
-  "sizeMb": "[SIZE]",
-  "sha256": "[CHECKSUM]",
+  "version": "1.0.0",
+  "date": "10 Oct 2026",
+  "installer": "/downloads/HEARASIDE-Setup-1.0.0.exe",
+  "sizeMb": "18.9",
+  "sha256": "68d8660570a7081940806024fe1eadf97c23f1155d491952dfcd31c31e1ff8ea",
   "obsMin": "[MIN VERSION]",
   "notes": [
-    { "version": "[x.y.z]", "en": "New look for every plug-in, English by default, one installer with everything included.", "th": "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง" }
-  ]
+    {
+      "version": "1.0.0",
+      "en": "New look for every plug-in, English by default, one installer with everything included.",
+      "th": "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง"
+    }
+  ],
+  "vst2": true
 }

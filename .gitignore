@@ -14,3 +14,7 @@ err.txt
 .vscode/
 .idea/
 *.user
+
+# installer output and downloaded dependencies
+/dist/
+/installer/windows/cache/

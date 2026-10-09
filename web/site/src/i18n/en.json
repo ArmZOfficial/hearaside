@@ -104,7 +104,7 @@
   "dl.meta": "Version {version} · released {date} · no account needed",
   "dl.win": "Windows",
   "dl.winSub": "Windows 10 / 11, 64-bit",
-  "dl.winText": "One installer, ready to use: HEARASIDE Hub, Track and App Audio (VST3), the HEARASIDE source for OBS, and cloudflared for links over the internet.",
+  "dl.winText": "One installer, ready to use: HEARASIDE Hub, Track and App Audio (VST3 and VST2), the HEARASIDE source for OBS, and cloudflared for links over the internet.",
   "dl.winButton": "Download installer (.exe)",
   "dl.downloading": "Downloading…",
   "dl.downloaded": "Download started",

@@ -12,7 +12,8 @@ param(
     [string[]]$CMakeArgs = @(),
     [string]$Vst2Sdk = '',
     [switch]$Test,
-    [switch]$Install
+    [switch]$Install,
+    [switch]$Installer
 )
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
@@ -45,4 +46,6 @@ if ($Install) {
     & (Join-Path $root 'installer\windows\install.ps1') -BuildDir $build
 }
 
-
+if ($Installer) {
+    & (Join-Path $root 'installer\windows\build-installer.ps1') -BuildDir $build
+}

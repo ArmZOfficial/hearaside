@@ -1,0 +1,27 @@
+HEARASIDE and the software it includes
+
+HEARASIDE (Hub, Track, App Audio and HEARASIDE for OBS)
+  Copyright (c) the HEARASIDE authors. All rights reserved. [LICENSE TO BE CONFIRMED BY THE OWNER BEFORE PUBLIC RELEASE]
+
+JUCE
+  The plug-ins are built with the JUCE framework. See https://juce.com/legal for the licence that applies to this build.
+
+VST is a trademark of Steinberg Media Technologies GmbH.
+
+Anuphan (font)
+  Copyright the Anuphan Project Authors. Licensed under the SIL Open Font License, Version 1.1.
+  The licence text is installed next to the VST3 plug-ins as Anuphan-OFL.txt.
+
+cloudflared
+  Copyright (c) Cloudflare, Inc. Licensed under the Apache License, Version 2.0.
+  The licence text is installed next to cloudflared.exe as LICENSE.txt.
+  cloudflared only makes outgoing connections. It is used to give your listen and send-in links an address on the internet.
+
+OBS Studio (libobs)
+  HEARASIDE for OBS is a plug-in for OBS Studio, which is licensed under the GNU General Public License, version 2 or later.
+  https://obsproject.com
+
+speexdsp
+  Copyright (c) Xiph.Org Foundation and contributors. BSD 3-clause licence.
+
+HEARASIDE collects nothing while it installs and sends nothing to anyone.

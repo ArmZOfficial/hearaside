@@ -104,7 +104,7 @@
   "dl.meta": "เวอร์ชัน {version} · ออกเมื่อ {date} · ไม่ต้องมีบัญชี",
   "dl.win": "Windows",
   "dl.winSub": "Windows 10 / 11 แบบ 64 บิต",
-  "dl.winText": "ตัวติดตั้งเดียว พร้อมใช้: HEARASIDE Hub, Track และ App Audio (VST3), Source HEARASIDE สำหรับ OBS และ cloudflared สำหรับลิงก์ผ่านเน็ต",
+  "dl.winText": "ตัวติดตั้งเดียว พร้อมใช้: HEARASIDE Hub, Track และ App Audio (VST3 และ VST2), Source HEARASIDE สำหรับ OBS และ cloudflared สำหรับลิงก์ผ่านเน็ต",
   "dl.winButton": "ดาวน์โหลดตัวติดตั้ง (.exe)",
   "dl.downloading": "กำลังดาวน์โหลด…",
   "dl.downloaded": "เริ่มดาวน์โหลดแล้ว",

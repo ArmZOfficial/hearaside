@@ -1,0 +1,11 @@
+{
+  "version": "[x.y.z]",
+  "date": "[DATE]",
+  "installer": "/downloads/HEARASIDE-Setup.exe",
+  "sizeMb": "[SIZE]",
+  "sha256": "[CHECKSUM]",
+  "obsMin": "[MIN VERSION]",
+  "notes": [
+    { "version": "[x.y.z]", "en": "New look for every plug-in, English by default, one installer with everything included.", "th": "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง" }
+  ]
+}

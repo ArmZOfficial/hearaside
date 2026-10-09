@@ -1,0 +1,36 @@
+export const meta = { title: 'Getting started', description: 'Install HEARASIDE, put the plug-ins in your DAW and choose who hears each track.', order: 1 };
+
+# Getting started
+
+HEARASIDE splits your DAW into two mixes: **what you hear** in your headphones and **what your viewers hear** on stream. It takes about five minutes.
+
+## 1. Install
+
+1. Close your DAW and OBS.
+2. Run `HEARASIDE-Setup.exe` from the [download page](/download). It adds the VST3 plug-ins, the HEARASIDE source for OBS and cloudflared (for links over the internet).
+3. Open your DAW and rescan plug-ins.
+
+## 2. Put the plug-ins where the sound is
+
+| Plug-in | Where | What it does |
+|---|---|---|
+| **HEARASIDE Hub** | on the **master**, once per project | builds your headphone mix, sends the viewers’ mix to OBS, watches loudness |
+| **HEARASIDE Track** | **last** insert of every track you want to control | the *You hear* and *Viewers hear* switches, levels, pan and delay for viewers |
+| **HEARASIDE App Audio** | on any track | brings a program (Chrome, Spotify, Discord) or the whole computer into the track |
+
+Plug-ins **above** the Hub on the master shape what viewers hear. Plug-ins **below** it only reach your headphones.
+
+## 3. Choose who hears what
+
+Every track gets two switches:
+
+- **You hear**: in your headphones.
+- **Viewers hear**: on stream.
+
+A typical karaoke set-up: *Backing track* on for both, *Vocal* on for viewers only (you hear yourself acoustically), *Click / Guide* and *Talk mic* on for you only.
+
+A track **without** HEARASIDE Track still reaches viewers through the master, but it isn’t in your headphones. Put HEARASIDE Track on every track you want to hear.
+
+## 4. Check
+
+Open the Hub and press **Setup check**. It tells you what you hear, what viewers hear and how to fix anything that’s off. Next: [add it in OBS](/guides/obs).

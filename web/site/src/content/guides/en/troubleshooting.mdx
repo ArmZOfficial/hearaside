@@ -1,0 +1,27 @@
+export const meta = { title: 'Fix common problems', description: 'Viewers hear nothing, you hear things twice, a track is missing, and other fixes.', order: 5 };
+
+# Fix common problems
+
+Start with **Setup check** in the Hub: it lists what you hear, what viewers hear and what to change.
+
+## Viewers hear nothing
+
+- Is the Hub on the **master**, and is OBS showing a **HEARASIDE** source?
+- Is **Stream muted** showing in the Hub? Press *Unmute stream*.
+- Check that at least one track has **Viewers hear** on.
+
+## I hear a track twice
+
+The track plays through the master **and** your headphone mix. Put HEARASIDE Track at the **end** of the track (last insert), not before other plug-ins.
+
+## A track isn’t in my headphones
+
+Tracks without HEARASIDE Track reach viewers but not your headphones. Add HEARASIDE Track to it.
+
+## The vocal and the music are out of time for viewers
+
+Use **Sync** in the Hub: play the music, don’t sing, press Start and hold your headphones to the microphone for about 7 seconds. The Hub delays the music or the vocal for viewers so they line up.
+
+## Still stuck
+
+Press **Copy report** in Setup check and send it to us. It contains settings and timings only, never audio or track names you didn’t see on screen.

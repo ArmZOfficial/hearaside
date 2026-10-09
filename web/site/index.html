@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HEARASIDE: hear one mix, stream another</title>
+    <meta name="description" content="VST3 plug-ins for streamers who sing: choose what you hear and what your viewers hear, then send the viewers’ mix straight to OBS." />
+    <meta property="og:title" content="HEARASIDE" />
+    <meta property="og:description" content="Hear one mix. Stream another. VST3 plug-ins for streamers who sing." />
+    <meta property="og:image" content="/screens/og.png" />
+    <meta name="theme-color" content="#F3F3F1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script>
+      // theme before first paint (no flash): "system" | "light" | "dark"
+      try {
+        var t = localStorage.getItem('hs-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"><!--app-html--></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

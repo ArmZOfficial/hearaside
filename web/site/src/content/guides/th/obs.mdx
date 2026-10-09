@@ -1,0 +1,22 @@
+export const meta = { title: 'ใส่ใน OBS', description: 'ส่งมิกซ์ของคนดูเข้า OBS ตรง ๆ ไม่ต้องใช้สายเสียงเสมือน', order: 2 };
+
+# ใส่ใน OBS
+
+มิกซ์ของคนดูวิ่งจาก Hub เข้า OBS ภายในเครื่องของคุณเอง ไม่ต้องใช้ virtual audio cable และไม่ต้องใช้อินเทอร์เน็ต
+
+1. ใน OBS ช่อง **Sources** กด **+** แล้วเลือก **HEARASIDE**
+2. ปล่อย bus เป็น **Stream Mix** (หรือเลือก stem ใดก็ได้จากแปดตัว)
+3. Hub จะแสดงสถานะ OBS และความหน่วงข้าง ๆ เช่น `DAW 256 · 5.3 ms`
+
+## กันไม่ให้ได้ยินซ้ำ
+
+- source HEARASIDE ปิด **Audio Monitoring** ให้เองตอนสร้าง เพราะคุณได้ยินทุกอย่างผ่าน DAW อยู่แล้ว
+- ถ้า DAW เล่นผ่าน **Desktop Audio** ด้วย ให้ปิด Desktop Audio ใน OBS ไม่อย่างนั้นคนดูจะได้ยินเสียง DAW สองรอบ
+
+## ความหน่วง
+
+HEARASIDE เพิ่มความหน่วงราวหนึ่ง buffer ของ DAW · source ใน OBS วัดจังหวะของ DAW ทุก 2 วินาที แล้วเก็บ buffer ของตัวเองให้เล็กที่สุดเท่าที่ปลอดภัย (ราว 11 ms ที่ buffer 256 sample) ถ้าเสียงขาดเมื่อไรจะเพิ่ม 5 ms ทันที
+
+## ปุ่มลัด
+
+**Settings › Hotkeys › HEARASIDE**: *ตัดเสียงคนดู* และ *ฟังแบบคนดู* ใช้กับ Stream Deck ได้ด้วย ต้องมี source HEARASIDE อย่างน้อยหนึ่งตัวใน scene collection

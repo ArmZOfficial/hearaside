@@ -1,0 +1,20 @@
+export const meta = { title: 'Share a listen link', description: 'Let someone hear exactly what your viewers hear, in a browser, with no install.', order: 3 };
+
+# Share a listen link
+
+Open **Share and friends** in the Hub and switch **Sharing** on. You get a **listen link**: anyone who opens it in a browser or on a phone hears exactly what your viewers hear, uncompressed.
+
+- The audio goes straight from your Hub through a Cloudflare tunnel. It never passes through this website.
+- The first time, Windows may ask to let your DAW through the firewall.
+- Without cloudflared the link only works on the same Wi-Fi. The installer includes cloudflared.
+
+## Links that stay the same
+
+A link belongs to its project: open the project again and you get the same link. The part that changes is the tunnel address, which is why a **permanent link** needs a small directory on the web:
+
+- **With an account** (coming soon): the Hub registers your links with hearaside’s directory. *Account › Links and friends* shows them and can revoke them.
+- **Without an account**: deploy `web/share-vercel` to your own Vercel account and enter its address in **Settings › Connection › Share web address**.
+
+## A friend sings with you
+
+The **send-in link** lets one friend send their microphone in from a browser. In your DAW, add HEARASIDE App Audio to a track and choose the friend as its source. A room for up to eight friends, lined up on the beat, is on its way.

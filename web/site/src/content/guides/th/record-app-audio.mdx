@@ -1,0 +1,23 @@
+export const meta = { title: 'อัดเสียงโปรแกรม', description: 'ดึงเสียง Chrome, Spotify หรือ Discord เข้าแทร็ก แล้วอัดด้วย DAW', order: 4 };
+
+# อัดเสียงโปรแกรม
+
+HEARASIDE App Audio ดึงเสียงของโปรแกรมเดียว หรือเสียงทั้งเครื่องยกเว้น DAW เข้ามาในแทร็ก
+
+## เล่นในแทร็ก
+
+1. ใส่ **HEARASIDE App Audio** ในแทร็กเสียงใดก็ได้ (เป็น effect: เสียงโปรแกรมถูกบวกเข้ากับเสียงของแทร็กเอง)
+2. เลือกโปรแกรมจากปุ่มแหล่งเสียงใหญ่ · **เสียงทั้งเครื่อง (ยกเว้น DAW)** จะไม่ดึงเสียง DAW วนกลับเข้ามา
+3. ใช้ *คุณได้ยิน* กับ *คนดูได้ยิน* เหมือน HEARASIDE Track
+
+การ export แบบ offline ใส่เสียงโปรแกรมไม่ได้ (โปรแกรมเล่นเร็วกว่าเวลาจริงไม่ได้) ให้อัดไว้ก่อน
+
+## อัดด้วย DAW
+
+DAW อัด **input** ของแทร็ก ซึ่งอยู่ก่อน insert ของแทร็ก ดังนั้น App Audio ต้องอยู่บน **ช่อง input** และเปิด **เฉพาะเสียงโปรแกรม**
+
+- **Studio One:** Song › Song Setup › Audio I/O Setup › Inputs › Add (Stereo) ตั้งชื่อ `App Audio` · เปิด Inputs ใน Console แล้วใส่ปลั๊กอินที่ input นั้น · ตั้ง input ของแทร็กสเตอริโอเป็น `App Audio` แล้วกดอัด
+- **Cubase:** ใส่ที่ Input Channel
+- **Reaper:** ใส่ใน Input FX ของแทร็ก
+
+หรือกด **อัด** ในเมนู **⋯** ของ App Audio ใน Hub: ไฟล์ถูกเก็บที่ `Documents\HEARASIDE\Recordings` และลากลงแทร็กได้

@@ -1,0 +1,23 @@
+export const meta = { title: 'Record program audio', description: 'Bring Chrome, Spotify or Discord into a track and record it with your DAW.', order: 4 };
+
+# Record program audio
+
+HEARASIDE App Audio brings the sound of one program, or the whole computer except the DAW, into a track.
+
+## Play it in a track
+
+1. Add **HEARASIDE App Audio** to any audio track (it’s an effect: the program is added to the track’s own sound).
+2. Choose the program from the big source button. **Whole computer (except the DAW)** never pulls the DAW back into itself.
+3. Use *You hear* and *Viewers hear* just like HEARASIDE Track.
+
+Offline export can’t include program audio (the program can’t play faster than real time). Record it first.
+
+## Record it with your DAW
+
+A DAW records a track’s **input**, before the track’s inserts. So App Audio goes on the **input channel**, with **Program only** switched on:
+
+- **Studio One:** Song › Song Setup › Audio I/O Setup › Inputs › Add (Stereo), name it `App Audio`. Show Inputs in the Console and put the plug-in on that input. Set a stereo track’s input to `App Audio` and record.
+- **Cubase:** put it on the Input Channel.
+- **Reaper:** put it in the track’s Input FX.
+
+Or press **Record** in the App Audio’s **⋯** menu in the Hub: takes are saved to `Documents\HEARASIDE\Recordings` and can be dragged into a track.

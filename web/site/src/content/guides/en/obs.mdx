@@ -1,0 +1,22 @@
+export const meta = { title: 'Add it in OBS', description: 'Send the viewers’ mix straight into OBS without a virtual cable.', order: 2 };
+
+# Add it in OBS
+
+The viewers’ mix goes from the Hub to OBS on your own computer. No virtual audio cable, and no internet needed.
+
+1. In OBS, under **Sources**, press **+** and choose **HEARASIDE**.
+2. Leave the bus on **Stream Mix** (or pick one of the eight stems).
+3. The Hub shows the OBS status and the delay next to it, for example `DAW 256 · 5.3 ms`.
+
+## Avoid hearing things twice
+
+- The HEARASIDE source turns **Audio Monitoring** off when you create it. You already hear everything through your DAW.
+- If your DAW also plays through **Desktop Audio**, turn Desktop Audio off in OBS, or viewers hear the DAW twice.
+
+## Delay
+
+HEARASIDE adds about one DAW buffer. The OBS source measures your DAW’s timing every 2 seconds and keeps its own buffer as small as is safe (around 11 ms at a 256-sample buffer). If it ever runs dry it adds 5 ms right away.
+
+## Hotkeys
+
+**Settings › Hotkeys › HEARASIDE**: *Mute stream* and *Hear viewers’ mix*. They work with a Stream Deck too. You need at least one HEARASIDE source in the scene collection.

@@ -100,6 +100,10 @@ juce::String HubEditor::programLabel(const juce::String& exe) {
     if (exe.isEmpty()) return tr(Str::AppPick);
     if (exe == kSystemAudio) return tr(Str::AppSystem);
     if (exe == kLinkIn) return tr(Str::SentInLegacy);
+    if (uint32_t fid = 0; FriendDirectory::isFriendApp(exe, &fid)) {
+        const auto n = FriendDirectory::nameOf(fid);
+        return trf(Str::FriendItem, { n.isNotEmpty() ? n : tr(Str::FriendWord) });
+    }
     if (exe.startsWith("http")) return tr(Str::AppLinkFrom) + " " + juce::URL(exe).getDomain();
     const auto name = exe.endsWithIgnoreCase(".exe") ? exe.dropLastCharacters(4) : exe;
     return name.substring(0, 1).toUpperCase() + name.substring(1);   // "chrome.exe" -> "Chrome"
@@ -107,6 +111,7 @@ juce::String HubEditor::programLabel(const juce::String& exe) {
 
 icons::Icon HubEditor::programIcon(const juce::String& exe) {
     if (exe == kSystemAudio) return icons::Icon::Monitor;
+    if (FriendDirectory::isFriendApp(exe)) return icons::Icon::Person;
     if (exe == kLinkIn || exe.startsWith("http")) return icons::Icon::Link;
     return icons::Icon::Window;
 }
@@ -173,6 +178,7 @@ juce::String ChannelRow::statusText(Dot& dot) const {
     }
     if (d_.kind != RowData::Kind::Program) return {};
     if (!d_.on) { dot = Dot::Muted; return tr(Str::AppOffShort); }
+    if (FriendDirectory::isFriendApp(d_.app)) return friendProgramStatus(d_.app, d_.capture, d_.takeShiftMs, dot);
     switch (d_.capture) {   // AppCapture::State: Idle, Starting, Running, NotRunning, Failed
         case 2: dot = Dot::Ok; return d_.app == kLinkIn ? tr(Str::SenderOn) : d_.app.startsWith("http") ? tr(Str::AppLinkReceiving) : tr(Str::AppRunning);
         case 1: dot = Dot::Muted; return tr(Str::AppStarting);
@@ -381,14 +387,13 @@ Menu ChannelRow::programMenu() {
         m.check(HubEditor::programLabel(exe), exe.equalsIgnoreCase(cur), [&proc, index, exe] { proc.chooseSourceApp(index, exe); });
         m.last().icon = icons::Icon::Window;
     }
-    if (!listed && cur.isNotEmpty() && cur != kSystemAudio && cur != kLinkIn && !cur.startsWith("http")) {
+    if (!listed && cur.isNotEmpty() && cur != kSystemAudio && cur != kLinkIn && !cur.startsWith("http") && !FriendDirectory::isFriendApp(cur)) {
         m.check(HubEditor::programLabel(cur), true, [] {});
         m.last().icon = icons::Icon::Window;
     }
     m.check(tr(Str::AppSystem), cur == kSystemAudio, [&proc, index] { proc.chooseSourceApp(index, kSystemAudio); });
     m.last().icon = icons::Icon::Monitor;
-    m.check(tr(Str::SentInLegacy), cur == kLinkIn, [&proc, index] { proc.chooseSourceApp(index, kLinkIn); });
-    m.last().icon = icons::Icon::Link;
+    addFriendItems(m, cur, [&proc, index](const juce::String& app) { proc.chooseSourceApp(index, app); });
     if (cur.startsWith("http")) {
         m.check(HubEditor::programLabel(cur), true, [] {});
         m.last().icon = icons::Icon::Link;
@@ -721,6 +726,7 @@ void HubEditor::syncRows() {
         d.capture = s.capture;
         d.recordSec = s.recordSec;
         d.latencyMs = s.latencyMs;
+        d.takeShiftMs = s.takeShiftMs;
         if (s.flags & ssbus::kSrcDropped) d.warnTip = tr(Str::TakeDropped);
         data.push_back(d);
     }

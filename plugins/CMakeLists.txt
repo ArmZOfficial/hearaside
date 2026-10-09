@@ -160,6 +160,9 @@ if(HEARASIDE_BUILD_TOOLS AND HEARASIDE_BUILD_TESTS)
     if(NODE_FOR_FRIEND_PAGE)   # the friend's page in real Chrome against a real Hub (skips when Chrome / Playwright are missing)
         add_test(NAME friend_page COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-page.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)
     endif()
+    if(WIN32)
+        add_test(NAME friend_app_source COMMAND hearaside_ui_snapshot --test-friend-app)   # S5: a friend as App Audio's source
+    endif()
     add_test(NAME ui_values COMMAND hearaside_ui_snapshot --test-ui)                 # typed values, names, share links
 endif()
 

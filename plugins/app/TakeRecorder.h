@@ -28,6 +28,12 @@ public:
     double lastSeconds() const noexcept { return lastSeconds_; }
     static juce::File folder();                 // Documents/HEARASIDE/Recordings
 
+    // A friend's voice reaches us this many frames after it belongs on the timeline (network + browser + our
+    // own buffer): the take's position (BWF time reference) is moved back by that much so "move to origin" puts
+    // it on the beat. Any thread; read when a take starts.
+    void setShiftFrames(int64_t frames) noexcept { shift_.store(frames < 0 ? 0 : frames, std::memory_order_relaxed); }
+    int64_t shiftFrames() const noexcept { return shift_.load(std::memory_order_relaxed); }
+
     // ---- audio thread -------------------------------------------------------------------
     // want: this block belongs to the take. A take that started and then gets want = false ends.
     // hasTime = false: no timeline position (transport stopped), the take gets no BWF position.
@@ -40,6 +46,7 @@ private:
     std::atomic<bool> inUse_ { false };
     std::atomic<int> phase_ { 0 };              // 0 waiting, 1 writing, 2 ended
     std::atomic<int64_t> frames_ { 0 };
+    std::atomic<int64_t> shift_ { 0 };
     std::atomic<int64_t> start_ { -1 };         // timeline sample of the first frame, -1 = unknown
     std::atomic<bool> dropped_ { false };
     double sampleRate_ = 48000.0;

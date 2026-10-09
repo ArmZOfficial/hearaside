@@ -5,6 +5,7 @@
 #include "Settings.h"
 #include "ControlServer.h"
 #include "FriendRoom.h"
+#include "FriendDirectory.h"
 #include "ShareDirectory.h"
 #include "ShareServer.h"
 #include "Strings.h"
@@ -54,6 +55,7 @@ struct SourceView {
     int slot = -1;
     bool mon = false, str = false;
     float gainDb = 0, trimDb = 0;
+    float takeShiftMs = 0;   // a friend source: the friend's delay + this App Audio's buffer
     bool on() const noexcept { return (flags & ssbus::kSrcOn) != 0; }
     bool recording() const noexcept { return (flags & ssbus::kSrcRecording) != 0; }
 };

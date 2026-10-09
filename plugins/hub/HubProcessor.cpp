@@ -207,6 +207,10 @@ std::vector<SourceView> HubProcessor::sources() const {
         v.latencyMs = ssbus::bitsFloat(s.latencyBits.load(std::memory_order_relaxed));
         v.recordSec = s.recordMs.load(std::memory_order_relaxed) * 0.001;
         v.delayMs = ssbus::bitsFloat(s.delayBits.load(std::memory_order_relaxed));
+        if (uint32_t fid = 0; FriendDirectory::isFriendApp(v.app, &fid)) {
+            FriendDirectory::Info fi;
+            if (FriendDirectory::find(fid, fi) && fi.delayMs >= 0.0f) v.takeShiftMs = fi.delayMs + v.latencyMs;
+        }
         const uint64_t hb = s.heartbeatNs.load(std::memory_order_relaxed);
         v.active = hb != 0 && now - hb < 1000000000ull;
         if (v.name.isEmpty()) v.name = "App Audio " + juce::String(i + 1);
@@ -311,6 +315,7 @@ void HubProcessor::timerCallback() {
         engine_.maintain();
         if (engine_.role() != before) { if (engine_.role() == HubEngine::Role::Owner) pushStemNames(); stateChanged.sendChangeMessage(); }
     }
+    FriendDirectory::update(engine_.bus());
     serviceRemote();
     serviceAutoSync();
     serviceShare();

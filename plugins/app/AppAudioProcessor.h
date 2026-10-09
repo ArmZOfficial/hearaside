@@ -8,6 +8,7 @@
 #pragma once
 
 #include "AppCapture.h"
+#include "FriendDirectory.h"
 #include "LinkReceiver.h"
 #include "Settings.h"
 #include "TakeRecorder.h"
@@ -68,7 +69,11 @@ public:
     static juce::String appLabel(const juce::String& exe);   // what the UI shows for app()
     juce::String displayName() const;                        // host track name, or the program
     AppCapture::State captureState() const noexcept;   // of the current input (program, send link or listen link)
-    enum class Input { Program, LinkIn, Link };
+    enum class Input { Program, LinkIn, Link, Friend };
+    // A friend of the Hub's room as the source (app() = "*friend:<id>*"): their microphone, straight from shared memory.
+    bool friendInput(uint32_t* id = nullptr) const noexcept { return Input(mode_.load()) == Input::Friend && (id ? (*id = friendId_.load(), true) : true); }
+    // How far a take of this friend is moved back on the timeline (ms): their delay + our buffer. 0 = not a friend.
+    double takeShiftMs() const noexcept { return takeShiftMs_.load(std::memory_order_relaxed); }
     Input input() const noexcept { return Input(mode_.load()); }
     bool isOn() const noexcept { return on_->load() > 0.5f; }
     void setOn(bool);
@@ -127,6 +132,8 @@ private:
     AppCapture capture_;
     LinkReceiver link_;
     std::atomic<int> mode_ { 0 };                            // Input
+    std::atomic<uint32_t> friendId_ { 0 };                   // Input::Friend: whose microphone
+    std::atomic<double> takeShiftMs_ { 0.0 };
     std::atomic<ssbus::BusLayout*> linkBus_ { nullptr };     // for Input::LinkIn
     std::unique_ptr<ssdsp::VarResampler> rs48_, rs441_;      // links from a 48 / 44.1 kHz sender
     uint64_t feedKey_ = 0;                                   // input + rate the buffer was set up for

@@ -1409,6 +1409,7 @@ private:
             Dot dot = Dot::Muted;
             juce::String st;
             if (!v.on()) st = tr(Str::OffChannel);
+            else if (FriendDirectory::isFriendApp(v.app)) st = friendProgramStatus(v.app, v.capture, v.takeShiftMs, dot);
             else switch (v.capture) {
                 case 2: dot = Dot::Ok; st = v.app == kLinkIn ? tr(Str::SenderOn) : v.app.startsWith("http") ? tr(Str::AppLinkReceiving) : tr(Str::AppRunning); break;
                 case 1: st = tr(Str::AppStarting); break;
@@ -1509,14 +1510,13 @@ private:
                 m.check(HubEditor::programLabel(exe), exe.equalsIgnoreCase(cur), [&proc, index, exe] { proc.chooseSourceApp(index, exe); });
                 m.last().icon = icons::Icon::Window;
             }
-            if (!listed && cur.isNotEmpty() && cur != kSystemAudio && cur != kLinkIn && !cur.startsWith("http")) {
+            if (!listed && cur.isNotEmpty() && cur != kSystemAudio && cur != kLinkIn && !cur.startsWith("http") && !FriendDirectory::isFriendApp(cur)) {
                 m.check(HubEditor::programLabel(cur), true, [] {});
                 m.last().icon = icons::Icon::Window;
             }
             m.check(tr(Str::AppSystem), cur == kSystemAudio, [&proc, index] { proc.chooseSourceApp(index, kSystemAudio); });
             m.last().icon = icons::Icon::Monitor;
-            m.check(tr(Str::SentInLegacy), cur == kLinkIn, [&proc, index] { proc.chooseSourceApp(index, kLinkIn); });
-            m.last().icon = icons::Icon::Link;
+            addFriendItems(m, cur, [&proc, index](const juce::String& app) { proc.chooseSourceApp(index, app); });
             m.separator();
             juce::Component::SafePointer<AppCard> self(this);
             m.item(tr(Str::AppLinkAsk), [self, index] {

@@ -7,6 +7,7 @@
 #include "hub/HubEditor.h"
 #include "Settings.h"
 #include "Links.h"
+#include "FriendDirectory.h"
 #include "ValueText.h"
 #include "ui/Overlay.h"
 #ifdef _WIN32
@@ -1038,6 +1039,106 @@ int main(int argc, char** argv) {
         gAudio = nullptr;
         return wasLive ? 0 : 1;
     }
+
+
+#ifdef _WIN32
+    // --test-friend-app: HEARASIDE App Audio with a friend as its source (S5): the friend's microphone comes out
+    // of the plug-in, the status says who, a take is moved back on the timeline by the friend's delay, and the
+    // App Audio's own headphone slot stays silent (the Hub already plays the friend)
+    if (audit == false && argc > 1 && juce::String(argv[1]) == "--test-friend-app") {
+        int failures = 0;
+        auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+        gAudio = nullptr;
+        settings->setLanguage(Language::English);   // the checks read English text
+        const uint32_t mint = hub.addFriend("Mint");
+        for (int i = 0; i < 60; ++i) pump(25);
+        auto* bus = hub.engine().bus();
+        const int slot = hub.friends().front().slot;
+        bus->friends[slot].sampleRate.store(48000);
+        bus->friends[slot].delayBits.store(ssbus::floatBits(120.0f));
+        bus->friends[slot].state.store(ssbus::kFriendLive);
+
+        struct Head : juce::AudioPlayHead {
+            int64_t time = 480000;
+            juce::Optional<PositionInfo> getPosition() const override {
+                PositionInfo p;
+                p.setTimeInSamples(time);
+                p.setIsPlaying(true);
+                p.setIsRecording(false);
+                return p;
+            }
+        } head;
+        AppAudioProcessor app;
+        app.setPlayConfigDetails(2, 2, 48000.0, 256);
+        app.setPlayHead(&head);
+        app.prepareToPlay(48000.0, 256);
+        app.setApp(FriendDirectory::appFor(mint));
+        juce::AudioBuffer<float> buf(2, 256);
+        juce::MidiBuffer midi;
+        int64_t sentFrames = 0, blocks = 0;
+        float peak = 0.0f;
+        auto run = [&](double seconds) {
+            const auto t0 = juce::Time::getMillisecondCounter();
+            const auto end = t0 + juce::uint32(seconds * 1000);
+            int64_t b0 = blocks;
+            while (juce::Time::getMillisecondCounter() < end) {
+                const auto now = juce::Time::getMillisecondCounter();
+                // the friend's browser: 20 ms packets, as time passes
+                while (sentFrames + 960 <= int64_t(now - t0) * 48 + int64_t(b0) * 256 + 0) {
+                    std::vector<float> pk(960);
+                    for (int i = 0; i < 960; ++i) pk[size_t(i)] = 0.4f * std::sin(float(sentFrames + i) * 0.058f);
+                    const float* src[1] = { pk.data() };
+                    ssbus::ringWrite(bus->friendAudio[slot], bus->friends[slot].writePos, src, 1, 960);
+                    bus->friends[slot].heartbeatNs.store(ssbus::nowNs());
+                    sentFrames += 960;
+                }
+                while ((blocks - b0) * 256 < int64_t(now - t0) * 48) {   // the DAW's pace
+                    buf.clear();
+                    app.processBlock(buf, midi);
+                    head.time += 256;
+                    ++blocks;
+                    if (blocks - b0 > 190) peak = std::max(peak, buf.getMagnitude(0, 256));
+                }
+                juce::MessageManager::getInstance()->runDispatchLoopUntil(1);
+                juce::Thread::sleep(1);
+            }
+        };
+        run(2.0);
+        std::printf("     App Audio output peak %.3f, status %d, latency %.1f ms\n", peak, int(app.captureState()), app.latencyMs());
+        expect("the source is the friend", app.input() == AppAudioProcessor::Input::Friend);
+        expect("the status is Running (the friend is singing)", app.captureState() == AppCapture::State::Running);
+        expect("the friend's microphone comes out of the plug-in", peak > 0.1f);
+        expect("the picker says \"Mint · friend\"", AppAudioProcessor::appLabel(app.app()) == juce::String(juce::CharPointer_UTF8("Mint \xc2\xb7 friend")));
+        expect("a take's shift = the friend's delay + our buffer", std::abs(app.takeShiftMs() - (120.0 + app.latencyMs())) < 3.0);
+
+        // the App Audio's own headphone slot stays silent: the Hub plays the friend
+        bool monOff = false;
+        for (const auto& t : hub.tracks()) (void) t;
+        for (int i = 0; i < ssbus::kMaxSlots; ++i)
+            if (bus->slots[i].state.load() == ssbus::kSlotActive && (bus->slots[i].flags.load() & ssbus::kFlagApp)) monOff = !(bus->slots[i].flags.load() & ssbus::kFlagMon);
+        expect("its headphone slot is not in the headphones (no double)", monOff);
+
+        // a take: its position on the timeline is moved back by the shift
+        app.startRecording();
+        const int64_t startTime = head.time;
+        run(1.2);
+        app.stopRecording();
+        const auto take = app.recorder().lastTake();
+        expect("a take was written", take.existsAsFile());
+        if (take.existsAsFile()) {
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatReader> r(wav.createReaderFor(take.createInputStream().release(), true));
+            const auto ref = r ? r->metadataValues.getValue(juce::WavAudioFormat::bwavTimeReference, "") : juce::String();
+            const int64_t got = ref.getLargeIntValue();
+            const int64_t want = startTime - int64_t(app.takeShiftMs() * 48.0 + 0.5);
+            std::printf("     take position %lld samples, expected about %lld (started at %lld)\n", (long long) got, (long long) want, (long long) startTime);
+            expect("the take sits where the friend meant it (moved back by the shift)", ref.isNotEmpty() && std::abs(got - want) < 48 * 15);
+        }
+        gAudio = nullptr;
+        std::printf("%s\n", failures == 0 ? "friend as App Audio source: all passed" : "friend as App Audio source: FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+#endif
 
     // --demo <seconds>: keep the Hub and Tracks running (bus "Snapshot") so the OBS source
     // can be tried live

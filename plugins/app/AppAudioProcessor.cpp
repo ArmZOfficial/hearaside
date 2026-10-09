@@ -123,7 +123,9 @@ void AppAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
     if (auto* s = src_.load(std::memory_order_acquire)) s->heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
-    pub_.mirror({ mon_->load() > 0.5f, str_->load() > 0.5f, false, strGain_->load(), 0.0f, delay_->load(), monTrim_->load(), -1, true });
+    // a friend source: the Hub already plays that friend in your headphones (and for the viewers), so this slot
+    // stays out of the headphones: you would hear them twice
+    pub_.mirror({ mon_->load() > 0.5f && Input(mode_.load(std::memory_order_relaxed)) != Input::Friend, str_->load() > 0.5f, false, strGain_->load(), 0.0f, delay_->load(), monTrim_->load(), -1, true });
     const bool viewersOn = str_->load() > 0.5f && !busSolo_.load(std::memory_order_relaxed) && !hubMute_.load(std::memory_order_relaxed);
     viewers_.setTargetValue(viewersOn ? ssdsp::dbToGain(strGain_->load()) : 0.0f);
 
@@ -227,6 +229,16 @@ AppAudioProcessor::Feed AppAudioProcessor::feed() const noexcept {
             if (auto* b = linkBus_.load(std::memory_order_acquire)) {
                 const uint32_t lr = b->linkIn.sampleRate.load(std::memory_order_relaxed);
                 return { &b->linkInAudio, &b->linkIn.writePos, lr, lr * 0.03 };
+            }
+            return { nullptr, nullptr, 0, 0 };
+        case Input::Friend:
+            if (auto* b = linkBus_.load(std::memory_order_acquire)) {
+                const uint32_t id = friendId_.load(std::memory_order_relaxed);
+                for (int s = 0; s < ssbus::kMaxFriends; ++s)
+                    if (b->friends[s].id.load(std::memory_order_acquire) == id) {
+                        const uint32_t fr = b->friends[s].sampleRate.load(std::memory_order_relaxed);
+                        return { &b->friendAudio[s], &b->friends[s].writePos, fr, fr * 0.03 };
+                    }
             }
             return { nullptr, nullptr, 0, 0 };
         case Input::Link:
@@ -341,6 +353,10 @@ juce::String AppAudioProcessor::appLabel(const juce::String& exe) {
     if (exe.isEmpty()) return {};
     if (exe == kSystemAudio) return tr(Str::AppSystem);
     if (exe == kLinkIn) return tr(Str::SentInLegacy);
+    if (uint32_t fid = 0; FriendDirectory::isFriendApp(exe, &fid)) {
+        const auto n = FriendDirectory::nameOf(fid);
+        return trf(Str::FriendItem, { n.isNotEmpty() ? n : tr(Str::FriendWord) });
+    }
     if (LinkReceiver::isLink(exe.toStdString())) return tr(Str::AppLinkFrom) + " " + juce::URL(exe).getDomain();
     const auto name = exe.endsWithIgnoreCase(".exe") ? exe.dropLastCharacters(4) : exe;
     return name.substring(0, 1).toUpperCase() + name.substring(1);   // "chrome.exe" -> "Chrome"
@@ -370,9 +386,12 @@ void AppAudioProcessor::setApp(const juce::String& exe) {
 
 void AppAudioProcessor::restartCapture() {
     const bool linkIn = app_ == kLinkIn, link = LinkReceiver::isLink(app_.toStdString());
-    mode_.store(int(linkIn ? Input::LinkIn : link ? Input::Link : Input::Program), std::memory_order_release);
+    uint32_t fid = 0;
+    const bool friendSrc = FriendDirectory::isFriendApp(app_, &fid);
+    friendId_.store(friendSrc ? fid : 0, std::memory_order_relaxed);
+    mode_.store(int(friendSrc ? Input::Friend : linkIn ? Input::LinkIn : link ? Input::Link : Input::Program), std::memory_order_release);
     if (app_.isEmpty() || !isOn()) { capture_.stop(); link_.stop(); return; }
-    if (linkIn) { capture_.stop(); link_.stop(); return; }   // the Hub's share server fills the bus
+    if (linkIn || friendSrc) { capture_.stop(); link_.stop(); return; }   // the Hub's share server fills the bus
     if (link) { capture_.stop(); link_.start(app_.toStdString()); return; }
     link_.stop();
     if (app_ == kSystemAudio) capture_.start(ssbus::currentPid(), uint32_t(sampleRate_ + 0.5), true);
@@ -386,6 +405,16 @@ AppCapture::State AppAudioProcessor::captureState() const noexcept {
             const bool live = b && b->linkIn.active.load() && ssbus::nowNs() - b->linkIn.heartbeatNs.load() < 2000000000ull;
             return app_.isEmpty() || !isOn() ? AppCapture::State::Idle : live ? AppCapture::State::Running : AppCapture::State::NotRunning;
         }
+        case Input::Friend: {
+            auto* b = linkBus_.load();
+            if (app_.isEmpty() || !isOn()) return AppCapture::State::Idle;
+            if (b == nullptr) return AppCapture::State::NotRunning;
+            const uint32_t id = friendId_.load();
+            for (int s = 0; s < ssbus::kMaxFriends; ++s)
+                if (b->friends[s].id.load(std::memory_order_acquire) == id)
+                    return b->friends[s].state.load(std::memory_order_acquire) == ssbus::kFriendLive ? AppCapture::State::Running : AppCapture::State::NotRunning;
+            return AppCapture::State::Failed;   // not in the room any more
+        }
         case Input::Link:    return link_.state();
         case Input::Program: break;
     }
@@ -395,7 +424,8 @@ AppCapture::State AppAudioProcessor::captureState() const noexcept {
 void AppAudioProcessor::serviceCapture() {
     using S = AppCapture::State;
     if (input() != Input::Program) {
-        if ((app_.isEmpty() || !isOn()) && link_.state() != S::Idle && ++offTicks_ > 6) link_.stop();
+        if (input() == Input::Friend) { /* nothing to start: the Hub's share server fills the friend's ring */ }
+        else if ((app_.isEmpty() || !isOn()) && link_.state() != S::Idle && ++offTicks_ > 6) link_.stop();
         else if (isOn() && input() == Input::Link && link_.state() == S::Idle) restartCapture();
         return;
     }
@@ -452,7 +482,15 @@ void AppAudioProcessor::setFollowRecord(bool f) {
 
 void AppAudioProcessor::timerCallback() {
     ++tick_;
+    FriendDirectory::update(bus_);
     serviceCapture();
+    {   // a friend's take belongs earlier on the timeline: their delay + what we buffer
+        double shift = 0.0;
+        FriendDirectory::Info f;
+        if (input() == Input::Friend && FriendDirectory::find(friendId_.load(), f) && f.delayMs >= 0.0f) shift = double(f.delayMs) + latencyMs();
+        takeShiftMs_.store(shift, std::memory_order_relaxed);
+        rec_.setShiftFrames(int64_t(shift * sampleRate_ * 0.001 + 0.5));
+    }
 
     // follow the DAW's record button: a take per DAW take. The next take's file is armed ahead, so
     // the DAW's very first recorded block lands in it (an unused armed file is deleted).

@@ -106,7 +106,8 @@ void TakeRecorder::write(const float* const* ch, int n, bool want, int64_t timeS
         const int phase = phase_.load(std::memory_order_relaxed);
         if (want && phase != 2) {
             if (phase == 0) {
-                start_.store(hasTime && timeSamples >= 0 ? timeSamples : -1, std::memory_order_relaxed);
+                const int64_t at = hasTime && timeSamples >= 0 ? timeSamples - shift_.load(std::memory_order_relaxed) : -1;
+                start_.store(at >= 0 ? at : (hasTime && timeSamples >= 0 ? 0 : -1), std::memory_order_relaxed);
                 phase_.store(1, std::memory_order_release);
             }
             if (!w->write(ch, n)) dropped_.store(true, std::memory_order_relaxed);

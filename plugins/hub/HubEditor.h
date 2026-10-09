@@ -33,6 +33,7 @@ struct RowData {
     uint32_t capture = 0;
     double recordSec = 0;
     float latencyMs = 0;
+    float takeShiftMs = 0;        // a friend source: how far a take is moved back on the timeline
     // friend (index = friend id)
     int friendState = 0;          // 0 hasn't opened the link, 1 singing, 2 offline
     float friendDelayMs = -1.0f;  // how late the voice arrives; < 0 = not measured yet

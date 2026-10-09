@@ -659,6 +659,7 @@ Table build() {
     s(Str::LinkListenNotLinedUp, "ลิงก์ฟังปรับให้ตรงจังหวะไม่ได้", "Listen links can’t be lined up");
     s(Str::FriendGone, "%s ไม่อยู่ในห้องแล้ว", "%s isn’t in the room any more");
     s(Str::RecordFriendHint, "ถ้าจะอัดเสียงเพื่อนใน DAW ให้ใส่ App Audio ที่ช่อง Input แล้วเลือกชื่อเพื่อน", "To record a friend in your DAW, put App Audio on an input channel and choose their name.");
+    s(Str::ReceivingFriend, "รับเสียง %s อยู่", "Receiving %s");
     s(Str::FriendOverLimit, "ช้ากว่า %d ms จึงไม่ถูกรอ", "Slower than %d ms, so it isn’t waited for");
     s(Str::RemovedFriendToast, "เอา %s ออกจากห้องแล้ว ลิงก์ของเพื่อนใช้ไม่ได้อีก", "Removed %s from the room. Their link doesn’t work any more.");
     s(Str::FriendFullToast, "ห้องเต็มแล้ว (8 คน)", "The room is full (8 friends)");

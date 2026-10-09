@@ -10,6 +10,7 @@ constexpr float kPad = 12.0f, kGap = 10.0f, kHeaderH = 54.0f;
 
 icons::Icon iconFor(const juce::String& exe) {
     if (exe == AppAudioProcessor::kSystemAudio) return icons::Icon::Monitor;
+    if (FriendDirectory::isFriendApp(exe)) return icons::Icon::Person;
     if (exe == AppAudioProcessor::kLinkIn || links::parse(exe).kind != links::Kind::None) return icons::Icon::Link;
     return icons::Icon::Window;
 }
@@ -167,9 +168,30 @@ Menu AppAudioEditor::sourceMenu() {
     }
     m.check(tr(Str::AppSystem), cur == AppAudioProcessor::kSystemAudio, [this] { proc_.setApp(AppAudioProcessor::kSystemAudio); });
     m.last().icon = icons::Icon::Monitor;
-    // the Hub's send-in link (until the friends room takes over, prompt 3.10 item 1)
-    m.check(tr(Str::SentInLegacy), cur == AppAudioProcessor::kLinkIn, [this] { proc_.setApp(AppAudioProcessor::kLinkIn); });
-    m.last().icon = icons::Icon::Link;
+    // friends of the Hub's room (prompt 3.10 item 1: they replace "Sent in via send link")
+    {
+        const auto friends = FriendDirectory::all();
+        bool curIsFriend = false;
+        for (const auto& f : friends) {
+            const auto app = FriendDirectory::appFor(f.id);
+            curIsFriend = curIsFriend || app == cur;
+            m.check(trf(Str::FriendItem, { f.name }), app == cur, [this, app] { proc_.setApp(app); });
+            m.last().icon = icons::Icon::Person;
+            m.last().dot = f.live() ? Dot::Ok : f.state == ssbus::kFriendWaiting ? Dot::Warn : Dot::Muted;
+        }
+        if (friends.empty() && !FriendDirectory::isFriendApp(cur)) {   // no Hub or an empty room: say how
+            m.item(tr(Str::SourceNeedsHub), [] {});
+            m.last().enabled = false;
+        }
+        if (cur == AppAudioProcessor::kLinkIn) {   // an old project still listening to the single send-in link
+            m.check(tr(Str::SentInLegacy), true, [] {});
+            m.last().icon = icons::Icon::Link;
+        }
+        if (FriendDirectory::isFriendApp(cur) && !curIsFriend) {
+            m.check(AppAudioProcessor::appLabel(cur), true, [] {});
+            m.last().icon = icons::Icon::Person;
+        }
+    }
     if (links::isListen(cur)) {
         m.check(AppAudioProcessor::appLabel(cur), true, [] {});
         m.last().icon = icons::Icon::Link;
@@ -203,6 +225,22 @@ AppAudioEditor::Status AppAudioEditor::status() const {
     if (!proc_.isOn()) return { tr(Str::AppOffTrack), Dot::Muted };
     const auto in = proc_.input();
     const bool link = in != AppAudioProcessor::Input::Program;
+    if (in == AppAudioProcessor::Input::Friend) {
+        uint32_t fid = 0;
+        proc_.friendInput(&fid);
+        FriendDirectory::Info f;
+        const bool known = FriendDirectory::find(fid, f);
+        const auto name = known ? f.name : tr(Str::FriendWord);
+        switch (proc_.captureState()) {
+            case AppCapture::State::Running: {
+                const int ms = juce::roundToInt(proc_.takeShiftMs());
+                return { ms > 0 ? trf(Str::FriendTakeShift, { name, juce::String(ms) }) : trf(Str::ReceivingFriend, { name }), Dot::Ok };
+            }
+            case AppCapture::State::Failed:  return { trf(Str::FriendGone, { name }), Dot::Warn };
+            case AppCapture::State::Idle:    return { tr(Str::AppNone), Dot::Muted };
+            default:                         return { trf(Str::FriendWaiting, { name }), Dot::Warn };
+        }
+    }
     switch (proc_.captureState()) {
         case AppCapture::State::Idle:       return { tr(Str::AppNone), Dot::Muted };
         case AppCapture::State::Starting:   return { tr(Str::AppStarting), Dot::Muted };

@@ -4,6 +4,7 @@
 
 #include "Settings.h"
 #include "ControlServer.h"
+#include "FriendRoom.h"
 #include "ShareDirectory.h"
 #include "ShareServer.h"
 #include "Strings.h"
@@ -139,6 +140,33 @@ public:
     juce::String permanentUrl(bool listen) const;   // https://<site>/l/<token> (or /s/), "" = not set
     const ControlServer& control() const noexcept { return control_; }   // REST API
 
+    // ---- friends room (S2) ------------------------------------------------------------------
+    // Each friend gets a send-in link of their own; the Hub plays them (headphones + Stream Mix) and
+    // can line them up with the music for the viewers (Line up). Message thread.
+    std::vector<FriendView> friends() const { return friendRoom_.views(engine_.bus(), engine_); }
+    int friendCount() const noexcept { return friendRoom_.count(); }
+    bool roomFull() const noexcept { return friendRoom_.full(); }
+    uint32_t addFriend(const juce::String& name = {});          // 0 = full
+    void removeFriend(uint32_t id);
+    void renameFriend(uint32_t id, const juce::String& name);
+    void setFriendVolumeDb(uint32_t id, float db) { friendRoom_.setVolumeDb(id, db); }
+    void setFriendPan(uint32_t id, float pan) { friendRoom_.setPan(id, pan); }
+    void setFriendMon(uint32_t id, bool on) { friendRoom_.setMon(id, on); }
+    void setFriendStr(uint32_t id, bool on) { friendRoom_.setStr(id, on); }
+    void setFriendSolo(uint32_t id, bool on) { friendRoom_.setSolo(id, on); }
+    void spreadFriends() { friendRoom_.spreadOut(); }
+    juce::String friendLink(uint32_t id) const;                 // the link to send them ("" when sharing can't start)
+    juce::String newFriendLink(uint32_t id);                    // the old link stops working
+    void remeasureFriend(uint32_t id);                          // "Measure again"
+    void setLineUp(bool on);
+    bool lineUp() const noexcept { return lineUp_; }
+    float lineUpMs() const noexcept { return engine_.lineUpMs(); }          // delay of the live right now
+    int lineUpSlowestFriend() const;                                         // friend id, 0 = none
+    uint32_t lineUpChanges() const noexcept { return engine_.lineUpChanges(); }
+    int lineUpLimitMs() const { return settings_->lineUpLimitMs(); }
+    void setLineUpLimitMs(int ms) { settings_->setLineUpLimitMs(ms); }
+    int friendsConnected() const noexcept { return share_.friendsConnected(); }
+
     // "Viewers hear nothing" (docs/ux-roadmap.md 7.3): the Stream Mix has been silent for 5 s while a
     // track that goes to the viewers has signal. From the meters, on the message thread.
     bool viewersSilent() const noexcept { return viewersSilent_; }
@@ -211,6 +239,8 @@ private:
     ShareDirectory directory_;
     SharedSettings settings_;
     bool shareWanted_ = false;
+    FriendRoom friendRoom_;
+    bool lineUp_ = true;
     ssbus::BusLayout* shareBus_ = nullptr;
     juce::String listenToken_ = ShareServer::newToken(), sendToken_ = ShareServer::newToken();   // saved: links stay the same
     juce::String shareSecret_;   // saved: proves to the share web site that the permanent links are ours (never logged)

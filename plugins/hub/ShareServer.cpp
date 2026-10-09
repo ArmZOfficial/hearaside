@@ -24,7 +24,8 @@ namespace hearaside {
 
 namespace {
 
-constexpr uint32_t kMagic = 0x31415248;   // "HRA1" little-endian
+constexpr uint32_t kMagic = 0x31415248;   // "HRA1" little-endian: 16-byte header (magic, rate, channels, 0, frames)
+constexpr uint32_t kMagic2 = 0x32415248;  // "HRA2": 24-byte header, plus a u64 position on the Stream Mix timeline (S3)
 constexpr int kFirstPort = 47810;
 
 // ---- SHA-1 (WebSocket handshake only) ---------------------------------------------------------
@@ -329,9 +330,13 @@ void ShareServer::stop() {
         publicBase_ = {};
     }
     tunnel_.store(Tunnel::Off);
-    if (bus_) bus_->linkIn.active.store(0);
+    if (bus_) {
+        bus_->linkIn.active.store(0);
+        for (auto& f : bus_->friends) if (f.state.load() == ssbus::kFriendLive) f.state.store(ssbus::kFriendOffline);
+    }
     listeners_.store(0);
     senders_.store(0);
+    friendsLive_.store(0);
 }
 
 juce::String ShareServer::lanBase() const {
@@ -361,6 +366,37 @@ juce::String ShareServer::localListenUrl() const {
 juce::String ShareServer::sendUrl() const {
     const auto p = publicBase();
     return (p.isNotEmpty() ? p : lanBase()) + "/s/" + sendToken_;
+}
+
+juce::String ShareServer::friendUrl(const juce::String& token) const {
+    const auto p = publicBase();
+    return (p.isNotEmpty() ? p : lanBase()) + "/s/" + token;
+}
+
+void ShareServer::setFriendLinks(std::vector<FriendLink> links) {
+    const std::lock_guard<std::mutex> lock(friendsMutex_);
+    friendLinks_ = std::move(links);
+}
+
+void ShareServer::kickFriend(int slot) {
+    if (slot >= 0 && slot < ssbus::kMaxFriends) friendKick_[size_t(slot)].store(true);
+}
+
+void ShareServer::remeasureFriend(int slot) {
+    if (slot >= 0 && slot < ssbus::kMaxFriends) friendRemeasure_[size_t(slot)].store(true);
+}
+
+int ShareServer::friendSlotFor(const juce::String& token, uint32_t* id, juce::String* name, juce::String* host) const {
+    if (token.length() < 20) return -1;
+    const std::lock_guard<std::mutex> lock(friendsMutex_);
+    for (const auto& f : friendLinks_) {
+        if (f.token != token) continue;
+        if (id) *id = f.id;
+        if (name) *name = f.name;
+        if (host) *host = f.host;
+        return f.slot;
+    }
+    return -1;
 }
 
 void ShareServer::reap() {
@@ -423,6 +459,32 @@ void ShareServer::serve(Conn& c) {
         return writeAll(s, resp.toRawUTF8(), resp.getNumBytesAsUTF8());
     };
 
+    // friends: one link each (and a tiny JSON for the page: the friend's name, who invited them)
+    if (path.startsWith("/s/") || path.startsWith("/ws/s/") || path.startsWith("/info/s/")) {
+        const auto tok = path.fromLastOccurrenceOf("/", false, false);
+        if (tok != sendToken_) {
+            uint32_t fid = 0;
+            juce::String fname, fhost;
+            const int slot = friendSlotFor(tok, &fid, &fname, &fhost);
+            if (slot >= 0) {
+                if (path.startsWith("/s/")) { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::send_html, size_t(HearasideWeb::send_htmlSize)); return; }
+                if (path.startsWith("/info/s/")) {
+                    auto* o = new juce::DynamicObject();
+                    o->setProperty("name", fname);
+                    o->setProperty("host", fhost);
+                    const auto json = juce::JSON::toString(juce::var(o), true);
+                    respond(s, 200, "application/json; charset=utf-8", json.toRawUTF8(), json.getNumBytesAsUTF8());
+                    return;
+                }
+                if (key.isNotEmpty()) { if (upgrade()) friendSession(c, slot, fid, tok); return; }
+            }
+        }
+    }
+    if (!listenEnabled_.load() && (path.startsWith("/l/") || path.startsWith("/ws/l/"))) {
+        static const char off[] = "HEARASIDE: this link is not valid (any more).";
+        respond(s, 404, "text/plain; charset=utf-8", off, sizeof(off) - 1);
+        return;
+    }
     if (path == "/l/" + listenToken_) { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::listen_html, size_t(HearasideWeb::listen_htmlSize)); return; }
     if (path == "/s/" + sendToken_)   { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::send_html, size_t(HearasideWeb::send_htmlSize)); return; }
     if (path == "/ws/l/" + listenToken_ && key.isNotEmpty()) { if (upgrade()) streamTo(c); return; }
@@ -521,6 +583,125 @@ void ShareServer::receiveFrom(Conn& c) {
     }
     if (senderGen_.load() == gen) li.active.store(0, std::memory_order_release);
     --senders_;
+}
+
+// A friend's browser: the microphone comes in (HRA1 or HRA2), the Stream Mix as the DAW makes it goes out
+// (HRA2, never delayed by Line up). HRA2 microphone packets say which Stream Mix position the friend was
+// hearing when the packet's first frame was captured; with that the Hub knows how late the voice is.
+void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::String& token) {
+    auto& s = *c.sock;
+    auto& h = bus_->friends[slot];
+    const auto idx = size_t(slot);
+    const uint32_t gen = ++friendGen_[idx];   // the newest connection of this friend wins
+    friendKick_[idx].store(false);
+    friendRemeasure_[idx].store(false);
+    h.sampleRate.store(48000, std::memory_order_relaxed);
+    h.delayBits.store(ssbus::floatBits(-1.0f), std::memory_order_relaxed);   // not measured yet
+    h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+    h.state.store(ssbus::kFriendLive, std::memory_order_release);
+    ++friendsLive_;
+
+    std::vector<uint8_t> msg, packet;
+    std::vector<float> l, r, ml(4096), mr(4096);
+    std::vector<double> history;                 // recent delay readings (ms), for the median
+    double smooth = -1.0;
+    uint64_t mixCursor = bus_->friendMixWrite.load() > 2400 ? bus_->friendMixWrite.load() - 960 : 0;
+    uint32_t checkTick = 0;
+    bool closing = false;
+    while (!closing && running_.load() && friendGen_[idx].load() == gen && !friendKick_[idx].load()) {
+        if (++checkTick % 50 == 0) {   // now and then: is this link still this friend's?
+            uint32_t now = 0;
+            if (friendSlotFor(token, &now) != slot || now != id) break;
+        }
+        if (friendRemeasure_[idx].exchange(false)) { history.clear(); smooth = -1.0; h.delayBits.store(ssbus::floatBits(-1.0f), std::memory_order_relaxed); }
+
+        // ---- microphone ------------------------------------------------------------------
+        if (s.waitUntilReady(true, 5) == 1) {
+            const uint8_t op = readMessage(s, msg, 5000, running_);
+            if (op == 0 || op == 8) break;
+            const size_t hdr = msg.size() >= 4 && std::memcmp(msg.data(), &kMagic2, 4) == 0 ? 24 : 16;
+            if (op == 2 && msg.size() >= hdr) {
+                uint32_t magic = 0, rate = 0, frames = 0;
+                uint16_t chans = 0;
+                uint64_t echo = 0;
+                std::memcpy(&magic, msg.data(), 4);
+                std::memcpy(&rate, msg.data() + 4, 4);
+                std::memcpy(&chans, msg.data() + 8, 2);
+                std::memcpy(&frames, msg.data() + 12, 4);
+                if (hdr == 24) std::memcpy(&echo, msg.data() + 16, 8);
+                if ((magic == kMagic || magic == kMagic2) && chans >= 1 && chans <= 2 && rate >= 8000 && rate <= 192000) {
+                    frames = std::min<uint32_t>(frames, uint32_t((msg.size() - hdr) / (2u * chans)));
+                    const auto* pcm = reinterpret_cast<const int16_t*>(msg.data() + hdr);
+                    l.resize(frames);
+                    r.resize(frames);
+                    float pk = 0.0f;
+                    for (uint32_t i = 0; i < frames; ++i) {
+                        l[i] = pcm[i * chans] / 32768.0f;
+                        r[i] = pcm[i * chans + chans - 1] / 32768.0f;
+                        pk = std::max(pk, std::max(std::abs(l[i]), std::abs(r[i])));
+                    }
+                    // how late is the average sample of this packet when it arrives? (Stream Mix frames are the Hub's)
+                    const uint64_t W = bus_->friendMixWrite.load(std::memory_order_acquire);
+                    const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
+                    {
+                        const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+                        if (friendGen_[idx].load() != gen) break;
+                        const float* src[2] = { l.data(), r.data() };
+                        h.sampleRate.store(rate, std::memory_order_relaxed);
+                        ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, frames);
+                        h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+                        h.peakBits.store(ssbus::floatBits(pk), std::memory_order_relaxed);
+                    }
+                    if (echo != 0 && W >= echo && frames > 0) {
+                        const double ms = double(W - echo) * 1000.0 / double(hubRate) - double(frames) * 500.0 / double(rate);
+                        if (ms >= 0.0 && ms < 3000.0) {
+                            history.push_back(ms);
+                            if (history.size() > 41) history.erase(history.begin());
+                            if (history.size() >= 8) {   // the median ignores a late packet now and then
+                                auto sorted = history;
+                                std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
+                                const double med = sorted[sorted.size() / 2];
+                                smooth = smooth < 0.0 ? med : smooth + (med - smooth) * 0.15;
+                                h.delayBits.store(ssbus::floatBits(float(smooth)), std::memory_order_relaxed);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- what the friend hears: the Stream Mix as the DAW makes it ---------------------
+        const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
+        const uint64_t mw = bus_->friendMixWrite.load(std::memory_order_acquire);
+        if (mw > mixCursor + uint64_t(hubRate) * 2) mixCursor = mw - hubRate / 10;   // fell far behind: jump to now
+        if (mw < mixCursor) mixCursor = mw;                                          // Hub restarted
+        while (mw - mixCursor >= hubRate / 100 && running_.load()) {
+            const uint32_t n = uint32_t(std::min<uint64_t>(mw - mixCursor, ml.size()));
+            float* dst[2] = { ml.data(), mr.data() };
+            if (ssbus::ringReadAt(bus_->friendMixAudio, bus_->friendMixWrite, mixCursor, dst, n) == ssbus::ReadResult::Overrun) { mixCursor = mw - hubRate / 10; break; }
+            packet.resize(24 + size_t(n) * 4);
+            const uint16_t chans = 2, flags = 0;
+            std::memcpy(packet.data(), &kMagic2, 4);
+            std::memcpy(packet.data() + 4, &hubRate, 4);
+            std::memcpy(packet.data() + 8, &chans, 2);
+            std::memcpy(packet.data() + 10, &flags, 2);
+            std::memcpy(packet.data() + 12, &n, 4);
+            std::memcpy(packet.data() + 16, &mixCursor, 8);
+            auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 24);
+            for (uint32_t i = 0; i < n; ++i) {
+                pcm[2 * i]     = int16_t(std::lround(std::clamp(ml[i], -1.0f, 1.0f) * 32767.0f));
+                pcm[2 * i + 1] = int16_t(std::lround(std::clamp(mr[i], -1.0f, 1.0f) * 32767.0f));
+            }
+            mixCursor += n;
+            if (!sendFrame(s, 2, packet.data(), packet.size())) { closing = true; break; }
+        }
+    }
+    --friendsLive_;
+    const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+    if (friendGen_[idx].load() == gen || friendKick_[idx].load()) {   // not taken over by a newer connection
+        if (h.id.load() == id && h.state.load() == ssbus::kFriendLive) h.state.store(ssbus::kFriendOffline, std::memory_order_release);
+        h.peakBits.store(0, std::memory_order_relaxed);
+    }
 }
 
 // cloudflared quick tunnel: prints "https://<random>.trycloudflare.com" once it is reachable.

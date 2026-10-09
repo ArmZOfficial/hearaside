@@ -10,11 +10,13 @@
 
 #include <juce_core/juce_core.h>
 
+#include <array>
 #include <atomic>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 namespace hearaside {
 
@@ -44,6 +46,26 @@ public:
     void setAllowedOrigin(const juce::String& origin);
     bool originAllowed(const juce::String& origin) const;
 
+    // ---- friends room (S2) -------------------------------------------------------------------
+    // One send-in link per friend: /s/<token>. The table below is what the server checks; it is
+    // owned by the Hub's FriendRoom (message thread). A friend who connects again takes over their
+    // own slot ("newest wins" inside one slot, never across slots).
+    struct FriendLink {
+        int slot = -1;           // 0..7 = ssbus friend index
+        uint32_t id = 0;         // FriendHeader::id
+        juce::String token;      // the secret in the link (never logged)
+        juce::String name;       // shown on the friend's page
+        juce::String host;       // "<host> invited you to sing" ("" = not shown)
+    };
+    void setFriendLinks(std::vector<FriendLink> links);
+    void kickFriend(int slot);                   // end this friend's connection (removed from the room)
+    void remeasureFriend(int slot);              // forget the measured delay and measure again
+    // The listen links (/l/<token>) can be switched off without taking the friends away.
+    void setListenEnabled(bool on) noexcept { listenEnabled_.store(on); }
+    bool listenEnabled() const noexcept { return listenEnabled_.load(); }
+    juce::String friendUrl(const juce::String& token) const;     // best link: public if ready, else LAN
+    int friendsConnected() const noexcept { return friendsLive_.load(); }
+
     static juce::String newToken();    // 26 characters from the OS's secure random source (130 bits)
     static juce::String newSecret();   // 64 hex characters (256 bits), proves who owns the permanent links
     static bool secureRandom(void* dst, size_t n);
@@ -55,6 +77,8 @@ private:
     void serve(Conn&);
     void streamTo(Conn&);
     void receiveFrom(Conn&);
+    void friendSession(Conn&, int slot, uint32_t id, const juce::String& token);
+    int  friendSlotFor(const juce::String& token, uint32_t* id = nullptr, juce::String* name = nullptr, juce::String* host = nullptr) const;
     void tunnelLoop();
     void reap();
 
@@ -68,6 +92,13 @@ private:
     int port_ = 0;
     std::atomic<int> listeners_ { 0 }, senders_ { 0 };
     std::atomic<uint32_t> senderGen_ { 0 };
+    mutable std::mutex friendsMutex_;
+    std::vector<FriendLink> friendLinks_;
+    std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> friendGen_ {};
+    std::array<std::atomic<bool>, ssbus::kMaxFriends> friendKick_ {}, friendRemeasure_ {};
+    std::array<std::mutex, ssbus::kMaxFriends> friendWrite_;
+    std::atomic<int> friendsLive_ { 0 };
+    std::atomic<bool> listenEnabled_ { true };
 
     std::atomic<Tunnel> tunnel_ { Tunnel::Off };
     struct Tunnelled;                          // the cloudflared process (dies with the DAW, even on a crash)

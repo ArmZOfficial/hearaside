@@ -52,6 +52,10 @@ public:
     juce::String restApiKey() const { return file_->getValue("restApiKey"); }
     void setRestApiKey(const juce::String& k) { file_->setValue("restApiKey", k); }
 
+    // Line up friends: friends slower than this are not waited for (ms, 100 .. 1000).
+    int lineUpLimitMs() const { return juce::jlimit(100, 1000, file_->getIntValue("lineUpLimitMs", 600)); }
+    void setLineUpLimitMs(int ms) { file_->setValue("lineUpLimitMs", juce::jlimit(100, 1000, ms)); }
+
     // One-off facts about this user ("triedPreview", "startHidden"...), saved quietly.
     bool flag(const juce::String& key) const { return file_->getBoolValue("flag." + key, false); }
     void setFlag(const juce::String& key, bool on) { if (flag(key) != on) file_->setValue("flag." + key, on); }

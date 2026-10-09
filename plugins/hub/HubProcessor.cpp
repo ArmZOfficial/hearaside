@@ -392,11 +392,20 @@ void HubProcessor::serviceShare() {
     if (permanent) ensureStrongTokens();   // the link can be copied (and sent) before the first share
     // the share server follows the bus this Hub owns
     auto* bus = engine_.role() == HubEngine::Role::Owner ? engine_.bus() : nullptr;
-    if (shareWanted_ && bus != shareBus_) {
+    // the server runs for the listen links and/or for the friends' send-in links
+    const bool serverWanted = shareWanted_ || friendRoom_.count() > 0;
+    if (serverWanted && bus != shareBus_) {
         shareBus_ = bus;
         if (bus) share_.start(bus, listenToken_, sendToken_); else share_.stop();
         stateChanged.sendChangeMessage();
+    } else if (!serverWanted && share_.running()) {
+        share_.stop();
+        shareBus_ = nullptr;
+        stateChanged.sendChangeMessage();
     }
+    share_.setListenEnabled(shareWanted_);
+    friendRoom_.service(bus, engine_, share_, {});
+    engine_.setLineUp(lineUp_, float(settings_->lineUpLimitMs()));
     if (!shareWanted_) return;
     // tell the share web site where the tunnel is (its own thread; heartbeat every 30 s)
     const auto base = permanent ? settings_->shareBase() : juce::String();
@@ -408,10 +417,62 @@ void HubProcessor::serviceShare() {
 void HubProcessor::setSharing(bool on) {
     if (on == shareWanted_) return;
     shareWanted_ = on;
-    shareBus_ = nullptr;
     if (on) serviceShare();
-    else { directory_.stop(); share_.stop(); }   // the permanent links say "not shared right now" at once
+    else directory_.stop();   // the permanent links say "not shared right now" at once; friends keep their server
+    share_.setListenEnabled(on);
     stateChanged.sendChangeMessage();
+}
+
+uint32_t HubProcessor::addFriend(const juce::String& name) {
+    const auto id = friendRoom_.add(name);
+    if (id != 0) { serviceShare(); updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true)); stateChanged.sendChangeMessage(); }
+    return id;
+}
+
+void HubProcessor::removeFriend(uint32_t id) {
+    friendRoom_.remove(id);
+    serviceShare();
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    stateChanged.sendChangeMessage();
+}
+
+void HubProcessor::renameFriend(uint32_t id, const juce::String& name) {
+    friendRoom_.rename(id, name);
+    serviceShare();
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    stateChanged.sendChangeMessage();
+}
+
+juce::String HubProcessor::friendLink(uint32_t id) const {
+    const auto t = friendRoom_.token(id);
+    return t.isEmpty() || !share_.running() ? juce::String() : share_.friendUrl(t);
+}
+
+juce::String HubProcessor::newFriendLink(uint32_t id) {
+    const auto slot = friendRoom_.slotOf(id);
+    const auto t = friendRoom_.newLink(id);
+    if (t.isEmpty()) return {};
+    share_.kickFriend(slot);   // the old link is dead: the open page has to use the new one
+    serviceShare();
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    stateChanged.sendChangeMessage();
+    return friendLink(id);
+}
+
+void HubProcessor::remeasureFriend(uint32_t id) { share_.remeasureFriend(friendRoom_.slotOf(id)); }
+
+void HubProcessor::setLineUp(bool on) {
+    if (on == lineUp_) return;
+    lineUp_ = on;
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    stateChanged.sendChangeMessage();
+}
+
+int HubProcessor::lineUpSlowestFriend() const {
+    const int slot = engine_.lineUpSlowest();
+    if (slot < 0) return 0;
+    for (const auto& e : friendRoom_.entries()) if (e.slot == slot) return int(e.id);
+    return 0;
 }
 
 void HubProcessor::measureLatency() {
@@ -687,6 +748,9 @@ void HubProcessor::serviceAutoSync() {
 void HubProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto state = apvts_.copyState();
     state.setProperty("bus", busName_, nullptr);
+    state.setProperty("lineUp", lineUp_, nullptr);
+    state.removeChild(state.getChildWithName("FRIENDS"), nullptr);
+    state.appendChild(friendRoom_.toState(), nullptr);
     state.setProperty("listenToken", listenToken_, nullptr);
     state.setProperty("sendToken", sendToken_, nullptr);
     if (shareSecret_.isNotEmpty()) state.setProperty("shareSecret", shareSecret_, nullptr);
@@ -707,6 +771,9 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     // older projects also saved scenes and a hosted mastering chain
     state.removeChild(state.getChildWithName("SCENES"), nullptr);
     state.removeProperty("mastering", nullptr);
+    friendRoom_.fromState(state.getChildWithName("FRIENDS"));
+    lineUp_ = bool(state.getProperty("lineUp", true));
+    state.removeChild(state.getChildWithName("FRIENDS"), nullptr);
     apvts_.replaceState(state);
 
     const juce::String bus = state.getProperty("bus", defaultBusName());

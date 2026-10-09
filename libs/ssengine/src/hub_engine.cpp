@@ -22,6 +22,7 @@ bool HubEngine::connect(const std::string& busName) {
     auto shm = SharedMemory::open(busName_, s);
     if (!shm) return false;
     shm_ = std::move(shm);
+    beacon_ = BeaconMap::open(busName_);   // best effort: without it only the version hint is missing
     bus_.store(&shm_->layout(), std::memory_order_release);
     gen_.fetch_add(1, std::memory_order_release);
     maintain();
@@ -32,6 +33,7 @@ void HubEngine::disconnect() {
     BusLayout* b = bus_.exchange(nullptr, std::memory_order_acq_rel);
     if (b) releaseHub(*b, token_);
     if (shm_) retired_.push_back(std::move(shm_));
+    beacon_.reset();
     role_.store(Role::Disconnected, std::memory_order_release);
 }
 
@@ -40,7 +42,10 @@ void HubEngine::maintain() {
     if (!b) { role_.store(Role::Disconnected, std::memory_order_release); return; }
     const bool owner = tryClaimHub(*b, token_, kHubStaleNs);
     role_.store(owner ? Role::Owner : Role::Secondary, std::memory_order_release);
-    if (owner) reclaimDeadSlots(*b, kSlotStaleNs);
+    if (owner) {
+        reclaimDeadSlots(*b, kSlotStaleNs);
+        if (beacon_) beaconPublish(beacon_->header());
+    }
 }
 
 void HubEngine::prepare(double sampleRate, int maxBlock) {

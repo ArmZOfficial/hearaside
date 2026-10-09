@@ -190,6 +190,7 @@ private:
 
     std::atomic<ssbus::BusLayout*> bus_{ nullptr };
     std::unique_ptr<ssbus::SharedMemory> shm_;
+    std::unique_ptr<ssbus::BeaconMap> beacon_;   // the Hub's version for plug-ins of another version to see
     std::vector<std::unique_ptr<ssbus::SharedMemory>> retired_;
     std::string busName_;
     uint64_t token_ = 0;

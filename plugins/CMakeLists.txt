@@ -106,6 +106,7 @@ hearaside_add_plugin(HearasideHub
         hub/HubPages.cpp
         hub/HubPages2.cpp
         hub/ShareServer.cpp
+        hub/FriendRoom.cpp
         hub/ShareDirectory.cpp
         hub/ControlServer.cpp
         hub/HubRestApi.cpp
@@ -136,7 +137,7 @@ if(HEARASIDE_BUILD_TOOLS)
     target_sources(hearaside_ui_snapshot PRIVATE
         ${CMAKE_SOURCE_DIR}/tools/ui-snapshot/main.cpp
         track/TrackProcessor.cpp track/TrackEditor.cpp
-        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/ShareServer.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp
+        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/ShareServer.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp
         ${hearaside_common_sources})
     target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hearaside_ui_snapshot PRIVATE
@@ -154,6 +155,7 @@ endif()
 if(HEARASIDE_BUILD_TOOLS AND HEARASIDE_BUILD_TESTS)
     add_test(NAME rest_api COMMAND hearaside_ui_snapshot --test-rest)   # docs/rest-api.md
     add_test(NAME share_directory COMMAND hearaside_ui_snapshot --test-directory)   # permanent links, Hub side
+    add_test(NAME friends_room COMMAND hearaside_ui_snapshot --test-friends)         # S2: one link per friend, over real sockets
     add_test(NAME ui_values COMMAND hearaside_ui_snapshot --test-ui)                 # typed values, names, share links
 endif()
 

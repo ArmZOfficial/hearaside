@@ -70,6 +70,71 @@ juce::StringArray layoutProblems(juce::Component& root) {
     return out;
 }
 
+
+// A tiny WebSocket client for --test-friends (what a browser does): handshake, masked binary frames out,
+// plain frames in. One socket, one thread.
+struct WsClient {
+    juce::StreamingSocket sock;
+    int status = 0;
+    bool open(int port, const juce::String& path, const juce::String& origin = {}) {
+        if (!sock.connect("127.0.0.1", port, 2000)) return false;
+        const auto req = "GET " + path + " HTTP/1.1\r\nHost: 127.0.0.1:" + juce::String(port) + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                       + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n" + (origin.isNotEmpty() ? "Origin: " + origin + "\r\n" : juce::String()) + "\r\n";
+        sock.write(req.toRawUTF8(), int(req.getNumBytesAsUTF8()));
+        std::string head;
+        char c = 0;
+        while (head.find("\r\n\r\n") == std::string::npos && head.size() < 4096) {
+            if (sock.waitUntilReady(true, 3000) != 1 || sock.read(&c, 1, true) != 1) return false;
+            head += c;
+        }
+        status = juce::String(head.c_str()).fromFirstOccurrenceOf(" ", false, false).getIntValue();
+        return status == 101;
+    }
+    bool send(const std::vector<uint8_t>& payload) {
+        std::vector<uint8_t> f;
+        f.push_back(0x82);
+        const uint8_t mask[4] = { 1, 2, 3, 4 };
+        if (payload.size() < 126) f.push_back(uint8_t(0x80 | payload.size()));
+        else { f.push_back(0x80 | 126); f.push_back(uint8_t(payload.size() >> 8)); f.push_back(uint8_t(payload.size())); }
+        f.insert(f.end(), mask, mask + 4);
+        for (size_t i = 0; i < payload.size(); ++i) f.push_back(payload[i] ^ mask[i & 3]);
+        return sock.write(f.data(), int(f.size())) == int(f.size());
+    }
+    // one binary message; empty = nothing within the time (or closed)
+    std::vector<uint8_t> receive(int timeoutMs, bool* closed = nullptr) {
+        auto readN = [&](uint8_t* dst, size_t n) {
+            while (n > 0) {
+                if (sock.waitUntilReady(true, timeoutMs) != 1) return false;
+                const int got = sock.read(dst, int(n), false);
+                if (got <= 0) { if (closed) *closed = true; return false; }
+                dst += got; n -= size_t(got);
+            }
+            return true;
+        };
+        uint8_t h[2];
+        if (!readN(h, 2)) return {};
+        uint64_t len = h[1] & 0x7F;
+        if (len == 126) { uint8_t e[2]; if (!readN(e, 2)) return {}; len = uint64_t(e[0]) << 8 | e[1]; }
+        else if (len == 127) { uint8_t e[8]; if (!readN(e, 8)) return {}; len = 0; for (uint8_t b : e) len = len << 8 | b; }
+        std::vector<uint8_t> out(static_cast<size_t>(len), uint8_t(0));
+        if (len && !readN(out.data(), size_t(len))) return {};
+        if ((h[0] & 0x0F) == 8) { if (closed) *closed = true; return {}; }
+        return out;
+    }
+};
+
+std::pair<int, juce::String> httpGet(int port, const juce::String& path) {
+    juce::StreamingSocket s;
+    if (!s.connect("127.0.0.1", port, 2000)) return { 0, {} };
+    const auto req = "GET " + path + " HTTP/1.1\r\nHost: 127.0.0.1:" + juce::String(port) + "\r\nConnection: close\r\n\r\n";
+    s.write(req.toRawUTF8(), int(req.getNumBytesAsUTF8()));
+    juce::MemoryOutputStream out;
+    char buf[4096];
+    for (int n; s.waitUntilReady(true, 3000) == 1 && (n = s.read(buf, sizeof buf, false)) > 0;) out.write(buf, size_t(n));
+    const auto text = out.toString();
+    return { text.fromFirstOccurrenceOf(" ", false, false).getIntValue(), text.fromFirstOccurrenceOf("\r\n\r\n", false, false) };
+}
+
 void pump(int ms) {
     const auto end = juce::Time::getMillisecondCounter() + juce::uint32(ms);
     while (juce::Time::getMillisecondCounter() < end) {
@@ -809,6 +874,116 @@ int main(int argc, char** argv) {
         expect("the Track's viewers level changed", std::abs(tracks[1]->params().getRawParameterValue(trackparam::StrGain)->load() + 6.0f) < 0.01f);
         gAudio = nullptr;
         std::printf("%s\n", failures == 0 ? "REST API: all passed" : "REST API: FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
+
+    // --test-friends: the friends room over real sockets (S2): one link per friend, microphone in, the
+    // mix out with positions, delay measured from the echo, newest connection wins, a removed friend is cut off
+    if (audit == false && argc > 1 && juce::String(argv[1]) == "--test-friends") {
+        int failures = 0;
+        auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+        expect("no friends: the share server is not running", !hub.share().running());
+        const uint32_t mint = hub.addFriend("Mint");
+        const uint32_t beam = hub.addFriend("Beam");
+        expect("two friends added", mint != 0 && beam != 0 && hub.friendCount() == 2);
+        for (int i = 0; i < 100 && !hub.share().running(); ++i) pump(50);
+        expect("the share server starts for the friends even with the listen link off", hub.share().running() && !hub.sharing());
+        const int port = hub.share().port();
+        const auto tokenOf = [&](uint32_t id) { const auto link = hub.friendLink(id); return link.fromLastOccurrenceOf("/s/", false, false); };
+        const auto tMint = tokenOf(mint), tBeam = tokenOf(beam);
+        expect("links are 26 characters of secure random and differ", tMint.length() == 26 && tBeam.length() == 26 && tMint != tBeam);
+        ssbus::BusLayout* bus = hub.engine().bus();
+        std::atomic<bool> finished { false };
+        std::atomic<int> state { 0 };
+        std::thread client([&] {
+            auto r = httpGet(port, "/s/" + tMint);
+            expect("GET /s/<token> serves the page", r.first == 200 && r.second.contains("HEARASIDE"));
+            r = httpGet(port, "/info/s/" + tMint);
+            expect("GET /info/s/<token> names the friend", r.first == 200 && juce::JSON::parse(r.second)["name"].toString() == "Mint");
+            r = httpGet(port, "/s/aaaaaaaaaaaaaaaaaaaaaaaaaa");
+            expect("a link nobody has -> 404", r.first == 404);
+            r = httpGet(port, "/l/" + juce::String("x"));
+            expect("listen links are off while sharing is off -> 404", r.first == 404);
+            WsClient evil;
+            evil.open(port, "/ws/s/" + tMint, "https://evil.example");
+            expect("a web page from another site may not connect -> 403", evil.status == 403);
+
+            WsClient a;
+            expect("the friend's WebSocket opens", a.open(port, "/ws/s/" + tMint));
+            expect("the friend shows as singing", [&] { for (int i = 0; i < 40; ++i) { if (bus->friends[0].state.load() == ssbus::kFriendLive) return true; juce::Thread::sleep(25); } return false; }());
+            // 20 ms microphone packets (HRA2), each saying "I was hearing the Stream Mix 100 ms ago"
+            uint32_t downFrames = 0, downPackets = 0, rate = 0;
+            uint64_t lastEnd = 0;
+            bool contiguous = true, magicOk = true;
+            for (int i = 0; i < 60; ++i) {
+                std::vector<uint8_t> pk(24 + 960 * 4);
+                const uint32_t magic = 0x32415248, r48 = 48000, frames = 960;
+                const uint16_t chans = 2, flags = 0;
+                const uint64_t w = bus->friendMixWrite.load();
+                const uint64_t echo = w > 4800 ? w - 4800 : 1;
+                std::memcpy(pk.data(), &magic, 4); std::memcpy(pk.data() + 4, &r48, 4); std::memcpy(pk.data() + 8, &chans, 2);
+                std::memcpy(pk.data() + 10, &flags, 2); std::memcpy(pk.data() + 12, &frames, 4); std::memcpy(pk.data() + 16, &echo, 8);
+                auto* pcm = reinterpret_cast<int16_t*>(pk.data() + 24);
+                for (int k = 0; k < 960; ++k) pcm[2 * k] = pcm[2 * k + 1] = int16_t(8000 * std::sin(0.05 * (i * 960 + k)));
+                a.send(pk);
+                // what comes back: the mix with its position
+                for (int t = 0; t < 4; ++t) {
+                    auto m = a.receive(5);
+                    if (m.size() < 24) continue;
+                    uint32_t mg = 0, fr = 0; uint64_t pos = 0;
+                    std::memcpy(&mg, m.data(), 4); std::memcpy(&rate, m.data() + 4, 4); std::memcpy(&fr, m.data() + 12, 4); std::memcpy(&pos, m.data() + 16, 8);
+                    magicOk &= mg == 0x32415248;
+                    if (lastEnd != 0 && pos != lastEnd) contiguous = false;
+                    lastEnd = pos + fr;
+                    downFrames += fr; ++downPackets;
+                }
+                juce::Thread::sleep(18);
+            }
+            expect("the friend hears the Stream Mix in HRA2 packets with positions", magicOk && downPackets > 10 && rate > 0 && downFrames > 4800);
+            expect("those positions are contiguous (nothing lost, nothing repeated)", contiguous);
+            expect("the friend's audio is in the bus", bus->friends[0].writePos.load() >= 40u * 960u);
+            const float d = ssbus::bitsFloat(bus->friends[0].delayBits.load());
+            std::printf("     measured delay %.1f ms (the echo said 100 ms heard, minus half a 20 ms packet = about 90)\n", d);
+            expect("the delay was measured from the echo (about 90 ms)", d > 70.0f && d < 130.0f);
+
+            WsClient b;
+            expect("the same friend connects again (a second tab)", b.open(port, "/ws/s/" + tMint));
+            bool closed = false;
+            for (int i = 0; i < 80 && !closed; ++i) { a.receive(25, &closed); }
+            expect("the newest connection wins: the first one is closed", closed);
+            expect("the friend is still singing (on the new connection)", bus->friends[0].state.load() == ssbus::kFriendLive);
+
+            WsClient other;
+            expect("another friend has their own slot", other.open(port, "/ws/s/" + tBeam));
+            expect("without closing the first friend", bus->friends[1].state.load() == ssbus::kFriendLive && bus->friends[0].state.load() == ssbus::kFriendLive);
+            state = 1;
+            for (int i = 0; i < 400 && state == 1; ++i) juce::Thread::sleep(10);   // the main thread removes Mint
+            bool closedB = false;
+            for (int i = 0; i < 100 && !closedB; ++i) { b.receive(25, &closedB); }
+            expect("a removed friend is cut off", closedB);
+            r = httpGet(port, "/s/" + tMint);
+            expect("and their link no longer works -> 404", r.first == 404);
+            expect("the other friend is not affected", bus->friends[1].state.load() == ssbus::kFriendLive);
+            finished = true;
+        });
+        for (int i = 0; i < 2000 && state != 1 && !finished; ++i) pump(10);
+        if (state == 1) { hub.removeFriend(mint); pump(50); state = 2; }
+        for (int i = 0; i < 2000 && !finished; ++i) pump(10);
+        client.join();
+        expect("the removed friend's slot is free", bus->friends[0].id.load() == 0 && bus->friends[0].state.load() == ssbus::kFriendFree);
+        // the room is saved with the project; the links survive a reload
+        juce::MemoryBlock mb;
+        hub.getStateInformation(mb);
+        const auto savedLink = hub.friendLink(beam);
+        hub.removeFriend(beam);
+        expect("an empty room stops the server again", [&] { for (int i = 0; i < 60; ++i) { pump(50); if (!hub.share().running()) return true; } return false; }());
+        hub.setStateInformation(mb.getData(), int(mb.getSize()));
+        pump(300);
+        expect("the project brings Beam back with the same link", hub.friendCount() == 1 && hub.friends()[0].name == "Beam" && [&] { for (int i = 0; i < 60 && !hub.share().running(); ++i) pump(50); return hub.friendLink(hub.friends()[0].id).fromLastOccurrenceOf("/s/", false, false) == savedLink.fromLastOccurrenceOf("/s/", false, false); }());
+        const auto xml = mb.toString();
+        gAudio = nullptr;
+        std::printf("%s\n", failures == 0 ? "friends room: all passed" : "friends room: FAILED");
         return failures == 0 ? 0 : 1;
     }
 

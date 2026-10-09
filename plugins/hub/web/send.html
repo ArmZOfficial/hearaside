@@ -46,7 +46,7 @@ body {
   border-radius: 999px; padding: 5px 11px; cursor: pointer; }
 .brand { letter-spacing: .42em; font-weight: 600; font-size: 15px; }
 .brand small { display: block; letter-spacing: .5em; font-weight: 500; font-size: 10px; color: var(--graphite); margin-top: 2px; }
-h1 { font-size: 26px; font-weight: 600; margin: 22px 0 4px; }
+h1 { font-size: 26px; font-weight: 600; margin: 22px 0 4px; overflow-wrap: anywhere; }
 .sub { color: var(--graphite); font-size: 14px; margin: 0; line-height: 1.5; }
 .stage { display: grid; place-items: center; padding: 30px 0 18px; }
 .mic {
@@ -64,9 +64,10 @@ h1 { font-size: 26px; font-weight: 600; margin: 22px 0 4px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .live .dot { background: var(--ink); box-shadow: 0 0 0 4px var(--hair3); }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.value { font-size: 12px; color: var(--graphite); font-variant-numeric: tabular-nums; text-align: right; }
 .panel { margin-top: 16px; padding: 14px 16px; border-radius: 18px; background: var(--inset); border: 1px solid var(--hair); display: grid; gap: 14px; }
 .label { font-size: 13px; }
-.cap { font-size: 11px; color: var(--graphite); margin-top: 2px; }
+.cap { font-size: 11px; color: var(--graphite); margin-top: 2px; line-height: 1.45; }
 select { width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: var(--paper); border: 1px solid var(--hair3);
   border-radius: 12px; padding: 9px 12px; }
 .switch { position: relative; width: 46px; height: 28px; flex: none; }
@@ -76,19 +77,28 @@ select { width: 100%; font: inherit; font-size: 13px; color: var(--ink); backgro
   box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
 .switch input:checked + span { background: var(--ink); }
 .switch input:checked + span::after { transform: translateX(18px); }
+.switch input:focus-visible + span { box-shadow: 0 0 0 3px var(--hair3); }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; margin: 6px 0 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(var(--ink), var(--ink)) 0/var(--fill, 80%) 100% no-repeat, var(--rail); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--rail); }
+input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--ink); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; margin-top: -7px;
+  background: #fff; border: 1px solid var(--hair3); box-shadow: 0 2px 6px var(--shadow); }
+input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 1px solid var(--hair3); }
 .mute { border: 1px solid var(--hair3); background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; font-weight: 500;
   border-radius: 14px; padding: 12px; cursor: pointer; width: 100%; margin-top: 14px; }
 .warn { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--hair3); font-size: 13px; line-height: 1.5; }
 .insecure .warn { display: block; }
-.foot { margin-top: 14px; text-align: center; font-size: 11px; color: var(--muted); }
+.tip { margin-top: 14px; font-size: 12px; color: var(--graphite); line-height: 1.5; text-align: center; }
+.foot { margin-top: 10px; text-align: center; font-size: 11px; color: var(--muted); }
 </style>
 </head>
 <body>
 <div class="backdrop"><div class="blob warm"></div><div class="blob cool"></div></div>
 <main class="card" id="app">
   <div class="top"><div class="brand">HEARASIDE<small>SEND</small></div><button class="lang" id="lang"></button></div>
-  <h1 data-t="title"></h1>
-  <p class="sub" data-t="subtitle"></p>
+  <h1 id="title"></h1>
+  <p class="sub" id="subtitle"></p>
 
   <div class="stage">
     <button class="mic" id="mic" aria-label="Microphone">
@@ -100,7 +110,7 @@ select { width: 100%; font: inherit; font-size: 13px; color: var(--ink); backgro
     <div class="hint" id="hint"></div>
   </div>
 
-  <div class="row"><span class="chip"><span class="dot"></span><span id="status"></span></span></div>
+  <div class="row"><span class="chip"><span class="dot"></span><span id="status"></span></span><span class="value" id="delay"></span></div>
   <button class="mute" id="mute" hidden></button>
 
   <div class="panel">
@@ -112,39 +122,64 @@ select { width: 100%; font: inherit; font-size: 13px; color: var(--ink); backgro
       <div><div class="label" data-t="clean"></div><div class="cap" data-t="cleanCap"></div></div>
       <label class="switch"><input type="checkbox" id="clean"><span></span></label>
     </div>
+    <div id="hearPanel">
+      <div class="row">
+        <div><div class="label" data-t="hear"></div><div class="cap" data-t="hearCap"></div></div>
+        <label class="switch"><input type="checkbox" id="hear" checked><span></span></label>
+      </div>
+      <input type="range" id="vol" min="0" max="100" value="80" aria-label="Volume">
+    </div>
   </div>
   <div class="warn" data-t="insecure"></div>
+  <div class="tip" data-t="tip"></div>
   <div class="foot" id="foot"></div>
 </main>
 
 <script>
 const T = {
-  th: { title: "ส่งเสียงเข้า DAW", subtitle: "เสียงไมค์ของคุณจะเข้าไปในแทร็กของคนที่ส่งลิงก์นี้ให้ แบบสด ๆ",
+  th: { title: "ส่งเสียงเข้า DAW", invited: "{host} ชวนคุณมาร้องเพลง", you: "คุณคือ {name}",
+        subtitle: "เสียงไมค์ของคุณจะเข้าไปในแทร็กของคนที่ส่งลิงก์นี้ให้ แบบสด ๆ",
+        subtitleRoom: "ได้ยินเพลงของเจ้าของลิงก์ ร้องตามได้เลย เสียงคุณจะถูกจัดให้ตรงจังหวะเอง",
         device: "ไมค์ที่ใช้", clean: "ตัดเสียงรบกวน", cleanCap: "เปิดถ้าอยู่ในที่เสียงดัง (คุยมากกว่าร้องเพลง)",
+        hear: "ฟังเพลง", hearCap: "ได้ยินเพลงที่เจ้าของลิงก์เล่นอยู่ ใช้หูฟังเพื่อไม่ให้เสียงเพลงเข้าไมค์",
         tap: "แตะเพื่อเริ่มส่งเสียง", stopHint: "แตะเพื่อหยุดส่ง", idle: "ยังไม่ได้ส่ง", connecting: "กำลังเชื่อมต่อ...",
         live: "กำลังส่งเสียงสด", lost: "หลุด กำลังต่อใหม่...", denied: "เบราว์เซอร์ไม่อนุญาตให้ใช้ไมค์",
         mute: "ปิดไมค์ชั่วคราว", unmute: "เปิดไมค์", muted: "ปิดไมค์อยู่",
         offline: "อีกฝั่งยังไม่ได้เปิดแชร์ จะเริ่มส่งเองเมื่อพร้อม",
+        behind: "เสียงคุณช้ากว่าเพลงราว {ms} ms (จัดให้ตรงแล้ว)",
+        tip: "ใส่หูฟังจะดีที่สุด ไม่งั้นไมค์จะอัดเสียงเพลงจากลำโพงกลับเข้าไป",
         insecure: "ต้องเปิดผ่านลิงก์ที่ขึ้นต้นด้วย https:// เบราว์เซอร์ถึงจะยอมให้ใช้ไมค์ ขอลิงก์ผ่านเน็ตจากคนที่ส่งลิงก์นี้ให้" },
-  en: { title: "Send your voice in", subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
+  en: { title: "Send your voice in", invited: "{host} invited you to sing", you: "You are {name}",
+        subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
+        subtitleRoom: "You hear their music and sing along. Your voice is lined up with the beat for you.",
         device: "Microphone", clean: "Noise suppression", cleanCap: "Turn on in noisy places (talking rather than singing)",
+        hear: "Hear the music", hearCap: "Plays what the host plays. Use headphones so the music doesn't leak into your mic.",
         tap: "Tap to start sending", stopHint: "Tap to stop", idle: "Not sending", connecting: "Connecting...",
         live: "Sending live", lost: "Connection lost, retrying...", denied: "The browser blocked the microphone",
         mute: "Mute for a moment", unmute: "Unmute", muted: "Muted",
         offline: "They aren't sharing yet. Sending starts by itself when they are.",
+        behind: "Your voice is about {ms} ms behind the music (lined up for you)",
+        tip: "Headphones work best. Without them the mic picks the music up from your speakers.",
         insecure: "Open this through a link that starts with https:// - browsers only allow the microphone there. Ask for the internet link." }
 };
+const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
 // language: the visitor's choice (remembered), else the browser's
 let saved = null;
 try { saved = localStorage.getItem("hearaside-lang"); } catch (e) {}
 let lang = saved || ((navigator.language || "th").toLowerCase().startsWith("th") ? "th" : "en");
 let L = T[lang];
+// what the Hub says about this link (v2 Hubs): who you are, who invited you
+let room = null;
 function applyLang() {
   L = T[lang];
   document.querySelectorAll("[data-t]").forEach(e => e.textContent = L[e.dataset.t]);
   document.documentElement.lang = lang;
   document.getElementById("lang").textContent = lang === "th" ? "EN" : "ไทย";
+  $("title").textContent = room ? (room.host ? fmt(L.invited, { host: room.host }) : fmt(L.you, { name: room.name })) : L.title;
+  $("subtitle").textContent = room ? L.subtitleRoom : L.subtitle;
+  $("hearPanel").style.display = room ? "" : "none";
 }
+const $ = id => document.getElementById(id);
 applyLang();
 document.getElementById("lang").onclick = () => {
   lang = lang === "th" ? "en" : "th";
@@ -153,13 +188,13 @@ document.getElementById("lang").onclick = () => {
   refreshTexts();
 };
 
-const $ = id => document.getElementById(id);
 const app = $("app");
-let running = false, muted = false, ctx = null, stream = null, node = null, ws = null, retry = null, peak = 0;
+let running = false, muted = false, ctx = null, stream = null, node = null, outGain = null, ws = null, retry = null, peak = 0;
+let behindMs = null, latencyKnown = false, duplex = false, legacyTimer = null;
 
-// Where the audio comes from. Served by the Hub: the same host. Served by the share web site
-// (permanent link): ask its directory where the Hub's tunnel is right now; it changes each time
-// the Hub restarts, so ask again before every (re)connect. null = not shared right now.
+// Where the audio goes. Served by the Hub: the same host. Served by the share web site (permanent
+// link): ask its directory where the Hub's tunnel is right now; it changes each time the Hub restarts,
+// so ask again before every (re)connect. null = not shared right now.
 const token = location.pathname.split("/").filter(Boolean).pop() || "";
 let directory = false;
 async function locate(kind) {
@@ -182,32 +217,93 @@ function status(text, live) {
   $("status").textContent = text;
   app.classList.toggle("live", !!live);
 }
-function idle() { $("hint").textContent = L.tap; status(L.idle); $("mute").hidden = true; }
+function idle() { $("hint").textContent = L.tap; status(L.idle); $("mute").hidden = true; $("delay").textContent = ""; }
 idle();
 function refreshTexts() {
   if (!running) { idle(); return; }
   $("hint").textContent = L.stopHint;
   $("mute").textContent = muted ? L.unmute : L.mute;
   status(muted ? L.muted : ws && ws.readyState === 1 ? L.live : L.connecting, !muted && ws && ws.readyState === 1);
+  showBehind();
 }
+function showBehind() { $("delay").textContent = running && behindMs != null ? fmt(L.behind, { ms: Math.round(behindMs) }) : ""; }
 
+// One worklet for both directions, so the microphone and the music share the same clock:
+//   down: the Stream Mix from the Hub (HRA2, with the position of each packet on the Hub's timeline),
+//         through a small jitter buffer, played to the headphones;
+//   up:   the microphone in 20 ms packets, each stamped with the Stream Mix position the friend was
+//         HEARING when that packet's first frame was captured: position being played now, minus the
+//         output and input latency the browser reports. The Hub turns that into "how late is this voice".
 const worklet = `
-class Rec extends AudioWorkletProcessor {
-  constructor() { super(); this.buf = new Float32Array(1920); this.n = 0; this.pk = 0; this.t = 0; }
-  process(inputs) {
-    const ch = inputs[0];
-    if (!ch.length) return true;
-    const l = ch[0], r = ch[1] || ch[0];
-    for (let i = 0; i < l.length; i++) {
-      this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i];
-      this.pk = Math.max(this.pk, Math.abs(l[i]), Math.abs(r[i]));
-      if (++this.n === 960) { this.port.postMessage(this.buf.slice(0)); this.n = 0; }   // 20 ms at 48 kHz
+class Duplex extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.cap = 48000 * 6; this.l = new Float32Array(this.cap); this.r = new Float32Array(this.cap);
+    this.w = 0; this.rd = 0; this.rate = 48000; this.target = 0.12; this.primed = false; this.adj = 0;
+    this.posOff = 0; this.havePos = false; this.expect = -1;
+    this.lat = 0.03; this.buf = new Float32Array(1920); this.n = 0; this.pk = 0; this.t = 0; this.echo = 0;
+    this.port.onmessage = e => {
+      const m = e.data;
+      if (m.lat !== undefined) { this.lat = m.lat; return; }
+      this.down(m);
+    };
+  }
+  down(m) {
+    this.rate = m.rate;
+    const s = m.pcm, n = s.length / 2;
+    if (m.pos !== undefined && m.pos !== this.expect) { this.posOff = m.pos - this.w; this.havePos = true; }
+    if (m.pos !== undefined) this.expect = m.pos + n;
+    for (let i = 0; i < n; i++) {
+      const k = (this.w + i) % this.cap;
+      this.l[k] = s[i * 2] / 32768; this.r[k] = s[i * 2 + 1] / 32768;
     }
-    if (++this.t % 8 === 0) { this.port.postMessage({ peak: this.pk }); this.pk = 0; }
+    this.w += n;
+    if (this.w - this.rd > this.cap - 4096) { this.rd = this.w - this.target * this.rate; this.primed = false; }
+  }
+  process(inputs, outputs) {
+    const out = outputs[0], L = out[0], R = out[1] || out[0];
+    const n = L.length;
+    // the music
+    let fill = this.w - this.rd;
+    const want = this.target * this.rate;
+    let step = this.rate / sampleRate;
+    const posNow = this.primed && this.havePos ? this.rd + this.posOff : -1;   // position of this quantum's first output frame
+    if (!this.primed) {
+      if (fill >= want) { this.primed = true; this.rd = this.w - want; fill = want; } else { L.fill(0); if (R !== L) R.fill(0); }
+    }
+    if (this.primed) {
+      const err = (fill - want) / want;   // follow the Hub's clock: a hair faster or slower keeps the buffer at the target
+      this.adj += (Math.max(-0.004, Math.min(0.004, err * 0.01)) - this.adj) * 0.02;
+      step = this.rate / sampleRate * (1 + this.adj);
+      if (fill < n * step + 2) { this.primed = false; L.fill(0); if (R !== L) R.fill(0); }
+      else {
+        if (fill > want + this.rate * 0.6) this.rd = this.w - want;
+        let pos = this.rd;
+        for (let i = 0; i < n; i++) {
+          const i0 = Math.floor(pos), f = pos - i0, a = i0 % this.cap, b = (i0 + 1) % this.cap;
+          L[i] = this.l[a] + (this.l[b] - this.l[a]) * f;
+          if (R !== L) R[i] = this.r[a] + (this.r[b] - this.r[a]) * f;
+          pos += step;
+        }
+        this.rd = pos;
+      }
+    }
+    // the microphone
+    const ch = inputs[0];
+    if (ch && ch.length) {
+      const l = ch[0], r = ch[1] || ch[0];
+      for (let i = 0; i < l.length; i++) {
+        if (this.n === 0) this.echo = posNow >= 0 ? Math.max(0, Math.round(posNow + i * step - this.lat * this.rate)) : 0;
+        this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i];
+        this.pk = Math.max(this.pk, Math.abs(l[i]), Math.abs(r[i]));
+        if (++this.n === 960) { this.port.postMessage({ pcm: this.buf.slice(0), echo: this.echo }); this.n = 0; }   // 20 ms at 48 kHz
+      }
+      if (++this.t % 8 === 0) { this.port.postMessage({ peak: this.pk }); this.pk = 0; }
+    }
     return true;
   }
 }
-registerProcessor("hearaside-rec", Rec);`;
+registerProcessor("hearaside-duplex", Duplex);`;
 
 async function listDevices() {
   const sel = $("device"), cur = sel.value;
@@ -215,6 +311,16 @@ async function listDevices() {
   sel.innerHTML = "";
   devs.forEach((d, i) => sel.add(new Option(d.label || ("Mic " + (i + 1)), d.deviceId)));
   if (cur) sel.value = cur;
+}
+
+function setLatency() {
+  // what the browser says about its own delay: the output side (ctx) and the input side (the mic track)
+  const out = ctx && (ctx.outputLatency || 0), base = ctx ? (ctx.baseLatency || 0) : 0;
+  const track = stream && stream.getAudioTracks()[0];
+  const inLat = track && track.getSettings ? track.getSettings().latency : undefined;
+  latencyKnown = !!out && inLat !== undefined;
+  const lat = (out || base || 0.01) + (inLat !== undefined ? inLat : 0.01);
+  if (node) node.port.postMessage({ lat });
 }
 
 async function openMic() {
@@ -225,7 +331,14 @@ async function openMic() {
     echoCancellation: false, noiseSuppression: clean, autoGainControl: false, channelCount: 2 } });
   const src = ctx.createMediaStreamSource(stream);
   src.connect(node);
+  setLatency();
   listDevices();
+}
+
+function setVolume() {
+  const v = $("vol").value / 100;
+  $("vol").style.setProperty("--fill", $("vol").value + "%");
+  if (outGain) outGain.gain.value = $("hear").checked ? v * v : 0;
 }
 
 async function start() {
@@ -235,8 +348,11 @@ async function start() {
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: "interactive" });
     await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "application/javascript" })));
-    node = new AudioWorkletNode(ctx, "hearaside-rec", { numberOfInputs: 1, numberOfOutputs: 0 });
-    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data);
+    node = new AudioWorkletNode(ctx, "hearaside-duplex", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+    outGain = ctx.createGain();
+    node.connect(outGain).connect(ctx.destination);
+    setVolume();
+    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data.pcm, e.data.echo);
     await openMic();
     await ctx.resume();
   } catch (e) {
@@ -254,16 +370,43 @@ async function connect() {
   const url = await locate("s");
   if (mine !== gen || !running) return;
   if (!url) { status(L.offline); later(connect); return; }
+  duplex = false;
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
-  ws.onopen = () => { backoff = 2000; status(muted ? L.muted : L.live, !muted); };
-  ws.onclose = () => { if (!running) return; status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
+  ws.onopen = () => {
+    backoff = 2000;
+    status(muted ? L.muted : L.live, !muted);
+    // a Hub that knows friends says hello first; an older Hub says nothing: then only the microphone goes out
+    clearTimeout(legacyTimer);
+    legacyTimer = setTimeout(() => { if (!duplex && room) { room = null; applyLang(); } }, 1500);
+  };
+  ws.onmessage = e => {
+    if (typeof e.data === "string") {
+      let m = null;
+      try { m = JSON.parse(e.data); } catch (x) {}
+      if (!m) return;
+      if (m.v === 2) { duplex = true; room = { name: m.name || "", host: m.host || "" }; applyLang(); }
+      if (m.delay !== undefined) { behindMs = m.delay >= 0 ? m.delay : null; showBehind(); }
+      return;
+    }
+    const d = new DataView(e.data);
+    if (d.getUint32(0, true) !== 0x32415248 || !node) return;   // "HRA2": the Stream Mix with a position
+    const rate = d.getUint32(4, true), frames = d.getUint32(12, true);
+    if (!frames) return;
+    const pos = Number(d.getBigUint64(16, true));
+    const pcm = new Int16Array(e.data.slice(24));
+    node.port.postMessage({ rate, pcm, pos }, [pcm.buffer]);
+  };
+  ws.onclose = () => { if (!running) return; clearTimeout(legacyTimer); behindMs = null; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
 }
 
-function send(f) {
+function send(f, echo) {
   if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 192000) return;   // don't pile up on a slow line
-  const n = f.length / 2, buf = new ArrayBuffer(16 + f.length * 2), d = new DataView(buf), s = new Int16Array(buf, 16);
-  d.setUint32(0, 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, 2, true); d.setUint32(12, n, true);
+  const v2 = duplex, hdr = v2 ? 24 : 16, n = f.length / 2;
+  const buf = new ArrayBuffer(hdr + f.length * 2), d = new DataView(buf), s = new Int16Array(buf, hdr);
+  d.setUint32(0, v2 ? 0x32415248 : 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, 2, true);
+  d.setUint16(10, latencyKnown ? 1 : 0, true); d.setUint32(12, n, true);
+  if (v2) d.setBigUint64(16, BigInt(Math.max(0, Math.round(echo || 0))), true);
   for (let i = 0; i < f.length; i++) s[i] = muted ? 0 : Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767)));
   ws.send(buf);
 }
@@ -280,11 +423,13 @@ function meter() {
 function stop() {
   running = false;
   clearTimeout(retry);
+  clearTimeout(legacyTimer);
   gen++;
   backoff = 2000;
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  if (ctx) { ctx.close(); ctx = null; node = null; }
+  if (ctx) { ctx.close(); ctx = null; node = null; outGain = null; }
+  behindMs = null;
   $("level").style.opacity = 0;
   idle();
 }
@@ -299,6 +444,9 @@ $("mute").onclick = () => {
 $("mute").textContent = L.mute;
 $("device").onchange = () => { if (running) openMic(); };
 $("clean").onchange = () => { if (running) openMic(); };
+$("hear").onchange = setVolume;
+$("vol").oninput = setVolume;
+setVolume();
 if (navigator.mediaDevices) listDevices().catch(() => {});
 </script>
 </body>

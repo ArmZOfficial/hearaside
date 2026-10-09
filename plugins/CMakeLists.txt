@@ -156,6 +156,10 @@ if(HEARASIDE_BUILD_TOOLS AND HEARASIDE_BUILD_TESTS)
     add_test(NAME rest_api COMMAND hearaside_ui_snapshot --test-rest)   # docs/rest-api.md
     add_test(NAME share_directory COMMAND hearaside_ui_snapshot --test-directory)   # permanent links, Hub side
     add_test(NAME friends_room COMMAND hearaside_ui_snapshot --test-friends)         # S2: one link per friend, over real sockets
+    find_program(NODE_FOR_FRIEND_PAGE node)
+    if(NODE_FOR_FRIEND_PAGE)   # the friend's page in real Chrome against a real Hub (skips when Chrome / Playwright are missing)
+        add_test(NAME friend_page COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-page.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)
+    endif()
     add_test(NAME ui_values COMMAND hearaside_ui_snapshot --test-ui)                 # typed values, names, share links
 endif()
 

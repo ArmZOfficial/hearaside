@@ -18,3 +18,4 @@ err.txt
 # installer output and downloaded dependencies
 /dist/
 /installer/windows/cache/
+tests/web-friend/friend-page.png

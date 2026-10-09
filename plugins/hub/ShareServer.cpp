@@ -608,7 +608,24 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
     uint64_t mixCursor = bus_->friendMixWrite.load() > 2400 ? bus_->friendMixWrite.load() - 960 : 0;
     uint32_t checkTick = 0;
     bool closing = false;
+    {   // hello: a Hub that knows friends tells the page who they are (an older Hub says nothing)
+        juce::String name, host;
+        uint32_t ignore = 0;
+        friendSlotFor(token, &ignore, &name, &host);
+        auto* o = new juce::DynamicObject();
+        o->setProperty("v", 2);
+        o->setProperty("name", name);
+        o->setProperty("host", host);
+        const auto json = juce::JSON::toString(juce::var(o), true);
+        if (!sendFrame(s, 1, json.toRawUTF8(), json.getNumBytesAsUTF8())) closing = true;
+    }
+    auto lastInfo = juce::Time::getMillisecondCounter();
     while (!closing && running_.load() && friendGen_[idx].load() == gen && !friendKick_[idx].load()) {
+        if (juce::Time::getMillisecondCounter() - lastInfo >= 1000) {   // how late the friend is, for their screen
+            lastInfo = juce::Time::getMillisecondCounter();
+            const auto json = "{\"delay\":" + juce::String(ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed)), 1) + "}";
+            if (!sendFrame(s, 1, json.toRawUTF8(), json.getNumBytesAsUTF8())) break;
+        }
         if (++checkTick % 50 == 0) {   // now and then: is this link still this friend's?
             uint32_t now = 0;
             if (friendSlotFor(token, &now) != slot || now != id) break;

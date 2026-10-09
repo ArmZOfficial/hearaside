@@ -915,7 +915,8 @@ int main(int argc, char** argv) {
             // 20 ms microphone packets (HRA2), each saying "I was hearing the Stream Mix 100 ms ago"
             uint32_t downFrames = 0, downPackets = 0, rate = 0;
             uint64_t lastEnd = 0;
-            bool contiguous = true, magicOk = true;
+            bool contiguous = true, magicOk = true, sawHello = false;
+            juce::String helloName;
             for (int i = 0; i < 60; ++i) {
                 std::vector<uint8_t> pk(24 + 960 * 4);
                 const uint32_t magic = 0x32415248, r48 = 48000, frames = 960;
@@ -933,7 +934,12 @@ int main(int argc, char** argv) {
                     if (m.size() < 24) continue;
                     uint32_t mg = 0, fr = 0; uint64_t pos = 0;
                     std::memcpy(&mg, m.data(), 4); std::memcpy(&rate, m.data() + 4, 4); std::memcpy(&fr, m.data() + 12, 4); std::memcpy(&pos, m.data() + 16, 8);
-                    magicOk &= mg == 0x32415248;
+                    if (mg != 0x32415248) {   // text: the hello ({"v":2,"name":...}) or the delay report
+                        const juce::String text(reinterpret_cast<const char*>(m.data()), m.size());
+                        if (juce::JSON::parse(text)["v"].toString() == "2") { sawHello = true; helloName = juce::JSON::parse(text)["name"].toString(); }
+                        continue;
+                    }
+                    magicOk &= true;
                     if (lastEnd != 0 && pos != lastEnd) contiguous = false;
                     lastEnd = pos + fr;
                     downFrames += fr; ++downPackets;
@@ -941,6 +947,7 @@ int main(int argc, char** argv) {
                 juce::Thread::sleep(18);
             }
             expect("the friend hears the Stream Mix in HRA2 packets with positions", magicOk && downPackets > 10 && rate > 0 && downFrames > 4800);
+            expect("the Hub greets the friend by name first", sawHello && helloName == "Mint");
             expect("those positions are contiguous (nothing lost, nothing repeated)", contiguous);
             expect("the friend's audio is in the bus", bus->friends[0].writePos.load() >= 40u * 960u);
             const float d = ssbus::bitsFloat(bus->friends[0].delayBits.load());
@@ -985,6 +992,33 @@ int main(int argc, char** argv) {
         gAudio = nullptr;
         std::printf("%s\n", failures == 0 ? "friends room: all passed" : "friends room: FAILED");
         return failures == 0 ? 0 : 1;
+    }
+
+    // --serve-friend <seconds>: a Hub with one friend, serving that friend's page; prints FRIEND_URL=... and, at
+    // the end, what the Hub saw of the friend (for the browser test in tests/web-friend)
+    if (audit == false && argc > 2 && juce::String(argv[1]) == "--serve-friend") {
+        const int seconds = juce::String(argv[2]).getIntValue();
+        const uint32_t id = hub.addFriend("Mint");
+        for (int i = 0; i < 100 && !hub.share().running(); ++i) pump(50);
+        std::printf("FRIEND_URL=http://127.0.0.1:%d/s/%s\n", hub.share().port(), hub.friendLink(id).fromLastOccurrenceOf("/s/", false, false).toRawUTF8());
+        std::fflush(stdout);
+        float maxDelay = -1.0f, maxPeak = 0.0f;
+        bool wasLive = false;
+        for (int t = 0; t < seconds * 10; ++t) {
+            pump(100);
+            const auto v = hub.friends();
+            if (!v.empty()) {
+                wasLive |= v[0].live();
+                maxDelay = std::max(maxDelay, v[0].delayMs);
+                maxPeak = std::max(maxPeak, v[0].peak);
+            }
+        }
+        const auto v = hub.friends();
+        std::printf("RESULT live=%d delay=%.1f peak=%.3f playing=%d writePos=%llu\n", wasLive ? 1 : 0, maxDelay, maxPeak,
+                    (!v.empty() && v[0].playing) ? 1 : 0, (unsigned long long)hub.engine().bus()->friends[0].writePos.load());
+        std::fflush(stdout);
+        gAudio = nullptr;
+        return wasLive ? 0 : 1;
     }
 
     // --demo <seconds>: keep the Hub and Tracks running (bus "Snapshot") so the OBS source

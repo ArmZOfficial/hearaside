@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ssbus/bus.h"
+#include "ssdsp/consumer.h"
 #include "ssdsp/dsp.h"
 
 #include <optional>
@@ -123,6 +124,34 @@ public:
     // Analysed history so far, in frames at the sample rate (moves with the audio, not the clock).
     uint64_t historyFrames() const noexcept { return uint64_t(capWrite_.load(std::memory_order_acquire)) * 4u; }
 
+    // ---- friends room (S2 / S4) ---------------------------------------------------------
+    // What the Hub does with each friend (set from the message thread, read on the audio thread).
+    enum FriendFlags : uint32_t { kFriendMon = 1u << 0, kFriendStr = 1u << 1, kFriendSolo = 1u << 2 };
+    struct FriendControl {
+        std::atomic<uint32_t> flags{ kFriendMon | kFriendStr };   // you hear / viewers hear / solo for viewers
+        std::atomic<uint32_t> gainBits{ 0 };                      // dB, for you and the viewers
+        std::atomic<uint32_t> panBits{ 0 };                       // -1 .. +1, viewers only
+    };
+    // What the audio thread sees of each friend (read by the UI).
+    struct FriendInfo {
+        std::atomic<uint32_t> playing{ 0 };       // audio is being played now
+        std::atomic<uint32_t> bufferMsBits{ 0 };  // jitter buffer the Hub keeps for this friend (ms)
+        std::atomic<uint32_t> totalMsBits{ 0 };   // how late this friend is against the music, all included (ms)
+        std::atomic<uint32_t> lineMsBits{ 0 };    // extra delay the Hub gives this friend so they line up (ms)
+        std::atomic<uint32_t> overLimit{ 0 };     // slower than the Line-up limit: not counted in D
+    };
+    FriendControl& friendControl(int i) noexcept { return friendCtl_[size_t(i)]; }
+    const FriendInfo& friendInfo(int i) const noexcept { return friendInfo_[size_t(i)]; }
+    // Line up friends for viewers: the Stream Mix waits D = the slowest friend (at most limitMs).
+    void setLineUp(bool on, float limitMs) noexcept {
+        lineUpLimitBits_.store(ssbus::floatBits(std::max(0.0f, limitMs)), std::memory_order_relaxed);
+        lineUpOn_.store(on, std::memory_order_release);
+    }
+    float lineUpMs() const noexcept { return ssbus::bitsFloat(lineUpMsBits_.load(std::memory_order_relaxed)); }   // D now
+    int   lineUpSlowest() const noexcept { return lineUpSlowest_.load(std::memory_order_relaxed); }                // friend index or -1
+    // The Line-up delay changed (ms): lets the Hub say so on screen. Counts changes; read lineUpMs() for the value.
+    uint32_t lineUpChanges() const noexcept { return lineUpChanges_.load(std::memory_order_relaxed); }
+
     // ---- audio thread -------------------------------------------------------------------
     // io in: the master bus = Stream Mix. io out: the headphone mix. Writes Stream Mix + stems.
     void process(float* const* io, int numCh, int n, const HubParams& p,
@@ -150,6 +179,12 @@ private:
 
     void processChunk(float* const* io, int numCh, int n, const HubParams& p,
                       int64_t timeSamples, bool playing) noexcept;
+    // hub_friends.cpp: the friends' direct path. Called with the Stream Mix as the DAW made it in
+    // outs_ (all used outputs), the headphone mix in phones_.
+    void friendsPrepare();
+    void friendsReset() noexcept;
+    bool friendsSoloActive() const noexcept;
+    void friendsMix(int n, const HubParams& p, std::array<bool, ssbus::kNumStreamOuts>& used, bool soloActive) noexcept;
     uint64_t anchorFor(int i, int n, int64_t timeSamples, bool playing, bool& viaTimeline) noexcept;
     void startCrossfade(SlotState& s, uint64_t oldReadPos) noexcept;
 
@@ -195,6 +230,29 @@ private:
     ssdsp::LoudnessMeter loudness_;
     ssdsp::Smoother master_, preview_;
     float outPeak_[ssbus::kNumStreamOuts][2]{};
+
+    // ---- friends (hub_friends.cpp) ----
+    struct FriendPlayer;
+    struct DelayLine {
+        std::vector<float> buf[2];
+        uint32_t pos = 0;
+        void assign(uint32_t cap) { for (auto& b : buf) b.assign(cap, 0.0f); pos = 0; }
+    };
+    std::array<FriendControl, ssbus::kMaxFriends> friendCtl_;
+    std::array<FriendInfo, ssbus::kMaxFriends> friendInfo_;
+    std::array<std::unique_ptr<FriendPlayer>, ssbus::kMaxFriends> friends_;
+    std::array<DelayLine, ssbus::kNumStreamOuts> outDelay_;      // the Stream Mix and the stems, delayed by D
+    std::atomic<bool> lineUpOn_{ false };
+    std::atomic<uint32_t> lineUpLimitBits_{ ssbus::floatBits(600.0f) };
+    std::atomic<uint32_t> lineUpMsBits_{ 0 };
+    std::atomic<int> lineUpSlowest_{ -1 };
+    std::atomic<uint32_t> lineUpChanges_{ 0 };
+    uint32_t lineD_ = 0, lineOldD_ = 0;                          // delay (frames) now / before the crossfade
+    uint32_t lineXfRemain_ = 0, lineHold_ = 0;
+    std::array<uint32_t, ssbus::kMaxFriends> usedTot_{}, oldTot_{};   // each friend's own delay (frames) D was set against
+    std::vector<float> fmix_[2], fmixOld_[2];                    // scratch for friend audio
+    std::vector<float> delayScratch_[2];
+    uint32_t delayCap_ = 0;
 
     bool    wasPlaying_ = false;
     int64_t expectedTime_ = kNoTime;

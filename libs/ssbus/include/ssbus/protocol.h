@@ -393,6 +393,11 @@ struct BusLayout {
     alignas(64) std::atomic<uint32_t> requestReserve;   // number of requests ever claimed
     alignas(64) FeederTap feederTap[kMaxFeeders];
     alignas(64) ChannelRing friendAudio[kMaxFriends];
+    // What friends hear: the Stream Mix as the DAW makes it, NOT delayed by Line up (a delayed copy would
+    // make every friend sing later and later). The Hub writes it; friendMixWrite counts its frames and is
+    // the timeline friends report back against (S3).
+    alignas(64) std::atomic<uint64_t> friendMixWrite;
+    alignas(64) ChannelRing friendMixAudio;
 };
 
 static_assert(std::is_standard_layout_v<BusLayout>, "BusLayout must be standard layout");

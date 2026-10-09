@@ -13,9 +13,7 @@ constexpr uint64_t kHubStaleNs  = 2000000000ull;   // another Hub may take over 
 constexpr uint64_t kSlotStaleNs = 5000000000ull;
 }
 
-HubEngine::HubEngine() { token_ = randomToken(); }
-
-HubEngine::~HubEngine() { disconnect(); }
+// HubEngine::HubEngine / ~HubEngine live in hub_friends.cpp (they need the friend players' full type)
 
 bool HubEngine::connect(const std::string& busName) {
     disconnect();
@@ -76,6 +74,7 @@ void HubEngine::prepare(double sampleRate, int maxBlock) {
     master_.prepare(sampleRate_, 20.0);
     preview_.prepare(sampleRate_, 20.0);
     xfLen_ = uint32_t(std::max(16.0, sampleRate_ * 0.010));
+    friendsPrepare();
     for (auto& s : slots_) {
         s = SlotState{};
         s.gain.prepare(sampleRate_, 20.0);
@@ -273,6 +272,7 @@ void HubEngine::process(float* const* io, int numCh, int n, const HubParams& p,
         for (auto& s : slots_) { s.known = false; s.needAnchor = true; s.xfActive = false; }
         for (auto& l : limiters_) l.reset();
         loudness_.reset();
+        friendsReset();
     }
 
     const uint32_t sr = uint32_t(sampleRate_ + 0.5);
@@ -343,6 +343,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         const uint32_t f = sh.flags.load(std::memory_order_relaxed);
         if ((f & kFlagSolo) && (f & kFlagStr) && sh.sampleRate.load(std::memory_order_relaxed) == sr) { soloActive = true; break; }
     }
+    soloActive = soloActive || friendsSoloActive();   // a friend soloed for the viewers counts too
 
     const uint32_t maxDelay = std::min<uint32_t>(uint32_t(0.5 * sampleRate_ + 0.5),
                                                  kRingFrames - kGuardFrames - 4u * uint32_t(maxBlock_));
@@ -581,6 +582,9 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         }
         capWrite_.store(w, std::memory_order_release);
     }
+
+    // ---- friends: headphones + Stream Mix (after the Line-up delay, before the limiter) ------------
+    friendsMix(n, p, used, soloActive);
 
     // ---- master gain, limiter, meters, write ------------------------------------------------
     master_.setTarget(p.panic || p.silence ? 0.0f : ssdsp::dbToGain(p.masterDb));

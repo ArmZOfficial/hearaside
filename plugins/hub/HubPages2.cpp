@@ -54,23 +54,206 @@ void setupMsSlider(juce::Slider& s) {
 }
 
 // =============================================================================================
-// Share and friends (prompt 3.4 "Share"). Until the friends room (S2) the left card carries the
-// one send-in link the Hub has today.
+// Share and friends (prompt 3.4 "Share"): the friends room on the left (one card per friend, Line up,
+// Spread out, Add friend), the listen link / connection / receive cards on the right.
+
+// One friend in the room: avatar + name + status, delay + microphone level, Copy link, remove;
+// below: Volume (you and viewers) and Pan (viewers).
+class FriendCard : public juce::Component {
+public:
+    static constexpr int kHeight = 112;
+
+    FriendCard(HubEditor& e, uint32_t id) : ed_(e), id_(id) {
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
+            addAndMakeVisible(c);
+        copy_.setSmall(true);
+        remove_.setSize(32, 32);
+        name_.onRename = [this](const juce::String& n) { ed_.renameFriend(id_, n); };
+        copy_.onClick = [this] {
+            const auto link = ed_.proc().friendLink(id_);
+            if (link.isEmpty()) return;
+            juce::SystemClipboard::copyTextToClipboard(link);
+            copy_.setButtonText(tr(Str::Copied));
+            juce::Component::SafePointer<FriendCard> sp(this);
+            juce::Timer::callAfterDelay(1400, [sp] { if (sp) sp->copy_.setButtonText(tr(Str::CopyLink)); });
+            ed_.toast(trf(Str::CopiedFriendLink, { v_.name }));
+        };
+        remove_.onClick = [this] {
+            const auto name = v_.name;
+            ed_.proc().removeFriend(id_);
+            ed_.toast(trf(Str::RemovedFriendToast, { name }));
+        };
+        vol_.onValueChange = [this] { if (!updating_) send(LevelSlider::sliderToDb(vol_.getValue())); };
+        volValue_.onCommit = [this](float db) { send(db <= valuetext::kFloorDb + 1.0e-3f ? -60.0f : db); };
+        pan_.onChange = [this](float v) { if (!updating_) { touch_.now(); ed_.proc().setFriendPan(id_, v / 100.0f); panValue_.setValue(v); } };
+        panValue_.onCommit = [this](float v) { touch_.now(); ed_.proc().setFriendPan(id_, v / 100.0f); pan_.setPan(v); };
+        refreshTexts();
+    }
+
+    uint32_t id() const noexcept { return id_; }
+    void startRename() { name_.startEditing(); }
+    void refreshTexts() {
+        copy_.setButtonText(tr(Str::CopyLink));
+        name_.setTooltip(tr(Str::DoubleClickToRename));
+        vol_.setTooltip(tr(Str::DoubleClickToReset));
+        volValue_.setTooltip(tr(Str::DoubleClickToType));
+        panValue_.setTooltip(tr(Str::PanTypeTip));
+        pan_.setTooltip(tr(Str::PanTypeTip));
+        remove_.setTitle(trf(Str::RemoveNamed, { v_.name }));
+        remove_.setTooltip(trf(Str::RemoveNamed, { v_.name }));
+        vol_.setTitle(tr(Str::Volume) + " " + v_.name);
+        repaint();
+    }
+
+    void update(const FriendView& v) {
+        const bool nameChanged = v.name != v_.name, dawChanged = v.inDaw != v_.inDaw;
+        v_ = v;
+        name_.setName(v.name, {});
+        mic_.setLevel(v.state == FriendView::State::Live ? meterPosition(v.peak) : 0.0f);
+        const juce::ScopedValueSetter<bool> svs(updating_, true);
+        if (touch_.idle() && !vol_.isMouseButtonDown()) {
+            vol_.setValue(LevelSlider::dbToSlider(v.volumeDb), juce::dontSendNotification);
+            if (!volValue_.isEditing()) volValue_.setValue(juce::jmax(valuetext::kFloorDb, v.volumeDb));
+            pan_.setPan(v.pan * 100.0f);
+            if (!panValue_.isEditing()) panValue_.setValue(v.pan * 100.0f);
+        }
+        const bool dim = v.inDaw;   // a DAW track carries them: level and pan are set there
+        vol_.setDim(dim);
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &vol_, &volValue_, &pan_, &panValue_ }) c->setEnabled(!dim);
+        if (nameChanged) refreshTexts();
+        if (dawChanged) resized();
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override {
+        const auto& p = paletteOf(*this);
+        auto r = getLocalBounds().toFloat();
+        drawInset(g, r, 16.0f, p);
+        drawAvatar(g, avatar_, v_.name, v_.live(), p);
+        // status line
+        Dot dot = Dot::Warn;
+        juce::String text;
+        if (v_.state == FriendView::State::Live) {
+            dot = v_.overLimit ? Dot::Warn : Dot::Ok;
+            if (v_.inDaw) text = v_.outSlot >= 0 ? trf(Str::SingingInDaw, { ed_.proc().feederTrackName(v_.feeder) }) : tr(Str::InDawNotHeadphones);
+            else if (v_.overLimit) text = trf(Str::FriendOverLimit, { juce::String(ed_.proc().lineUpLimitMs()) });
+            else text = tr(Str::FriendSinging);
+        } else if (v_.state == FriendView::State::Offline) {
+            dot = Dot::Muted;
+            text = tr(Str::FriendOffline);
+        } else {
+            text = tr(Str::FriendNotOpened);
+        }
+        drawStatusDot(g, { statusLine_.getX() + 4.0f, statusLine_.getCentreY() }, dot, p);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.0f));
+        g.drawText(ellipsize(uiFont(12.0f), text, statusLine_.getWidth() - 14.0f), statusLine_.withTrimmedLeft(14.0f), juce::Justification::centredLeft, false);
+        // delay
+        g.setColour(p.ink2);
+        g.setFont(uiFont(12.0f, Weight::Medium));
+        g.drawText(v_.live() && v_.delayMs >= 0.0f ? trf(Str::DelayMsLabel, { juce::String(juce::roundToInt(v_.delayMs)) })
+                                                   : juce::String(juce::CharPointer_UTF8("\xe2\x80\x94")),
+                   delay_, juce::Justification::centredRight, false);
+        // the second row
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.0f));
+        if (v_.inDaw) {
+            drawWrapped(g, trf(Str::SetLevelOnTrack, { v_.name, ed_.proc().feederTrackName(v_.feeder) }), uiFont(12.0f), p.graphite, row2_, 3.0f, juce::Justification::centredLeft, 2);
+        } else {
+            g.drawText(tr(Str::Volume), volLabel_, juce::Justification::centredLeft, false);
+            g.drawText(tr(Str::PanWord), panLabel_, juce::Justification::centredLeft, false);
+        }
+    }
+
+    void resized() override {
+        auto r = getLocalBounds().toFloat().reduced(16.0f, 14.0f);
+        auto top = r.removeFromTop(40.0f);
+        remove_.setBounds(top.removeFromRight(32.0f).withSizeKeepingCentre(32.0f, 32.0f).toNearestInt());
+        top.removeFromRight(6.0f);
+        copy_.setBounds(top.removeFromRight(juce::jmax(92.0f, float(copy_.idealWidth()))).withSizeKeepingCentre(juce::jmax(92.0f, float(copy_.idealWidth())), 30.0f).toNearestInt());
+        top.removeFromRight(12.0f);
+        auto meterCol = top.removeFromRight(juce::jmin(130.0f, top.getWidth() * 0.4f));
+        delay_ = meterCol.removeFromTop(20.0f);
+        meterCol.removeFromTop(4.0f);
+        mic_.setBounds(meterCol.removeFromTop(6.0f).toNearestInt());
+        top.removeFromRight(12.0f);
+        avatar_ = top.removeFromLeft(32.0f).withSizeKeepingCentre(32.0f, 32.0f);
+        top.removeFromLeft(12.0f);
+        auto col = top.withSizeKeepingCentre(top.getWidth(), 20.0f + 3.0f + 16.0f);
+        name_.setBounds(col.removeFromTop(20.0f).toNearestInt());
+        col.removeFromTop(3.0f);
+        statusLine_ = col;
+        r.removeFromTop(14.0f);
+        row2_ = r.removeFromTop(28.0f).withTrimmedLeft(44.0f);
+        auto cols = row2_;
+        const float half = (cols.getWidth() - 24.0f) * 0.5f;
+        auto left = cols.removeFromLeft(half);
+        cols.removeFromLeft(24.0f);
+        auto right = cols;
+        const bool dawRow = v_.inDaw;
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &vol_, &volValue_, &pan_, &panValue_ }) c->setVisible(!dawRow);
+        if (dawRow) return;
+        volLabel_ = left.removeFromLeft(54.0f);
+        volValue_.setBounds(left.removeFromRight(62.0f).withSizeKeepingCentre(62.0f, 26.0f).toNearestInt());
+        left.removeFromRight(6.0f);
+        vol_.setBounds(left.withSizeKeepingCentre(left.getWidth(), 20.0f).toNearestInt());
+        panLabel_ = right.removeFromLeft(34.0f);
+        panValue_.setBounds(right.removeFromRight(56.0f).withSizeKeepingCentre(56.0f, 26.0f).toNearestInt());
+        right.removeFromRight(6.0f);
+        pan_.setBounds(right.withSizeKeepingCentre(right.getWidth(), 20.0f).toNearestInt());
+    }
+
+private:
+    void send(float db) {
+        touch_.now();
+        ed_.proc().setFriendVolumeDb(id_, db);
+        volValue_.setValue(juce::jmax(valuetext::kFloorDb, db));
+    }
+
+    HubEditor& ed_;
+    uint32_t id_;
+    FriendView v_;
+    InlineName name_ { 14.5f, Weight::SemiBold };
+    MeterBar mic_ { 6.0f, true };
+    GhostButton copy_ { {}, GhostButton::Style::Ghost };
+    IconButton remove_ { icons::Icon::Close };
+    LevelSlider vol_;
+    EditableValue volValue_ { EditableValue::Kind::Db, -30.0f, 6.0f };
+    PanSlider pan_ { false };
+    EditableValue panValue_ { EditableValue::Kind::Pan, -100.0f, 100.0f };
+    juce::Rectangle<float> avatar_, statusLine_, delay_, row2_, volLabel_, panLabel_;
+    Touch touch_;
+    bool updating_ = false;
+};
 
 class SharePage : public HubPage {
 public:
     explicit SharePage(HubEditor& e) : HubPage(e) {
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &spread_, &add_, &sendField_, &sendCopy_, &listenSwitch_, &listenField_, &open_, &copy_,
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &spread_, &add_, &lineSwitch_, &measure_, &scroll_, &listenSwitch_, &listenField_, &open_, &copy_,
                                                                             &install_, &backupField_, &backupCopy_, &receiveField_, &connect_ })
             addAndMakeVisible(c);
+        scroll_.setContent(body_);
         spread_.setIcon(icons::Icon::Spread);
         add_.setIcon(icons::Icon::Plus);
-        spread_.setEnabled(false);   // the room (S2): nobody to spread out yet
-        add_.setEnabled(false);
-        for (auto* b : { &open_, &copy_, &sendCopy_, &install_, &backupCopy_ }) b->setSmall(true);
+        for (auto* b : { &open_, &copy_, &install_, &backupCopy_, &measure_ }) b->setSmall(true);
+        add_.onClick = [this] {
+            if (ed.proc().roomFull()) { ed.toast(tr(Str::FriendFullToast)); return; }
+            const auto id = ed.proc().addFriend(tr(Str::FriendDefaultName).replace("%d", juce::String(ed.proc().friendCount() + 1)));
+            if (id == 0) return;
+            tick();
+            // a new friend is in the name box at once: type who it is for
+            juce::Component::SafePointer<SharePage> sp(this);
+            juce::Timer::callAfterDelay(60, [sp, id] { if (sp) sp->startRename(id); });
+        };
+        spread_.onClick = [this] { ed.proc().spreadFriends(); tick(); };
+        lineSwitch_.onClick = [this] { ed.proc().setLineUp(!ed.proc().lineUp()); tick(); };
+        measure_.onClick = [this] {
+            for (const auto& f : ed.proc().friends()) ed.proc().remeasureFriend(f.id);
+            measuringUntil_ = juce::Time::getMillisecondCounter() + 4000;
+            tick();
+        };
         listenSwitch_.onClick = [this] { ed.proc().setSharing(!ed.proc().sharing()); tick(); };
         copy_.onClick = [this] { copyText(listenField_.getText(), copy_); };
-        sendCopy_.onClick = [this] { copyText(sendField_.getText(), sendCopy_); };
         backupCopy_.onClick = [this] { copyText(backupField_.getText(), backupCopy_); };
         install_.onClick = [this] { copyText("winget install --id Cloudflare.cloudflared", install_); };
         // on this computer: localhost (no tunnel round trip, and a secure context for the player)
@@ -84,14 +267,19 @@ public:
     }
 
     std::vector<GlassCard> cards() const override {
-        return { { left_, theme::radius::card }, { listenCard_, theme::radius::card }, { connCard_, theme::radius::card }, { recvCard_, theme::radius::card } };
+        std::vector<GlassCard> c;
+        c.push_back({ left_, theme::radius::card });
+        c.push_back({ listenCard_, theme::radius::card });
+        if (!connCard_.isEmpty()) c.push_back({ connCard_, theme::radius::card });
+        if (!recvCard_.isEmpty()) c.push_back({ recvCard_, theme::radius::card });
+        return c;
     }
 
     void refreshTexts() override {
         spread_.setButtonText(tr(Str::SpreadOut));
         spread_.setTooltip(tr(Str::SpreadOutTip));
         add_.setButtonText(tr(Str::AddFriend));
-        sendCopy_.setButtonText(tr(Str::Copy));
+        measure_.setButtonText(tr(Str::MeasureAgain));
         open_.setButtonText(tr(Str::Open));
         copy_.setButtonText(tr(Str::Copy));
         install_.setButtonText(tr(Str::CopyInstall));
@@ -99,8 +287,9 @@ public:
         connect_.setButtonText(tr(Str::Connect));
         listenSwitch_.setTitle(tr(Str::ShareListen));
         listenField_.setTitle(tr(Str::ShareListen));
-        sendField_.setTitle(tr(Str::SendInLegacy));
+        lineSwitch_.setTitle(tr(Str::LineUpFriends));
         receiveField_.setTitle(tr(Str::LinkToReceive));
+        for (auto* c : cardViews_) c->refreshTexts();
         repaint();
     }
 
@@ -113,19 +302,41 @@ public:
         listenSwitch_.setOn(on, isShowing());
         // the permanent link can be copied any time (send it once); the others only exist while sharing
         listenField_.setLink(permanent ? proc.permanentUrl(true) : live ? sh.listenUrl() : juce::String());
-        sendField_.setLink(permanent ? proc.permanentUrl(false) : live ? sh.sendUrl() : juce::String());
         backupField_.setLink(permanent && live ? sh.listenUrl() : juce::String());
         copy_.setEnabled(listenField_.getText().isNotEmpty());
-        sendCopy_.setEnabled(sendField_.getText().isNotEmpty());
         open_.setEnabled(live);
         const bool backup = backupField_.getText().isNotEmpty() && proc.directory().state() != ShareDirectory::State::Online;
-        const bool missing = on && (sh.tunnel() == ShareServer::Tunnel::Missing || sh.tunnel() == ShareServer::Tunnel::Failed);
+        const bool missing = (on || proc.friendCount() > 0) && (sh.tunnel() == ShareServer::Tunnel::Missing || sh.tunnel() == ShareServer::Tunnel::Failed);
+        bool relayout = false;
         if (backup != backupField_.isVisible() || missing != install_.isVisible()) {
             backupField_.setVisible(backup);
             backupCopy_.setVisible(backup);
             install_.setVisible(missing);
-            resized();
+            relayout = true;
         }
+        // the friends: one card each, in the room's order
+        const auto views = proc.friends();
+        bool structure = views.size() != cardViews_.size();
+        for (size_t i = 0; !structure && i < views.size(); ++i) structure = cardViews_[i]->id() != views[i].id;
+        if (structure) {
+            cardViews_.clear();
+            body_.removeAllChildren();
+            cards_.clear();
+            for (const auto& v : views) {
+                auto* c = cards_.add(new FriendCard(ed, v.id));
+                body_.addAndMakeVisible(c);
+                cardViews_.push_back(c);
+            }
+            relayout = true;
+        }
+        for (size_t i = 0; i < views.size(); ++i) cardViews_[i]->update(views[i]);
+        add_.setEnabled(!proc.roomFull());
+        spread_.setEnabled(views.size() >= 2);
+        lineSwitch_.setOn(proc.lineUp(), isShowing());
+        const bool measuring = juce::Time::getMillisecondCounter() < measuringUntil_;
+        measure_.setButtonText(measuring ? tr(Str::Measuring) : tr(Str::MeasureAgain));
+        measure_.setEnabled(!views.empty() && !measuring);
+        if (relayout) resized();
         repaint();
     }
 
@@ -133,9 +344,10 @@ public:
         auto r = getLocalBounds().toFloat();
         const bool narrow = r.getWidth() < 760.0f;
         juce::Rectangle<float> aside;
-        if (narrow) {   // Compact: one column, the links first
-            aside = r;
-            left_ = {};
+        if (narrow) {   // Compact: the listen link on top, the friends below
+            aside = r.removeFromTop(170.0f);
+            r.removeFromTop(16.0f);
+            left_ = r;
         } else {
             aside = r.removeFromRight(320.0f);
             r.removeFromRight(16.0f);
@@ -157,38 +369,45 @@ public:
             open_.setBounds(row.removeFromRight(float(open_.idealWidth())).toNearestInt());
             listeners_ = row;
         }
-        aside.removeFromTop(16.0f);
-        // connection card (grows with the backup link / install command)
-        const float connH = 20.0f + 20.0f + 10.0f + 76.0f + (install_.isVisible() ? 40.0f : 0.0f) + (backupField_.isVisible() ? 18.0f + 6.0f + 38.0f + 10.0f : 0.0f) + 20.0f;
-        connCard_ = aside.removeFromTop(connH);
-        {
-            auto c = connCard_.reduced(20.0f);
-            c.removeFromTop(20.0f + 10.0f);
-            connBox_ = c.removeFromTop(76.0f);
-            if (install_.isVisible()) { c.removeFromTop(8.0f); install_.setBounds(c.removeFromTop(32.0f).withWidth(float(install_.idealWidth())).toNearestInt()); }
-            if (backupField_.isVisible()) {
+        connCard_ = recvCard_ = {};
+        for (juce::Component* comp : std::initializer_list<juce::Component*> { &install_, &backupField_, &backupCopy_, &receiveField_, &connect_ }) comp->setVisible(false);
+        if (!narrow) {
+            aside.removeFromTop(16.0f);
+            // connection card (grows with the backup link / install command)
+            install_.setVisible(installWanted());
+            backupField_.setVisible(backupWanted());
+            backupCopy_.setVisible(backupWanted());
+            const float connH = 20.0f + 20.0f + 10.0f + 76.0f + (install_.isVisible() ? 40.0f : 0.0f) + (backupField_.isVisible() ? 18.0f + 6.0f + 38.0f + 10.0f : 0.0f) + 20.0f;
+            connCard_ = aside.removeFromTop(connH);
+            {
+                auto c = connCard_.reduced(20.0f);
+                c.removeFromTop(20.0f + 10.0f);
+                connBox_ = c.removeFromTop(76.0f);
+                if (install_.isVisible()) { c.removeFromTop(8.0f); install_.setBounds(c.removeFromTop(32.0f).withWidth(float(install_.idealWidth())).toNearestInt()); }
+                if (backupField_.isVisible()) {
+                    c.removeFromTop(10.0f);
+                    backupLabel_ = c.removeFromTop(18.0f);
+                    c.removeFromTop(6.0f);
+                    auto row = c.removeFromTop(38.0f);
+                    backupCopy_.setBounds(row.removeFromRight(70.0f).withSizeKeepingCentre(70.0f, 32.0f).toNearestInt());
+                    row.removeFromRight(8.0f);
+                    backupField_.setBounds(row.toNearestInt());
+                }
+            }
+            aside.removeFromTop(16.0f);
+            recvCard_ = aside;
+            {
+                auto c = recvCard_.reduced(20.0f);
+                recvText_ = c.removeFromTop(20.0f + 10.0f + 36.0f);
                 c.removeFromTop(10.0f);
-                backupLabel_ = c.removeFromTop(18.0f);
-                c.removeFromTop(6.0f);
-                auto row = c.removeFromTop(38.0f);
-                backupCopy_.setBounds(row.removeFromRight(70.0f).withSizeKeepingCentre(70.0f, 32.0f).toNearestInt());
-                row.removeFromRight(8.0f);
-                backupField_.setBounds(row.toNearestInt());
+                receiveField_.setBounds(c.removeFromTop(38.0f).toNearestInt());
+                receiveField_.setVisible(true);
+                c.removeFromTop(10.0f);
+                connect_.setBounds(c.removeFromTop(38.0f).toNearestInt());
+                connect_.setVisible(true);
+                recvError_ = c.removeFromTop(24.0f);
             }
         }
-        aside.removeFromTop(16.0f);
-        recvCard_ = narrow ? aside.removeFromTop(juce::jmin(aside.getHeight(), 200.0f)) : aside;
-        {
-            auto c = recvCard_.reduced(20.0f);
-            recvText_ = c.removeFromTop(20.0f + 10.0f + 36.0f);
-            c.removeFromTop(10.0f);
-            receiveField_.setBounds(c.removeFromTop(38.0f).toNearestInt());
-            c.removeFromTop(10.0f);
-            connect_.setBounds(c.removeFromTop(38.0f).toNearestInt());
-            recvError_ = c.removeFromTop(24.0f);
-        }
-        for (juce::Component* comp : std::initializer_list<juce::Component*> { &spread_, &add_, &sendField_, &sendCopy_ }) comp->setVisible(!narrow);
-        if (narrow) return;
         // left card: Friends
         auto c = left_.withTrimmedLeft(24.0f).withTrimmedRight(24.0f).withTrimmedTop(22.0f).withTrimmedBottom(16.0f);
         auto head = c.removeFromTop(38.0f);
@@ -197,22 +416,39 @@ public:
         spread_.setBounds(head.removeFromRight(float(spread_.idealWidth())).toNearestInt());
         friendsHead_ = head;
         c.removeFromTop(14.0f);
-        footer_ = c.removeFromBottom(12.0f + wrappedHeight(uiFont(12.0f), tr(Str::FriendsFooter), c.getWidth() - 26.0f, 6.0f));
-        c.removeFromBottom(12.0f);
-        // the send-in link of today (until S2 gives every friend their own)
-        sendBox_ = c.removeFromTop(16.0f + 20.0f + 4.0f + 36.0f + 12.0f + 38.0f + 10.0f + 18.0f + 16.0f);
-        {
-            auto b = sendBox_.reduced(16.0f);
-            b.removeFromTop(20.0f + 4.0f + 36.0f + 12.0f);
-            auto row = b.removeFromTop(38.0f);
-            sendCopy_.setBounds(row.removeFromRight(86.0f).withSizeKeepingCentre(86.0f, 32.0f).toNearestInt());
-            row.removeFromRight(8.0f);
-            sendField_.setBounds(row.toNearestInt());
-            b.removeFromTop(10.0f);
-            sendStatus_ = b.removeFromTop(18.0f);
+        if (!narrow) {
+            footer_ = c.removeFromBottom(12.0f + wrappedHeight(uiFont(12.0f), tr(Str::FriendsFooter), c.getWidth() - 26.0f, 6.0f));
+            c.removeFromBottom(12.0f);
+        } else {
+            footer_ = {};
         }
-        c.removeFromTop(14.0f);
-        empty_ = c;
+        // Line up: icon + title + switch + Measure again, and the caption
+        const float capH = wrappedHeight(uiFont(12.0f), lineCaption(), c.getWidth() - 32.0f, 4.0f);
+        lineBox_ = c.removeFromTop(16.0f + 34.0f + 6.0f + capH + 14.0f);
+        {
+            auto b = lineBox_.reduced(16.0f, 16.0f);
+            auto row = b.removeFromTop(34.0f);
+            lineSwitch_.setBounds(row.removeFromRight(46.0f).withSizeKeepingCentre(46.0f, 26.0f).toNearestInt());
+            row.removeFromRight(10.0f);
+            const float mw = juce::jmax(96.0f, float(measure_.idealWidth()));
+            measure_.setBounds(row.removeFromRight(mw).withSizeKeepingCentre(mw, 30.0f).toNearestInt());
+            row.removeFromRight(10.0f);
+            lineTitle_ = row;
+            b.removeFromTop(6.0f);
+            lineCap_ = b;
+        }
+        c.removeFromTop(12.0f);
+        // the friends (or the empty state)
+        list_ = c;
+        const bool any = !cardViews_.empty();
+        scroll_.setVisible(any);
+        if (any) {
+            scroll_.setBounds(list_.withTrimmedRight(-14.0f).toNearestInt());
+            const int w = juce::jmax(1, scroll_.contentWidth());
+            int y = 0;
+            for (auto* card : cardViews_) { card->setBounds(0, y, w, FriendCard::kHeight); y += FriendCard::kHeight + 8; }
+            body_.setSize(w, juce::jmax(1, y - 8));
+        }
     }
 
     void paint(juce::Graphics& g) override {
@@ -227,40 +463,39 @@ public:
             const float tw = textWidth(uiFont(20.0f, Weight::SemiBold), tr(Str::FriendsTitle)) + 2.0f;
             g.drawText(tr(Str::FriendsTitle), h.removeFromLeft(tw), juce::Justification::centredLeft, false);
             h.removeFromLeft(12.0f);
-            const auto count = trf(Str::FriendsCount, { "0" });
+            const auto count = trf(Str::FriendsCount, { juce::String(proc.friendCount()) });
             const float cw = textWidth(uiFont(12.0f, Weight::Medium), count) + 20.0f;
             drawBadge(g, h.removeFromLeft(cw).withSizeKeepingCentre(cw, 24.0f), count, BadgeStyle::Chip, p);
 
-            drawInset(g, sendBox_, 16.0f, p);
-            auto b = sendBox_.reduced(16.0f);
+            // Line up
+            drawInset(g, lineBox_, 16.0f, p);
+            auto t = lineTitle_;
+            icons::draw(g, icons::Icon::Refresh, t.removeFromLeft(20.0f).withSizeKeepingCentre(18.0f, 18.0f), p.ink);
+            t.removeFromLeft(10.0f);
             g.setColour(p.ink);
             g.setFont(uiFont(14.5f, Weight::SemiBold));
-            g.drawText(tr(Str::SendInLegacy), b.removeFromTop(20.0f), juce::Justification::centredLeft, true);
-            b.removeFromTop(4.0f);
-            drawWrapped(g, tr(Str::SendInLegacyCap), uiFont(12.0f), p.graphite, b.removeFromTop(36.0f), 4.0f);
-            if (!sendStatus_.isEmpty()) {
-                const bool sending = live && sh.senderActive();
-                drawStatusDot(g, { sendStatus_.getX() + 4.0f, sendStatus_.getCentreY() }, live ? (sending ? Dot::Ok : Dot::Warn) : Dot::Muted, p);
-                g.setColour(p.ink2);
-                g.setFont(uiFont(12.0f));
-                g.drawText(live ? (sending ? tr(Str::SenderOn) : tr(Str::SenderOff)) : tr(Str::SharingOff), sendStatus_.withTrimmedLeft(14.0f), juce::Justification::centredLeft, true);
-            }
-            // empty state of the room
-            auto e = empty_.withSizeKeepingCentre(juce::jmin(empty_.getWidth(), 420.0f), 70.0f);
-            if (empty_.getHeight() > 90.0f) {
-                g.setColour(p.ink);
-                g.setFont(uiFont(15.0f, Weight::SemiBold));
-                g.drawText(tr(Str::NoFriends), e.removeFromTop(22.0f), juce::Justification::centred, true);
-                e.removeFromTop(6.0f);
-                drawWrapped(g, tr(Str::NoFriendsCaption), uiFont(12.5f), p.graphite, e, 5.0f, juce::Justification::centred);
+            g.drawText(ellipsize(uiFont(14.5f, Weight::SemiBold), tr(Str::LineUpFriends), t.getWidth()), t, juce::Justification::centredLeft, false);
+            drawWrapped(g, lineCaption(), uiFont(12.0f), p.graphite, lineCap_, 4.0f);
+
+            if (cardViews_.empty()) {   // empty state of the room
+                auto e = list_.withSizeKeepingCentre(juce::jmin(list_.getWidth(), 420.0f), 70.0f);
+                if (list_.getHeight() > 90.0f) {
+                    g.setColour(p.ink);
+                    g.setFont(uiFont(15.0f, Weight::SemiBold));
+                    g.drawText(tr(Str::NoFriends), e.removeFromTop(22.0f), juce::Justification::centred, true);
+                    e.removeFromTop(6.0f);
+                    drawWrapped(g, tr(Str::NoFriendsCaption), uiFont(12.5f), p.graphite, e, 5.0f, juce::Justification::centred);
+                }
             }
             // footer
-            g.setColour(p.hairline2);
-            g.fillRect(footer_.withHeight(1.0f));
-            auto f = footer_.withTrimmedTop(12.0f);
-            icons::draw(g, icons::Icon::Info, f.removeFromLeft(16.0f).withHeight(16.0f).withY(f.getY() + 1.0f), p.graphite);
-            f.removeFromLeft(10.0f);
-            drawWrapped(g, tr(Str::FriendsFooter), uiFont(12.0f), p.graphite, f, 6.0f);
+            if (!footer_.isEmpty()) {
+                g.setColour(p.hairline2);
+                g.fillRect(footer_.withHeight(1.0f));
+                auto f = footer_.withTrimmedTop(12.0f);
+                icons::draw(g, icons::Icon::Info, f.removeFromLeft(16.0f).withHeight(16.0f).withY(f.getY() + 1.0f), p.graphite);
+                f.removeFromLeft(10.0f);
+                drawWrapped(g, tr(Str::FriendsFooter), uiFont(12.0f), p.graphite, f, 6.0f);
+            }
         }
         // listen link
         {
@@ -279,14 +514,14 @@ public:
             }
         }
         // connection
-        {
+        if (!connCard_.isEmpty()) {
             auto c = connCard_.reduced(20.0f);
             g.setColour(p.ink);
             g.setFont(uiFont(15.0f, Weight::SemiBold));
             g.drawText(tr(Str::ConnectionTitle), c.removeFromTop(20.0f), juce::Justification::centredLeft, true);
             Dot dot = Dot::Muted;
             juce::String title = tr(Str::SharingOff), cap = tr(Str::SharingOffCap);
-            if (on) {
+            if (on || proc.friendCount() > 0) {   // friends use the same tunnel as the listen link
                 switch (sh.tunnel()) {
                     case ShareServer::Tunnel::Ready:
                         dot = Dot::Ok; title = tr(Str::LinksAnywhere);
@@ -316,7 +551,7 @@ public:
             }
         }
         // receive
-        {
+        if (!recvCard_.isEmpty()) {
             auto t = recvText_;
             g.setColour(p.ink);
             g.setFont(uiFont(15.0f, Weight::SemiBold));
@@ -331,7 +566,30 @@ public:
         }
     }
 
+    // ui-snapshot / the Add friend button: put a friend's name box in edit mode
+    void startRename(uint32_t id) {
+        for (auto* c : cardViews_) if (c->id() == id) c->startRename();
+    }
+
 private:
+    bool installWanted() const {
+        const auto& sh = ed.proc().share();
+        return (ed.proc().sharing() || ed.proc().friendCount() > 0) && (sh.tunnel() == ShareServer::Tunnel::Missing || sh.tunnel() == ShareServer::Tunnel::Failed);
+    }
+    bool backupWanted() const {
+        auto& proc = ed.proc();
+        return backupField_.getText().isNotEmpty() && proc.directory().state() != ShareDirectory::State::Online;
+    }
+    juce::String lineCaption() const {
+        auto& proc = ed.proc();
+        if (!proc.lineUp()) return tr(Str::LineUpOff);
+        const int d = juce::roundToInt(proc.lineUpMs());
+        if (d <= 0) return tr(Str::LineUpWaiting);
+        juce::String slowest = "?";
+        const int id = proc.lineUpSlowestFriend();
+        for (const auto& f : proc.friends()) if (int(f.id) == id) slowest = f.name;
+        return trf(Str::LineUpCaption, { juce::String(d), slowest });
+    }
     void copyText(const juce::String& text, GhostButton& b) {
         if (text.isEmpty()) return;
         juce::SystemClipboard::copyTextToClipboard(text);
@@ -353,13 +611,18 @@ private:
     }
 
     GhostButton spread_ { {}, GhostButton::Style::Ghost }, add_ { {}, GhostButton::Style::Solid };
-    LinkField sendField_, listenField_, backupField_;
-    GhostButton sendCopy_ { {}, GhostButton::Style::Solid }, open_, copy_ { {}, GhostButton::Style::Solid }, install_, backupCopy_;
-    Switch listenSwitch_;
+    LinkField listenField_, backupField_;
+    GhostButton open_, copy_ { {}, GhostButton::Style::Solid }, install_, backupCopy_, measure_ { {}, GhostButton::Style::Ghost };
+    Switch listenSwitch_, lineSwitch_;
+    ScrollArea scroll_ { 14 };
+    juce::Component body_;
+    juce::OwnedArray<FriendCard> cards_;
+    std::vector<FriendCard*> cardViews_;
     TextField receiveField_;
     GhostButton connect_ { {}, GhostButton::Style::Solid };
     juce::String error_;
-    juce::Rectangle<float> left_, listenCard_, connCard_, recvCard_, friendsHead_, sendBox_, sendStatus_, empty_, footer_;
+    juce::uint32 measuringUntil_ = 0;
+    juce::Rectangle<float> left_, listenCard_, connCard_, recvCard_, friendsHead_, lineBox_, lineTitle_, lineCap_, list_, footer_;
     juce::Rectangle<float> listenHead_, listeners_, connBox_, backupLabel_, recvText_, recvError_;
 };
 

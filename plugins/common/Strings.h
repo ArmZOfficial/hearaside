@@ -108,7 +108,7 @@ enum class Str {
     GoToTrack, MixedInDaw, InDawNotHeadphones, SingingInDaw, SetLevelOnTrack, FriendBadge, FriendLinedUp,
     FriendNotLinedUp, FriendThroughTrack, FriendWord, GoesOutThrough, FriendHearSummary, StopBringing, FriendMoved,
     MoveHere, LinkCopiedSendTo, LinkNotHearaside, LinkOtherRoom, LinkListenNotLinedUp, FriendGone, RecordFriendHint,
-    MixFriendTitle, MixFriendStep1, MixFriendStep2, MixFriendStep3, AccountTitle, AccountOptional, SecAccountCap,
+    MixFriendTitle, MixFriendStep1, MixFriendStep2, MixFriendStep3, RemovedFriendToast, FriendOverLimit, FriendFullToast, LineUpOnToast, LineUpChangedToast, LineUpOffToast, AccountTitle, AccountOptional, SecAccountCap,
     SignInBrowser, CreateAccount, SignOut, SignInEllipsis, NotSignedIn, EditArrow, EnterCode, WaitingAllow,
     CodeExpired, GetNewCode, CodeAt, OpenThePage, CopyCode, AccountPhoto, AccountPhotoCap, ChangeEllipsis,
     PhotoEllipsis, RemoveWord, AccountDisplayName, AccountDisplayNameCap, AccountUsername, UsernameAvailable,

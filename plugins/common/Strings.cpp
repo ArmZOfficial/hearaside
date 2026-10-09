@@ -659,6 +659,12 @@ Table build() {
     s(Str::LinkListenNotLinedUp, "ลิงก์ฟังปรับให้ตรงจังหวะไม่ได้", "Listen links can’t be lined up");
     s(Str::FriendGone, "%s ไม่อยู่ในห้องแล้ว", "%s isn’t in the room any more");
     s(Str::RecordFriendHint, "ถ้าจะอัดเสียงเพื่อนใน DAW ให้ใส่ App Audio ที่ช่อง Input แล้วเลือกชื่อเพื่อน", "To record a friend in your DAW, put App Audio on an input channel and choose their name.");
+    s(Str::FriendOverLimit, "ช้ากว่า %d ms จึงไม่ถูกรอ", "Slower than %d ms, so it isn’t waited for");
+    s(Str::RemovedFriendToast, "เอา %s ออกจากห้องแล้ว ลิงก์ของเพื่อนใช้ไม่ได้อีก", "Removed %s from the room. Their link doesn’t work any more.");
+    s(Str::FriendFullToast, "ห้องเต็มแล้ว (8 คน)", "The room is full (8 friends)");
+    s(Str::LineUpOnToast, "ไลฟ์ถูกหน่วง %d ms ให้ทุกคนร้องตรงจังหวะ หูฟังของคุณไม่ถูกหน่วง", "Your live is now delayed %d ms so everyone sings in time. Your headphones aren’t delayed.");
+    s(Str::LineUpChangedToast, "ไลฟ์ถูกหน่วงเป็น %d ms", "Your live is now delayed %d ms");
+    s(Str::LineUpOffToast, "ไลฟ์กลับมาสดแล้ว ไม่ถูกหน่วง", "Your live is back to normal, not delayed");
     s(Str::MixFriendTitle, "มิกซ์เสียงเพื่อนในแทร็กของ DAW", "Mix a friend in a DAW track");
     s(Str::MixFriendStep1, "เพิ่มแทร็ก audio ว่างใน DAW แล้วใส่ HEARASIDE Track ไว้บนสุด", "Add an empty audio track in your DAW and put HEARASIDE Track at the top");
     s(Str::MixFriendStep2, "เลือก %s ในปลั๊กอินนั้น แล้วใส่ EQ, compressor หรือ reverb ต่อจากมัน", "Choose %s in that plug-in, then add your EQ, compressor or reverb below it");

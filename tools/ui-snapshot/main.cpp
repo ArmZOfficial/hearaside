@@ -680,6 +680,24 @@ int main(int argc, char** argv) {
         const auto oldScale = settings->uiScale();
         settings->setUiScale(1.0f);   // a chosen 100 %: editors must not pick a size for the screen
         settings->setFlag("startHidden", true);
+        // the friends room: three friends in the three states (singing, hasn't opened the link, left)
+#ifdef _WIN32
+        _putenv_s("HEARASIDE_NO_TUNNEL", "1");
+#endif
+        {
+            const uint32_t mint = hub.addFriend("Mint"), beam = hub.addFriend("Beam"), fah = hub.addFriend("Fah");
+            hub.setFriendPan(mint, -0.4f); hub.setFriendPan(beam, 0.25f);
+            hub.setFriendVolumeDb(mint, -2.0f); hub.setFriendVolumeDb(beam, 1.5f);
+            pump(400);
+            if (auto* bus = hub.engine().bus()) {
+                bus->friends[0].state.store(ssbus::kFriendLive);
+                bus->friends[0].delayBits.store(ssbus::floatBits(180.0f));
+                bus->friends[0].peakBits.store(ssbus::floatBits(0.3f));
+                bus->friends[2].state.store(ssbus::kFriendOffline);
+            }
+            (void) fah;
+            pump(150);
+        }
         juce::String report;
         int problems = 0;
         auto check = [&](juce::Component& c, const juce::String& name) {

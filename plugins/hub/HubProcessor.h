@@ -166,6 +166,8 @@ public:
     int lineUpLimitMs() const { return settings_->lineUpLimitMs(); }
     void setLineUpLimitMs(int ms) { settings_->setLineUpLimitMs(ms); }
     int friendsConnected() const noexcept { return share_.friendsConnected(); }
+    juce::String feederTrackName(int feeder) const;             // the DAW track a feeder sits on ("" = unknown)
+    void bringBackFriend(uint32_t id);                          // the DAW track plays its own sound again; the Hub plays the friend
 
     // "Viewers hear nothing" (docs/ux-roadmap.md 7.3): the Stream Mix has been silent for 5 s while a
     // track that goes to the viewers has signal. From the meters, on the message thread.

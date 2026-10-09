@@ -468,6 +468,25 @@ void HubProcessor::setLineUp(bool on) {
     stateChanged.sendChangeMessage();
 }
 
+juce::String HubProcessor::feederTrackName(int feeder) const {
+    auto* bus = engine_.bus();
+    if (bus == nullptr || feeder < 0 || feeder >= ssbus::kMaxFeeders) return {};
+    std::string name;
+    uint32_t colour = 0;
+    return ssbus::readFeederIdentity(bus->feeders[feeder], name, colour) ? juce::String::fromUTF8(name.c_str()) : juce::String();
+}
+
+void HubProcessor::bringBackFriend(uint32_t id) {
+    auto* bus = engine_.bus();
+    const int slot = friendRoom_.slotOf(id);
+    if (bus == nullptr || slot < 0) return;
+    const int feeder = bus->friends[slot].feeder.load(std::memory_order_relaxed);
+    if (feeder < 0 || feeder >= ssbus::kMaxFeeders) return;
+    auto& f = bus->feeders[feeder];
+    f.hubCommand.store(1, std::memory_order_relaxed);   // "go back to this track's own sound"
+    f.hubCommandSeq.fetch_add(1, std::memory_order_release);
+}
+
 int HubProcessor::lineUpSlowestFriend() const {
     const int slot = engine_.lineUpSlowest();
     if (slot < 0) return 0;

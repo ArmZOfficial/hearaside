@@ -30,7 +30,8 @@ juce::String joinDots(const juce::StringArray& a) { return a.joinIntoString(juce
 class ObsPopover : public juce::Component {
 public:
     explicit ObsPopover(HubProcessor& p) : proc_(p) { setSize(300, height()); }
-    int height() const { return proc_.obsConnected() ? 186 : 236; }
+    int height() const { return (proc_.obsConnected() ? 186 : 236) + (lineUpShown() ? 20 : 0); }
+    bool lineUpShown() const { return proc_.lineUp() && proc_.lineUpMs() > 0.5f; }
     void paint(juce::Graphics& g) override {
         const auto& p = paletteOf(*this);
         auto r = getLocalBounds().toFloat();
@@ -74,6 +75,7 @@ public:
         line(tr(Str::TrackFx), ms(li.trackFxMs), false);
         line(tr(Str::MasterFx), ms(li.masterFxMs), false);
         line(tr(Str::Total), trf(Str::AboutMs, { juce::String(li.total(), 1) }), true);
+        if (lineUpShown()) { r.removeFromTop(4.0f); line(tr(Str::LineUpForFriends), ms(double(proc_.lineUpMs())), false); }
     }
 private:
     static void NumberedText(juce::Graphics& g, juce::Rectangle<float>& r, const juce::StringArray& steps, const theme::Palette& p) {
@@ -115,11 +117,17 @@ icons::Icon HubEditor::programIcon(const juce::String& exe) {
 ChannelRow::ChannelRow(HubEditor& ed) : ed_(ed) {
     for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &picker_, &status_, &meter_, &you_, &viewers_, &level_, &value_, &more_ })
         addChildComponent(c);
-    you_.onClick = [this] { if (d_.slot >= 0) ed_.proc().send(d_.slot, ParamId::Mon, d_.you ? 0.0f : 1.0f); };
-    viewers_.onClick = [this] { if (d_.slot >= 0) ed_.proc().send(d_.slot, ParamId::Str, d_.viewers ? 0.0f : 1.0f); };
+    you_.onClick = [this] {
+        if (d_.kind == RowData::Kind::Friend) ed_.proc().setFriendMon(uint32_t(d_.index), !d_.you);
+        else if (d_.slot >= 0) ed_.proc().send(d_.slot, ParamId::Mon, d_.you ? 0.0f : 1.0f);
+    };
+    viewers_.onClick = [this] {
+        if (d_.kind == RowData::Kind::Friend) ed_.proc().setFriendStr(uint32_t(d_.index), !d_.viewers);
+        else if (d_.slot >= 0) ed_.proc().send(d_.slot, ParamId::Str, d_.viewers ? 0.0f : 1.0f);
+    };
     level_.onValueChange = [this] { if (!updating_) sendLevel(LevelSlider::sliderToDb(level_.getValue())); };
     value_.onCommit = [this](float db) { sendLevel(db <= valuetext::kFloorDb + 1.0e-3f ? -60.0f : db); };
-    name_.onRename = [this](const juce::String& n) { ed_.renameRow(d_.slot, n); };
+    name_.onRename = [this](const juce::String& n) { if (d_.kind == RowData::Kind::Friend) ed_.renameFriend(uint32_t(d_.index), n); else ed_.renameRow(d_.slot, n); };
     more_.onClick = [this] { showMenu(); };
     picker_.buildMenu = [this] { return programMenu(); };
     refreshTexts();
@@ -132,6 +140,12 @@ void ChannelRow::refreshTexts() {
 }
 
 void ChannelRow::sendLevel(float db) {
+    if (d_.kind == RowData::Kind::Friend) {   // one volume for you and the viewers
+        lastUserMs_ = juce::Time::getMillisecondCounter();
+        ed_.proc().setFriendVolumeDb(uint32_t(d_.index), db);
+        value_.setValue(juce::jmax(valuetext::kFloorDb, db));
+        return;
+    }
     if (d_.slot < 0) return;
     lastUserMs_ = juce::Time::getMillisecondCounter();
     ed_.proc().send(d_.slot, ed_.levelsShowHeadphones() ? ParamId::MonTrimDb : ParamId::StrGainDb, db);
@@ -140,6 +154,23 @@ void ChannelRow::sendLevel(float db) {
 
 juce::String ChannelRow::statusText(Dot& dot) const {
     dot = Dot::None;
+    if (d_.kind == RowData::Kind::Friend) {
+        const int ms = juce::roundToInt(d_.friendDelayMs);
+        if (d_.friendState == 1) {
+            if (d_.inDaw) {
+                if (!d_.paired) { dot = Dot::Warn; return tr(Str::InDawNotHeadphones); }
+                dot = Dot::Ok;
+                return d_.friendDelayMs >= 0.0f ? trf(Str::MixedInDaw, { juce::String(ms) }) : trf(Str::SingingInDaw, { d_.dawTrack });
+            }
+            dot = d_.overLimit ? Dot::Warn : Dot::Ok;
+            if (d_.friendDelayMs < 0.0f) return tr(Str::FriendSinging);
+            const int panI = juce::roundToInt(d_.pan * 100.0f);
+            return trf(Str::FriendLive, { juce::String(ms), panI == 0 ? tr(Str::Center) : valuetext::formatPan(float(panI)) });
+        }
+        if (d_.friendState == 2) { dot = Dot::Muted; return tr(Str::FriendOffline); }
+        dot = Dot::Warn;
+        return tr(Str::FriendNotOpened);
+    }
     if (d_.kind != RowData::Kind::Program) return {};
     if (!d_.on) { dot = Dot::Muted; return tr(Str::AppOffShort); }
     switch (d_.capture) {   // AppCapture::State: Idle, Starting, Running, NotRunning, Failed
@@ -167,7 +198,7 @@ void ChannelRow::update(const RowData& d) {
     for (juce::Component* c : std::initializer_list<juce::Component*> { &you_, &viewers_, &level_, &value_, &more_ }) c->setVisible(true);
 
     name_.setName(d.name, {});
-    name_.setEnabled(d.kind == RowData::Kind::Track);
+    name_.setEnabled(d.kind == RowData::Kind::Track || d.kind == RowData::Kind::Friend);
     if (program) picker_.set(HubEditor::programIcon(d.app), HubEditor::programLabel(d.app));
     Dot dot;
     status_.setText(statusText(dot));
@@ -324,6 +355,10 @@ void ChannelRow::paintOverChildren(juce::Graphics& g) {
     juce::Timer::callAfterDelay(40, [self] { if (self) self->repaint(); });
 }
 
+void ChannelRow::flashDawTrack() {
+    if (d_.outSlot >= 0) ed_.goToTrack(d_.outSlot);
+}
+
 void ChannelRow::flash() {
     flashUntil_ = juce::Time::getMillisecondCounter() + 1200;
     repaint();
@@ -394,6 +429,47 @@ void ChannelRow::showMenu() {
         });
         m.separator();
         m.item(tr(Str::FineSettingsEllipsis), [self] { if (self) self->ed_.showPage(HubEditor::Page::Programs); }, {}, true);
+        more_.setOpen(true);
+        o->showMenu(std::move(m), more_, false, [self] { if (self) self->more_.setOpen(false); });
+        return;
+    }
+    if (d_.kind == RowData::Kind::Friend) {
+        const uint32_t id = uint32_t(d_.index);
+        const auto name = d_.name;
+        const int ms = juce::roundToInt(d_.friendDelayMs);
+        const int panI = juce::roundToInt(d_.pan * 100.0f);
+        const juce::String panText = panI == 0 ? tr(Str::Center) : valuetext::formatPan(float(panI));
+        Dot headDot;
+        const auto status = statusText(headDot);
+        const bool solo = d_.solo, inDaw = d_.inDaw;
+        Menu m(236);
+        m.header(name + juce::String(juce::CharPointer_UTF8(" \xc2\xb7 ")) + status);
+        m.item(tr(Str::CopyFriendLink), [&proc, id, name, self] {
+            const auto link = proc.friendLink(id);
+            if (link.isEmpty() || self == nullptr) return;
+            juce::SystemClipboard::copyTextToClipboard(link);
+            self->ed_.toast(trf(Str::CopiedFriendLink, { name }));
+        });
+        if (!inDaw) {
+            m.item(tr(Str::Pan), [self] { if (self) self->ed_.showPage(HubEditor::Page::Share); }, panText + juce::String(juce::CharPointer_UTF8(" \xe2\x80\xba")));
+            m.item(tr(Str::MeasureDelayAgain), [&proc, id, name, self] {
+                proc.remeasureFriend(id);
+                if (self) self->ed_.toast(tr(Str::Measuring));
+            }, d_.friendDelayMs >= 0.0f ? valuetext::formatMs(float(ms)) : juce::String());
+            m.toggle(tr(Str::StreamSolo), solo, [&proc, id, solo] { proc.setFriendSolo(id, !solo); });
+        }
+        m.separator();
+        if (inDaw) {
+            m.item(tr(Str::GoToTrack), [self] { if (self) self->flashDawTrack(); });
+            m.item(tr(Str::BringBackToHub), [&proc, id] { proc.bringBackFriend(id); });
+        } else {
+            m.item(tr(Str::MixInDawTrack), [self, id] { if (self) self->ed_.showMixInDaw(id, self->more_); }, juce::String(juce::CharPointer_UTF8("\xe2\x80\xba")), true);
+        }
+        m.item(tr(Str::RecordInDaw), [self, id] { if (self) self->ed_.showMixInDaw(id, self->more_); }, juce::String(juce::CharPointer_UTF8("\xe2\x80\xba")), true);
+        m.item(tr(Str::RemoveFriend), [&proc, id, name, self] {
+            proc.removeFriend(id);
+            if (self) self->ed_.toast(trf(Str::RemovedFriendToast, { name }));
+        });
         more_.setOpen(true);
         o->showMenu(std::move(m), more_, false, [self] { if (self) self->more_.setOpen(false); });
         return;
@@ -570,6 +646,21 @@ void HubEditor::renameRow(int slot, const juce::String& name) {
     }
 }
 
+void HubEditor::renameFriend(uint32_t id, const juce::String& name) {
+    const auto trimmed = valuetext::truncateUtf8(name.trim(), ssbus::kNameBytes - 1);
+    proc_.renameFriend(id, trimmed);
+    toast(trf(Str::RenamedToast, { trimmed.isNotEmpty() ? trimmed : FriendRoom::defaultName(1) }), 2600);
+}
+
+void HubEditor::goToFriend(uint32_t id) {
+    showPage(Page::Main);
+    for (auto* r : rows_)
+        if (r->data().kind == RowData::Kind::Friend && uint32_t(r->data().index) == id) {
+            scroll_.scrollToShow(r->getBounds());
+            r->flash();
+        }
+}
+
 void HubEditor::goToTrack(int slot) {
     showPage(Page::Main);
     for (auto* r : rows_)
@@ -633,6 +724,28 @@ void HubEditor::syncRows() {
         if (s.flags & ssbus::kSrcDropped) d.warnTip = tr(Str::TakeDropped);
         data.push_back(d);
     }
+    for (const auto& f : proc_.friends()) {
+        RowData d;
+        d.kind = RowData::Kind::Friend;
+        d.index = int(f.id);
+        d.name = f.name;
+        d.shade = shade++;
+        d.you = f.mon;
+        d.viewers = f.str;
+        d.solo = f.solo;
+        d.active = f.live();
+        d.hpDb = d.vwDb = f.volumeDb;
+        d.pan = f.pan;
+        d.meter = f.peak;
+        d.friendState = f.state == FriendView::State::Live ? 1 : f.state == FriendView::State::Offline ? 2 : 0;
+        d.friendDelayMs = f.delayMs;
+        d.inDaw = f.inDaw;
+        d.paired = f.outSlot >= 0;
+        d.outSlot = f.outSlot;
+        d.overLimit = f.overLimit;
+        if (f.inDaw && f.feeder >= 0) d.dawTrack = proc_.feederTrackName(f.feeder);
+        data.push_back(d);
+    }
     bool structure = data.size() != size_t(rows_.size());
     for (size_t i = 0; !structure && i < data.size(); ++i)
         structure = rows_[int(i)]->data().kind != data[i].kind || rows_[int(i)]->data().slot != data[i].slot || rows_[int(i)]->data().index != data[i].index;
@@ -669,6 +782,8 @@ HubEditor::Lists HubEditor::summaryLists() const {
         if (v.active) add(v.name, v.mon, v.str && (!solo || v.solo));
     for (const auto& s : srcViews_)   // App Audio: while it is on and has a slot; the short name ("Whole computer")
         if (s.active && s.on() && s.slot >= 0) add(s.app == kSystemAudio ? tr(Str::WholeComputerShort) : programLabel(s.app), s.mon, s.str && !solo);
+    for (const auto& f : proc_.friends())   // friends the Hub plays itself (one a DAW track carries is that track)
+        if (f.live() && !f.inDaw) add(f.name, f.mon, f.str && (!solo || f.solo));
     return l;
 }
 
@@ -715,6 +830,16 @@ void HubEditor::timerCallback() {
     masterValueLink_->update();
     headphoneValueLink_->update();
     syncRows();
+    {   // Line up changed the delay of the live: say so (the viewers' side changed, never silently)
+        const uint32_t changes = proc_.lineUpChanges();
+        if (changes != lastLineChanges_) {
+            const int ms = juce::roundToInt(proc_.lineUpMs());
+            if (lastLineChanges_ != ~0u) toast(ms <= 0 ? tr(Str::LineUpOffToast) : lastLineMs_ <= 0 ? trf(Str::LineUpOnToast, { juce::String(ms) }) : trf(Str::LineUpChangedToast, { juce::String(ms) }), 3600);
+            lastLineChanges_ = changes;
+            lastLineMs_ = ms;
+            content_.repaint();
+        }
+    }
     if (auto* bus = proc_.engine().bus()) {
         const auto& sh = bus->streamHeader;
         meterL_.setLevel(meterPosition(ssbus::bitsFloat(sh.peakBits[0][0].load(std::memory_order_relaxed))));
@@ -771,6 +896,47 @@ void HubEditor::showPage(Page p, int slot) {
 void HubEditor::showSettings(SettingsSection s) {
     showPage(Page::Settings);
     if (auto* sp = dynamic_cast<HubSettingsPage*>(pageView_.get())) sp->select(int(s));
+}
+
+// "Mix in a DAW track…" and "Record in your DAW…": what to do in the DAW (S7 / S5)
+namespace {
+class MixInDawPanel : public juce::Component {
+public:
+    explicit MixInDawPanel(const juce::String& name) : name_(name) { setSize(330, 20 + 12 + 3 * 52 + 12 + 70); }
+    void paint(juce::Graphics& g) override {
+        const auto& p = paletteOf(*this);
+        auto r = getLocalBounds().toFloat();
+        g.setColour(p.ink);
+        g.setFont(uiFont(14.5f, Weight::SemiBold));
+        g.drawText(tr(Str::MixFriendTitle), r.removeFromTop(20.0f), juce::Justification::centredLeft, true);
+        r.removeFromTop(12.0f);
+        const juce::String steps[3] = { tr(Str::MixFriendStep1), trf(Str::MixFriendStep2, { name_ }), tr(Str::MixFriendStep3) };
+        for (int i = 0; i < 3; ++i) {
+            auto row = r.removeFromTop(52.0f);
+            const auto dot = row.removeFromLeft(24.0f).withHeight(24.0f).reduced(1.0f);
+            g.setColour(p.ink);
+            g.fillEllipse(dot);
+            g.setColour(p.onInk);
+            g.setFont(uiFont(12.0f, Weight::SemiBold));
+            g.drawText(juce::String(i + 1), dot, juce::Justification::centred, false);
+            row.removeFromLeft(10.0f);
+            drawWrapped(g, steps[i], uiFont(13.0f), p.ink2, row.withTrimmedTop(2.0f), 3.0f);
+        }
+        r.removeFromTop(12.0f);
+        g.setColour(p.hairline2);
+        g.fillRect(r.removeFromTop(1.0f));
+        r.removeFromTop(10.0f);
+        drawWrapped(g, tr(Str::RecordFriendHint), uiFont(12.0f), p.graphite, r, 4.0f);
+    }
+private:
+    juce::String name_;
+};
+} // namespace
+
+void HubEditor::showMixInDaw(uint32_t id, juce::Component& anchor) {
+    juce::String name = "?";
+    for (const auto& f : proc_.friends()) if (f.id == id) name = f.name;
+    overlay().showPopover(std::make_unique<MixInDawPanel>(name), anchor, true);
 }
 
 void HubEditor::showObsPopover() {
@@ -1053,9 +1219,15 @@ void HubEditor::layoutList() {
         y = juce::roundToInt(h) + kGroupGap;
     }
     const int rh = ChannelRow::heightFor(narrowRows_);
-    bool programsStarted = false;
+    bool programsStarted = false, friendsStarted = false;
     for (auto* row : rows_) {
         row->setNarrow(narrowRows_);
+        if (row->data().kind == RowData::Kind::Friend && !friendsStarted) {
+            friendsStarted = true;
+            y += kGroupGap - gap + 4;
+            friendsHead_ = { 0.0f, float(y), float(w), 22.0f };
+            y += 22 + kGroupGap;
+        }
         if (row->data().kind == RowData::Kind::Program && !programsStarted) {
             programsStarted = true;
             y += kGroupGap - gap + 4;
@@ -1066,10 +1238,12 @@ void HubEditor::layoutList() {
         y += rh + gap;
     }
     if (!rows_.isEmpty()) y -= gap;
-    // Friends (the room comes with S2): the group is there so people find it
-    y += kGroupGap + 4;
-    friendsHead_ = { 0.0f, float(y), float(w), 22.0f };
-    y += 22;
+    // Friends: with no friend yet the head still shows, so people find it
+    if (!friendsStarted) {
+        y += kGroupGap + 4;
+        friendsHead_ = { 0.0f, float(y), float(w), 22.0f };
+        y += 22;
+    }
     manageProgramsLink_.setVisible(programsStarted);
     manageTracksLink_.setVisible(false);
     manageFriendsLink_.setVisible(true);
@@ -1319,9 +1493,14 @@ void HubEditor::paintList(juce::Graphics& g) {
         g.drawText(ellipsize(uiFont(12.0f), caption, h.getWidth()), h, juce::Justification::centredLeft, false);
     };
     groupHead(programsHead_, Str::SourcesTitle, tr(Str::ProgramCaption), &manageProgramsLink_);
-    const auto& sh = proc_.share();
-    const bool sender = proc_.sharing() && sh.running() && sh.senderActive();
-    groupHead(friendsHead_, Str::FriendsTitle, sender ? tr(Str::SenderOn) : tr(Str::FriendsEmptyCaption), &manageFriendsLink_);
+    const int nFriends = proc_.friendCount();
+    juce::String friendsCaption = tr(Str::FriendsEmptyCaption);
+    if (nFriends > 0) {
+        const int d = juce::roundToInt(proc_.lineUpMs());
+        friendsCaption = proc_.lineUp() && d > 0 ? trf(Str::FriendsCaption, { juce::String(nFriends), juce::String(d) })
+                                                 : trf(Str::FriendsCaptionNoLineUp, { juce::String(nFriends) });
+    }
+    groupHead(friendsHead_, Str::FriendsTitle, friendsCaption, &manageFriendsLink_);
 }
 
 } // namespace hearaside

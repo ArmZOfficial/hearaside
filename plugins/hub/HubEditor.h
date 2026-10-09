@@ -33,6 +33,14 @@ struct RowData {
     uint32_t capture = 0;
     double recordSec = 0;
     float latencyMs = 0;
+    // friend (index = friend id)
+    int friendState = 0;          // 0 hasn't opened the link, 1 singing, 2 offline
+    float friendDelayMs = -1.0f;  // how late the voice arrives; < 0 = not measured yet
+    bool inDaw = false;           // a DAW track carries this friend (S7)
+    bool paired = false;          // ... and a Track at its end sends it on
+    juce::String dawTrack;        // that DAW track's name
+    bool overLimit = false;       // slower than the Line-up limit: not waited for
+    int outSlot = -1;             // the Track at the end of the DAW channel
 };
 
 // One row (prompt 3.3): wide = grid 1fr | 48 | 48 | 206 | 32, 56 high; narrow = two lines
@@ -54,6 +62,7 @@ public:
     void refreshTexts();
     MoreButton& moreButton() noexcept { return more_; }
     void openMenu() { showMenu(); }
+    void flashDawTrack();   // a friend carried by a DAW track: go to the Track that sends it on
 
 private:
     void showMenu();
@@ -104,6 +113,9 @@ public:
     SharedSettings& settings() noexcept { return settings_; }
     bool levelsShowHeadphones() const noexcept { return levelHeadphones_; }
     void renameRow(int slot, const juce::String& name);   // S1: "" = back to the DAW's name, with a toast
+    void renameFriend(uint32_t id, const juce::String& name);
+    void goToFriend(uint32_t id);                          // scroll to the friend's row and flash it
+    void showMixInDaw(uint32_t id, juce::Component& anchor);   // the three steps (S7): a popover next to `anchor`
     void goToTrack(int slot);                              // scroll to its row and flash it
     juce::Colour shadeColour(const RowData&) const;
     void layoutNow() { layout(); content_.repaint(); }
@@ -214,6 +226,8 @@ private:
     bool condensed_ = false, rightNowLists_ = true, rightNowShown_ = true;
     bool lastPreview_ = false, lastPanic_ = false;
     int slowTick_ = 0, lastObsWidth_ = 0;
+    uint32_t lastLineChanges_ = ~0u;
+    int lastLineMs_ = 0;
     juce::String lastLufs_, lastSummary_;
 };
 

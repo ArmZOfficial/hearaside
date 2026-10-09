@@ -281,3 +281,153 @@ TEST_CASE("remote: many writers, one reader, every command delivered once and in
     CHECK(received > 0);
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// v13: friends room, feeders, requests, beacon
+
+TEST_CASE("v13: layout stays within what the proposal promised") {
+    CHECK(sizeof(BeaconHeader) == 64);
+    CHECK(kLayoutSize < size_t(52) * 1024 * 1024);   // proposal: about 50 MB with 8 friend rings
+    CHECK(kProtocolVersion == 13);
+    CHECK(kMaxFriends == 8);
+}
+
+TEST_CASE("friends: eight friend rings written together, read by three readers") {
+    const std::string name = uniqueBus("friends");
+    SharedMemory::Status st{};
+    auto a = SharedMemory::open(name, st);
+    REQUIRE(a != nullptr);
+    auto b = SharedMemory::openExisting(name, st);
+    REQUIRE(b != nullptr);
+    BusLayout& w = a->layout();
+
+    std::vector<std::thread> writers;
+    for (int f = 0; f < kMaxFriends; ++f) {
+        w.friends[f].id.store(uint32_t(100 + f));
+        w.friends[f].state.store(kFriendLive);
+        writers.emplace_back([&w, f] {
+            std::vector<float> buf(128);
+            for (int block = 0; block < 40; ++block) {
+                for (int i = 0; i < 128; ++i) buf[size_t(i)] = float(f) + float(block * 128 + i) * 1e-5f;
+                const float* s[1] = { buf.data() };
+                ringWrite(w.friendAudio[f], w.friends[f].writePos, s, 1, 128);
+            }
+        });
+    }
+    for (auto& t : writers) t.join();
+
+    // three independent readers (Hub engine, App Audio, a feeder) each keep their own cursor
+    for (int reader = 0; reader < 3; ++reader) {
+        for (int f = 0; f < kMaxFriends; ++f) {
+            std::vector<float> l(128), r(128);
+            float* d[2] = { l.data(), r.data() };
+            uint64_t cur = 0;
+            CHECK(ringRead(b->layout().friendAudio[f], b->layout().friends[f].writePos, cur, d, 128) == ReadResult::Ok);
+            CHECK(l[0] == float(f));
+            CHECK(r[0] == l[0]);
+            CHECK(cur == 128);
+        }
+    }
+    CHECK(b->layout().friends[7].id.load() == 107);
+}
+
+TEST_CASE("friends: names are read consistently and cut on a code point") {
+    static BusLayout* bus = new BusLayout();
+    std::memset(static_cast<void*>(bus), 0, sizeof(BusLayout));
+    std::string thai;
+    for (int i = 0; i < 30; ++i) thai += "\xE0\xB8\x81";   // 30 x one Thai letter, 90 bytes > 63
+    setFriendName(bus->friends[3], thai);
+    const std::string got = readFriendName(bus->friends[3]);
+    CHECK(got.size() <= size_t(kNameBytes - 1));
+    CHECK(got.size() % 3 == 0);   // never half a character
+    setFriendName(bus->friends[3], "Mint");
+    CHECK(readFriendName(bus->friends[3]) == "Mint");
+}
+
+TEST_CASE("feeders: claim, identity, reclaim after the owner is gone") {
+    static BusLayout* bus = new BusLayout();
+    std::memset(static_cast<void*>(bus), 0, sizeof(BusLayout));
+    std::set<int> got;
+    for (int i = 0; i < kMaxFeeders; ++i) got.insert(claimFeeder(*bus));
+    CHECK(got.size() == size_t(kMaxFeeders));
+    CHECK(!got.count(-1));
+    CHECK(claimFeeder(*bus) == -1);   // full
+
+    setFeederIdentity(bus->feeders[2], "Audio 05", 0xFF112233u);
+    std::string n; uint32_t col = 0;
+    CHECK(readFeederIdentity(bus->feeders[2], n, col));
+    CHECK(n == "Audio 05");
+    CHECK(col == 0xFF112233u);
+
+    releaseFeeder(*bus, 2);
+    CHECK(claimFeeder(*bus) == 2);
+
+    bus->feeders[5].ownerPid.store(0xFFFFFFF0u);   // a process that does not exist
+    bus->feeders[5].heartbeatNs.store(1);
+    CHECK(reclaimDeadSlots(*bus, 1000) >= 1);
+    CHECK(bus->feeders[5].state.load() == kSlotFree);
+}
+
+TEST_CASE("requests: many writers, one reader, text is wiped once read") {
+    static BusLayout* bus = new BusLayout();
+    std::memset(static_cast<void*>(bus), 0, sizeof(BusLayout));
+    std::vector<std::thread> ts;
+    for (int t = 0; t < 4; ++t)
+        ts.emplace_back([t] { for (int i = 0; i < 3; ++i) postRequest(*bus, t, kReqResolveToken, uint32_t(i), "tok" + std::to_string(t)); });
+    for (auto& t : ts) t.join();
+
+    uint32_t cursor = 0;
+    int n = 0;
+    std::set<std::string> texts;
+    pollRequests(*bus, cursor, [&](int feeder, RequestKind kind, uint32_t, const std::string& text) {
+        CHECK(kind == kReqResolveToken);
+        CHECK(text == "tok" + std::to_string(feeder));
+        texts.insert(text);
+        ++n;
+    });
+    CHECK(n == 12);
+    CHECK(texts.size() == 4);
+    for (auto& e : bus->requests) CHECK(e.text[0] == 0);   // nothing readable left in shared memory
+}
+
+TEST_CASE("requests: overflow drops the oldest, never stalls") {
+    static BusLayout* bus = new BusLayout();
+    std::memset(static_cast<void*>(bus), 0, sizeof(BusLayout));
+    for (int i = 0; i < kRequestQueueSize * 2; ++i) postRequest(*bus, 0, kReqCopyLink, uint32_t(i), {});
+    uint32_t cursor = 0;
+    std::vector<uint32_t> args;
+    pollRequests(*bus, cursor, [&](int, RequestKind, uint32_t arg, const std::string&) { args.push_back(arg); });
+    CHECK(args.size() == size_t(kRequestQueueSize));
+    CHECK(args.front() == uint32_t(kRequestQueueSize));   // the first 16 were dropped
+    CHECK(args.back() == uint32_t(kRequestQueueSize * 2 - 1));
+}
+
+TEST_CASE("reply: the feeder sees each answer once") {
+    static BusLayout* bus = new BusLayout();
+    std::memset(static_cast<void*>(bus), 0, sizeof(BusLayout));
+    uint32_t last = 0, reply = 0;
+    CHECK(!pollReply(bus->feeders[0], last, reply));
+    postReply(bus->feeders[0], 101);
+    CHECK(pollReply(bus->feeders[0], last, reply));
+    CHECK(reply == 101);
+    CHECK(!pollReply(bus->feeders[0], last, reply));
+    postReply(bus->feeders[0], kReplyRoomFull);
+    CHECK(pollReply(bus->feeders[0], last, reply));
+    CHECK(reply == kReplyRoomFull);
+}
+
+TEST_CASE("beacon: a reader sees the Hub's version, and nothing when it is stale or absent") {
+    const std::string name = uniqueBus("beacon");
+    CHECK(BeaconMap::openExisting(name) == nullptr);
+    auto hub = BeaconMap::open(name);
+    REQUIRE(hub != nullptr);
+    auto reader = BeaconMap::openExisting(name);
+    REQUIRE(reader != nullptr);
+    CHECK(beaconHubVersion(reader->header()) == 0);   // nothing published yet
+    beaconPublish(hub->header());
+    CHECK(beaconHubVersion(reader->header()) == kProtocolVersion);
+    hub->header().protocolVersion.store(12);          // as an older Hub would write
+    CHECK(beaconHubVersion(reader->header()) == 12);
+    hub->header().heartbeatNs.store(1);               // long ago
+    CHECK(beaconHubVersion(reader->header()) == 0);
+}

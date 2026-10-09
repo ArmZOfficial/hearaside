@@ -22,7 +22,7 @@
 namespace ssbus {
 
 constexpr uint32_t kMagic           = 0x53535031; // 'SSP1'
-constexpr uint32_t kProtocolVersion = 12;   // v2: remote-control queue; v4: no scenes / Hub state mirror; v6: stream = master bus; v7: chain latency; v8: App Audio sources; v9: Hub mute for auto sync; v10: App Audio signal + delay for auto sync; v11: link input; v12: App Audio track slot (you hear / viewers hear)
+constexpr uint32_t kProtocolVersion = 13;   // v13: friends room (8 friend rings) + friend input feeders (a Track mixes a friend in the DAW); v2: remote-control queue; v4: no scenes / Hub state mirror; v6: stream = master bus; v7: chain latency; v8: App Audio sources; v9: Hub mute for auto sync; v10: App Audio signal + delay for auto sync; v11: link input; v12: App Audio track slot (you hear / viewers hear)
 constexpr int      kMaxSlots        = 64;
 constexpr int      kMaxStems        = 8;
 constexpr int      kNumStreamOuts   = 1 + kMaxStems;   // [0] = Stream Mix, [1..8] = stems
@@ -36,6 +36,11 @@ constexpr int      kNameBytes       = 64;              // UTF-8, NUL terminated
 constexpr int      kUuidBytes       = 40;
 constexpr int      kRemoteQueueSize = 64;              // remote commands (OBS hotkeys -> Hub)
 constexpr int      kMaxSources      = 16;              // HEARASIDE App Audio instances per bus
+constexpr int      kMaxFriends      = 8;               // friends in the room (each has its own send-in link)
+constexpr int      kMaxFeeders      = 16;              // HEARASIDE Track instances in "friend input" mode
+constexpr int      kRequestQueueSize = 16;             // plug-in -> Hub requests
+constexpr int      kTapFrames       = 8192;            // feeder correlation tap: mono, decimated by kTapDecimation
+constexpr int      kTapDecimation   = 4;
 
 static_assert((kRingFrames & kRingMask) == 0, "kRingFrames must be a power of two");
 static_assert(std::atomic<uint64_t>::is_always_lock_free, "need lock-free 64-bit atomics");
@@ -114,6 +119,8 @@ enum SlotFlags : uint32_t {
     kFlagOffline  = 1u << 4,   // host rendering offline
     kFlagMono     = 1u << 5,   // track is mono (written as dual mono)
     kFlagApp      = 1u << 6,   // the slot of an App Audio (the Hub lists it with the program audio, not the tracks)
+    kFlagViewersViaHub = 1u << 7,   // Line up is on and this Track carries a friend: it sends the viewers' side to the Hub
+                                    // (which delays it) instead of into the DAW, so the friend lines up with the music
 };
 
 enum class ParamId : uint32_t {
@@ -181,11 +188,15 @@ struct alignas(64) SlotHeader {
     std::atomic<uint32_t> chainLatencyBits; // ms (float bits): latency of the plug-ins before this Track. The Hub
                                             // measures it, the Track keeps it in its state for live use
 
+    // v13: a friend mixed through the DAW (written by the Hub when it pairs a feeder with this Track)
+    std::atomic<uint32_t> fedBy;            // FriendHeader::id of the friend whose voice reaches this Track, 0 = a normal track
+    std::atomic<uint32_t> fxLatencyBits;    // ms (float bits): what the plug-ins between the feeder and this Track add
+
     // timeline tags
     std::atomic<uint64_t> tagWrite;         // number of tags written
 
     alignas(64) std::atomic<uint64_t> writePos;  // monotonic frame counter of the audio FIFO
-    char                  pad[56];
+    char                  pad[48];
 };
 
 enum SlotHubStatus : uint32_t {
@@ -272,6 +283,91 @@ struct alignas(64) LinkInHeader {
 };
 
 // ---------------------------------------------------------------------------------------------
+// Friends room (v13). Up to kMaxFriends browsers send their microphone to the Hub, one link each.
+// The Hub's share server writes friendAudio[i]; the Hub engine, HEARASIDE App Audio and the
+// HEARASIDE Track in "friend input" mode read it (every reader keeps its own cursor).
+
+enum FriendState : uint32_t { kFriendFree = 0, kFriendWaiting = 1, kFriendLive = 2, kFriendOffline = 3 };
+// Who plays the friend for the viewers. Only the Hub decides, so nobody hears the same voice twice.
+enum FriendRoute : uint32_t { kRouteDirect = 0, kRouteDaw = 1 };
+
+struct alignas(64) FriendHeader {
+    std::atomic<uint32_t> state;            // FriendState
+    std::atomic<uint32_t> id;               // never reused while the Hub lives (0 = free); kept in the Hub's state
+    std::atomic<uint32_t> nameSeq;          // seqlock over name (odd = writing)
+    char                  name[kNameBytes];
+    std::atomic<uint32_t> sampleRate;       // of the friend's browser
+    std::atomic<uint64_t> heartbeatNs;      // last packet
+    std::atomic<uint32_t> delayBits;        // ms (float bits): how late this friend arrives (measured)
+    std::atomic<uint32_t> route;            // FriendRoute
+    std::atomic<int32_t>  feeder;           // feeders[] index that feeds this friend into a DAW track, -1 = none
+    std::atomic<int32_t>  outSlot;          // slot of the Track at the end of that channel, -1 = not paired
+    std::atomic<uint32_t> peakBits;         // linear peak of the microphone
+    alignas(64) std::atomic<uint64_t> writePos;   // frames written to friendAudio[i]
+};
+
+// A HEARASIDE Track set to "friend input": it plays one friend's voice on its DAW channel so the
+// plug-ins after it (EQ, compressor, reverb) work on that voice. The friend is chosen by id: the link
+// itself (token) never leaves the Hub.
+enum FeederStatus : uint32_t { kFeederFlowing = 0, kFeederBypassed = 1, kFeederOffline = 2, kFeederNoFriend = 3 };
+
+struct alignas(64) FeederRecord {
+    std::atomic<uint32_t> state;            // SlotState
+    std::atomic<uint32_t> ownerPid;
+    std::atomic<uint32_t> friendId;         // chosen friend, 0 = none yet
+    std::atomic<uint32_t> nameSeq;          // seqlock over trackName / colorARGB
+    char                  trackName[kNameBytes];
+    uint32_t              colorARGB;
+    std::atomic<uint64_t> heartbeatNs;      // last processBlock()
+    std::atomic<uint64_t> blockCount;       // processed blocks (the Hub sees a DAW that rests the track)
+    std::atomic<uint32_t> status;           // FeederStatus
+    std::atomic<uint32_t> reply;            // answer to the last request (see kReply*)
+    std::atomic<uint32_t> replySeq;
+    std::atomic<uint32_t> hubCommand;       // Hub -> feeder: 1 = go back to this track's own sound ("Bring back to the Hub")
+    std::atomic<uint32_t> hubCommandSeq;
+    std::atomic<uint32_t> sampleRate;       // of the DAW
+    alignas(64) std::atomic<uint64_t> tapWrite;   // decimated frames written to feederTap[i]
+};
+
+enum RequestKind : uint32_t {
+    kReqResolveToken = 1,   // text = a send-in link token pasted into the Track; reply = friend id
+    kReqCreateFriend = 2,   // text = name for the new friend; reply = friend id
+    kReqRelease      = 3,   // this feeder lets go of its friend (the Hub plays the friend directly again)
+    kReqCopyLink     = 4,   // arg = friend id: the Hub puts that friend's send-in link on the clipboard
+};
+constexpr uint32_t kReplyNotInRoom = 0xFFFF0001u;   // the link belongs to another room / is unknown
+constexpr uint32_t kReplyRoomFull  = 0xFFFF0002u;
+constexpr uint32_t kReplyFailed    = 0xFFFF0003u;
+
+// Multi-writer queue (like RemoteCommand): writers claim an index with fetch_add on requestReserve,
+// fill the entry and publish it with seq = index + 1. The Hub (single reader) consumes in order and
+// wipes `text` the moment it has read it (a pasted token must not stay in shared memory).
+struct PluginRequest {
+    std::atomic<uint32_t> seq;
+    std::atomic<int32_t>  feeder;           // who asks; the answer goes to feeders[feeder].reply
+    std::atomic<uint32_t> kind;             // RequestKind
+    std::atomic<uint32_t> arg;
+    char                  text[kNameBytes];
+};
+
+// A tiny mono copy (decimated by kTapDecimation) of what a feeder puts into the DAW. The Hub
+// correlates it with the Track histories it already keeps to find the Track at the end of the channel.
+struct FeederTap {
+    float mono[kTapFrames];
+};
+
+// Fixed forever: a separate 64-byte segment (no version in its name) so a Track can tell
+// "there is a Hub, but it is another version" instead of just "no Hub".
+constexpr uint32_t kBeaconMagic = 0x48425143;   // 'HBQC'
+struct alignas(64) BeaconHeader {
+    std::atomic<uint32_t> magic;
+    std::atomic<uint32_t> protocolVersion;  // of the Hub that owns this bus
+    std::atomic<uint32_t> hubPid;
+    std::atomic<uint64_t> heartbeatNs;
+};
+static_assert(sizeof(BeaconHeader) == 64, "BeaconHeader is part of every version's contract");
+
+// ---------------------------------------------------------------------------------------------
 // Whole segment
 
 struct ChannelRing {
@@ -289,6 +385,14 @@ struct BusLayout {
     LinkInHeader    linkIn;
     alignas(64) ChannelRing linkInAudio;
     alignas(64) ChannelRing streamAudio[kNumStreamOuts];
+
+    // ---- v13 ---------------------------------------------------------------------------------
+    alignas(64) FriendHeader friends[kMaxFriends];
+    FeederRecord    feeders[kMaxFeeders];
+    PluginRequest   requests[kRequestQueueSize];
+    alignas(64) std::atomic<uint32_t> requestReserve;   // number of requests ever claimed
+    alignas(64) FeederTap feederTap[kMaxFeeders];
+    alignas(64) ChannelRing friendAudio[kMaxFriends];
 };
 
 static_assert(std::is_standard_layout_v<BusLayout>, "BusLayout must be standard layout");

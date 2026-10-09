@@ -116,6 +116,45 @@ SharedMemory::~SharedMemory() {
     if (fd_ >= 0) close(fd_);
 }
 
+// --- beacon: a name without the protocol version -----------------------------------------------
+
+std::string BeaconMap::segmentName(const std::string& busName) {
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "/hrsdbc_%08x", fnv1a(busName));
+    return buf;
+}
+
+std::unique_ptr<BeaconMap> BeaconMap::open(const std::string& busName) { return openImpl(busName, true); }
+std::unique_ptr<BeaconMap> BeaconMap::openExisting(const std::string& busName) { return openImpl(busName, false); }
+
+std::unique_ptr<BeaconMap> BeaconMap::openImpl(const std::string& busName, bool create) {
+    const std::string name = segmentName(busName);
+    const size_t size = sizeof(BeaconHeader);
+    int fd = -1;
+    if (create) {
+        fd = shm_open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0666);
+        if (fd >= 0) {
+            fchmod(fd, 0666);
+            if (ftruncate(fd, off_t(size)) != 0) { close(fd); shm_unlink(name.c_str()); return nullptr; }
+        }
+    }
+    if (fd < 0) fd = shm_open(name.c_str(), O_RDWR, 0666);
+    if (fd < 0) return nullptr;
+    struct stat st{};
+    if (fstat(fd, &st) != 0 || size_t(st.st_size) < size) { close(fd); return nullptr; }
+    void* base = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (base == MAP_FAILED) { close(fd); return nullptr; }
+    std::unique_ptr<BeaconMap> m(new BeaconMap());
+    m->base_ = base;
+    m->fd_ = fd;
+    return m;
+}
+
+BeaconMap::~BeaconMap() {
+    if (base_) munmap(base_, sizeof(BeaconHeader));
+    if (fd_ >= 0) close(fd_);
+}
+
 } // namespace ssbus
 
 #endif // !_WIN32

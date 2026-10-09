@@ -50,6 +50,32 @@ private:
 const char* statusText(SharedMemory::Status s) noexcept;
 
 // ---------------------------------------------------------------------------------------------
+// Beacon: a 64-byte segment whose name and layout never change between versions. The Hub keeps it
+// fresh so a Track / App Audio / OBS that finds no bus of its own version can still tell "a Hub is
+// running, but it is another HEARASIDE version" apart from "no Hub".
+
+class BeaconMap {
+public:
+    ~BeaconMap();
+    static std::unique_ptr<BeaconMap> open(const std::string& busName);           // creates when missing (Hub)
+    static std::unique_ptr<BeaconMap> openExisting(const std::string& busName);   // readers
+    BeaconHeader& header() noexcept { return *static_cast<BeaconHeader*>(base_); }
+    static std::string segmentName(const std::string& busName);
+
+private:
+    BeaconMap() = default;
+    static std::unique_ptr<BeaconMap> openImpl(const std::string& busName, bool create);
+    void*       base_   = nullptr;
+    void*       handle_ = nullptr;
+    int         fd_     = -1;
+};
+
+// Hub: call about every 500 ms from a non-audio thread.
+void beaconPublish(BeaconHeader& b) noexcept;
+// Reader: the protocol version of a running Hub on this bus, 0 when there is none (or it is stale).
+uint32_t beaconHubVersion(const BeaconHeader& b, uint64_t staleNs = 3'000'000'000ull) noexcept;
+
+// ---------------------------------------------------------------------------------------------
 // Slot registry (Track side)
 
 // Claims a free slot. If another active slot already uses `uuid`, the caller must pick a new
@@ -152,6 +178,56 @@ int pollSourceCommands(SourceHeader& src, uint32_t& readCursor, Fn&& fn) {
 // Hub asks the App Audio to capture another program ("" = none).
 void requestSourceApp(SourceHeader& src, const std::string& exe) noexcept;
 bool pollSourceApp(const SourceHeader& src, uint32_t& lastSeq, std::string& exe) noexcept;
+
+// ---------------------------------------------------------------------------------------------
+// Friends room + feeders (v13)
+
+void setFriendName(FriendHeader& f, const std::string& name) noexcept;
+std::string readFriendName(const FriendHeader& f);   // consistent copy (empty if a writer kept interfering)
+
+// Feeder side (HEARASIDE Track in "friend input" mode). Message thread only.
+int  claimFeeder(BusLayout& bus) noexcept;           // -1 = all kMaxFeeders in use
+void releaseFeeder(BusLayout& bus, int index) noexcept;
+void setFeederIdentity(FeederRecord& f, const std::string& trackName, uint32_t colorARGB) noexcept;
+bool readFeederIdentity(const FeederRecord& f, std::string& trackName, uint32_t& colorARGB) noexcept;
+
+// Any plug-in -> Hub (multi-writer). `text` may be empty. The answer arrives in feeders[feeder].reply / replySeq.
+void postRequest(BusLayout& bus, int feeder, RequestKind kind, uint32_t arg, const std::string& text) noexcept;
+
+// Hub side (single reader): delivers complete requests in order, then wipes the text. fn(feeder, kind, arg, text).
+template <typename Fn>
+int pollRequests(BusLayout& bus, uint32_t& cursor, Fn&& fn) {
+    const uint32_t reserve = bus.requestReserve.load(std::memory_order_acquire);
+    if (reserve - cursor > uint32_t(kRequestQueueSize)) cursor = reserve - uint32_t(kRequestQueueSize);   // dropped oldest
+    int count = 0;
+    while (cursor != reserve) {
+        PluginRequest& e = bus.requests[cursor % kRequestQueueSize];
+        const uint32_t s = e.seq.load(std::memory_order_acquire);
+        if (s == cursor + 1) {
+            const int32_t feeder = e.feeder.load(std::memory_order_relaxed);
+            const uint32_t kind = e.kind.load(std::memory_order_relaxed);
+            const uint32_t arg = e.arg.load(std::memory_order_relaxed);
+            char text[kNameBytes];
+            std::memcpy(text, e.text, kNameBytes);
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (e.seq.load(std::memory_order_relaxed) == s) {
+                std::memset(e.text, 0, kNameBytes);   // a pasted token must not stay in shared memory
+                text[kNameBytes - 1] = 0;
+                fn(int(feeder), static_cast<RequestKind>(kind), arg, std::string(text));
+                ++count;
+            }
+        } else if (int32_t(s - (cursor + 1)) <= 0) {
+            break;   // claimed but not published yet
+        }
+        ++cursor;
+    }
+    return count;
+}
+
+// Hub -> feeder answer (single writer per feeder).
+void postReply(FeederRecord& f, uint32_t reply) noexcept;
+// Feeder: true (and the answer) once replySeq moved past lastSeq. Poll from a timer; never block the message thread.
+bool pollReply(const FeederRecord& f, uint32_t& lastSeq, uint32_t& reply) noexcept;
 
 // ---------------------------------------------------------------------------------------------
 // Timeline tags

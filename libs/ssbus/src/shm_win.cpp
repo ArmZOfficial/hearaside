@@ -138,6 +138,43 @@ SharedMemory::~SharedMemory() {
     if (handle_) CloseHandle(static_cast<HANDLE>(handle_));
 }
 
+// --- beacon: same access rules as the bus, but a name without the protocol version -------------
+
+std::string BeaconMap::segmentName(const std::string& busName) { return "Local\\HEARASIDE_beacon_" + busName; }
+
+std::unique_ptr<BeaconMap> BeaconMap::open(const std::string& busName) { return openImpl(busName, true); }
+std::unique_ptr<BeaconMap> BeaconMap::openExisting(const std::string& busName) { return openImpl(busName, false); }
+
+std::unique_ptr<BeaconMap> BeaconMap::openImpl(const std::string& busName, bool create) {
+    const std::wstring name = widen(segmentName(busName));
+    HANDLE h = nullptr;
+    if (create) {
+        SECURITY_ATTRIBUTES sa{};
+        sa.nLength = sizeof sa;
+        PSECURITY_DESCRIPTOR sd = nullptr;
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"D:(A;;GA;;;WD)(A;;GA;;;AN)(A;;GA;;;SY)(A;;GA;;;BA)S:(ML;;NW;;;LW)", SDDL_REVISION_1, &sd, nullptr))
+            sa.lpSecurityDescriptor = sd;
+        h = CreateFileMappingW(INVALID_HANDLE_VALUE, sd ? &sa : nullptr, PAGE_READWRITE, 0, sizeof(BeaconHeader), name.c_str());
+        if (sd) LocalFree(sd);
+        if (h == nullptr) h = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, name.c_str());
+    } else {
+        h = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, name.c_str());
+    }
+    if (h == nullptr) return nullptr;
+    void* base = MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(BeaconHeader));
+    if (base == nullptr) { CloseHandle(h); return nullptr; }
+    std::unique_ptr<BeaconMap> m(new BeaconMap());
+    m->base_ = base;
+    m->handle_ = h;
+    return m;
+}
+
+BeaconMap::~BeaconMap() {
+    if (base_) UnmapViewOfFile(base_);
+    if (handle_) CloseHandle(static_cast<HANDLE>(handle_));
+}
+
 } // namespace ssbus
 
 #endif // _WIN32

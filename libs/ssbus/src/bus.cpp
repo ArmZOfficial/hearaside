@@ -133,6 +133,8 @@ int claimSlot(BusLayout& bus, const std::string& uuid, uint32_t sampleRate, uint
             s.peakStreamBits[c].store(0, std::memory_order_relaxed);
         }
         s.hubStatus.store(kHubStatusNone, std::memory_order_relaxed);
+        s.fedBy.store(0, std::memory_order_relaxed);
+        s.fxLatencyBits.store(floatBits(0.0f), std::memory_order_relaxed);
         s.hubLeadFrames.store(0, std::memory_order_relaxed);
         s.hubMute.store(0, std::memory_order_relaxed);
         s.epoch.fetch_add(1, std::memory_order_relaxed);
@@ -196,6 +198,12 @@ int reclaimDeadSlots(BusLayout& bus, uint64_t staleNs) noexcept {
         uint32_t st = s.state.load(std::memory_order_acquire);
         if (st != kSlotFree && deadOwner(s.heartbeatNs, s.ownerPid, now, staleNs)
             && s.state.compare_exchange_strong(st, kSlotFree, std::memory_order_acq_rel))
+            ++count;
+    }
+    for (auto& f : bus.feeders) {
+        uint32_t st = f.state.load(std::memory_order_acquire);
+        if (st != kSlotFree && deadOwner(f.heartbeatNs, f.ownerPid, now, staleNs)
+            && f.state.compare_exchange_strong(st, kSlotFree, std::memory_order_acq_rel))
             ++count;
     }
     return count;
@@ -317,6 +325,125 @@ void requestSourceApp(SourceHeader& src, const std::string& exe) noexcept { requ
 
 bool pollSourceApp(const SourceHeader& src, uint32_t& lastSeq, std::string& exe) noexcept {
     return pollText(src.appSeq, src.appTo, lastSeq, exe);
+}
+
+// ---------------------------------------------------------------------------------------------
+// friends room + feeders (v13)
+
+void setFriendName(FriendHeader& f, const std::string& name) noexcept {
+    f.nameSeq.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    copyName(f.name, name, kNameBytes);
+    f.nameSeq.fetch_add(1, std::memory_order_release);
+}
+
+std::string readFriendName(const FriendHeader& f) {
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const uint32_t s1 = f.nameSeq.load(std::memory_order_acquire);
+        if (s1 & 1u) continue;
+        char n[kNameBytes];
+        std::memcpy(n, f.name, kNameBytes);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (f.nameSeq.load(std::memory_order_relaxed) != s1) continue;
+        return readCString(n, kNameBytes);
+    }
+    return {};
+}
+
+int claimFeeder(BusLayout& bus) noexcept {
+    for (int i = 0; i < kMaxFeeders; ++i) {
+        FeederRecord& f = bus.feeders[i];
+        uint32_t expected = kSlotFree;
+        if (!f.state.compare_exchange_strong(expected, kSlotClaiming, std::memory_order_acq_rel)) continue;
+        f.ownerPid.store(currentPid(), std::memory_order_relaxed);
+        f.friendId.store(0, std::memory_order_relaxed);
+        setFeederIdentity(f, {}, 0);
+        f.heartbeatNs.store(nowNs(), std::memory_order_relaxed);
+        f.blockCount.store(0, std::memory_order_relaxed);
+        f.status.store(kFeederNoFriend, std::memory_order_relaxed);
+        f.reply.store(0, std::memory_order_relaxed);
+        f.hubCommand.store(0, std::memory_order_relaxed);
+        f.sampleRate.store(0, std::memory_order_relaxed);
+        std::memset(bus.feederTap[i].mono, 0, sizeof bus.feederTap[i].mono);
+        f.tapWrite.store(0, std::memory_order_relaxed);
+        f.state.store(kSlotActive, std::memory_order_release);
+        return i;
+    }
+    return -1;
+}
+
+void releaseFeeder(BusLayout& bus, int index) noexcept {
+    if (index < 0 || index >= kMaxFeeders) return;
+    bus.feeders[index].friendId.store(0, std::memory_order_relaxed);
+    bus.feeders[index].state.store(kSlotFree, std::memory_order_release);
+}
+
+void setFeederIdentity(FeederRecord& f, const std::string& trackName, uint32_t colorARGB) noexcept {
+    f.nameSeq.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    copyName(f.trackName, trackName, kNameBytes);
+    f.colorARGB = colorARGB;
+    f.nameSeq.fetch_add(1, std::memory_order_release);
+}
+
+bool readFeederIdentity(const FeederRecord& f, std::string& trackName, uint32_t& colorARGB) noexcept {
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const uint32_t s1 = f.nameSeq.load(std::memory_order_acquire);
+        if (s1 & 1u) continue;
+        char n[kNameBytes];
+        std::memcpy(n, f.trackName, kNameBytes);
+        const uint32_t col = f.colorARGB;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (f.nameSeq.load(std::memory_order_relaxed) != s1) continue;
+        trackName = readCString(n, kNameBytes);
+        colorARGB = col;
+        return true;
+    }
+    return false;
+}
+
+void postRequest(BusLayout& bus, int feeder, RequestKind kind, uint32_t arg, const std::string& text) noexcept {
+    const uint32_t idx = bus.requestReserve.fetch_add(1, std::memory_order_acq_rel);
+    PluginRequest& e = bus.requests[idx % kRequestQueueSize];
+    e.seq.store(0, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    e.feeder.store(int32_t(feeder), std::memory_order_relaxed);
+    e.kind.store(uint32_t(kind), std::memory_order_relaxed);
+    e.arg.store(arg, std::memory_order_relaxed);
+    copyName(e.text, text, kNameBytes);
+    e.seq.store(idx + 1, std::memory_order_release);
+}
+
+void postReply(FeederRecord& f, uint32_t reply) noexcept {
+    f.reply.store(reply, std::memory_order_relaxed);
+    f.replySeq.fetch_add(1, std::memory_order_release);
+}
+
+bool pollReply(const FeederRecord& f, uint32_t& lastSeq, uint32_t& reply) noexcept {
+    const uint32_t s = f.replySeq.load(std::memory_order_acquire);
+    if (s == lastSeq) return false;
+    reply = f.reply.load(std::memory_order_relaxed);
+    lastSeq = s;
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// beacon
+
+void beaconPublish(BeaconHeader& b) noexcept {
+    b.protocolVersion.store(kProtocolVersion, std::memory_order_relaxed);
+    b.hubPid.store(currentPid(), std::memory_order_relaxed);
+    b.heartbeatNs.store(nowNs(), std::memory_order_relaxed);
+    b.magic.store(kBeaconMagic, std::memory_order_release);
+}
+
+uint32_t beaconHubVersion(const BeaconHeader& b, uint64_t staleNs) noexcept {
+    if (b.magic.load(std::memory_order_acquire) != kBeaconMagic) return 0;
+    const uint64_t hb = b.heartbeatNs.load(std::memory_order_relaxed);
+    const uint64_t now = nowNs();
+    if (now > hb && now - hb > staleNs) return 0;
+    if (!processAlive(b.hubPid.load(std::memory_order_relaxed))) return 0;
+    return b.protocolVersion.load(std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -23,6 +23,32 @@ std::string readCString(const char* src, size_t cap) {
     return std::string(src, n);
 }
 
+// Single-writer text request (rename, program choice): seq is even when stable, +2 per request.
+void requestText(std::atomic<uint32_t>& seq, char* buf, const std::string& text) noexcept {
+    const uint32_t s = seq.load(std::memory_order_relaxed) & ~1u;
+    seq.store(s + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    copyName(buf, text, kNameBytes);
+    seq.store(s + 2, std::memory_order_release);
+}
+
+bool pollText(const std::atomic<uint32_t>& seq, const char* buf, uint32_t& lastSeq, std::string& text) {
+    const uint32_t s1 = seq.load(std::memory_order_acquire);
+    if ((s1 & 1u) || s1 == lastSeq) return false;
+    char tmp[kNameBytes];
+    std::memcpy(tmp, buf, kNameBytes);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (seq.load(std::memory_order_relaxed) != s1) return false;
+    lastSeq = s1;
+    text = readCString(tmp, kNameBytes);
+    return true;
+}
+
+bool deadOwner(const std::atomic<uint64_t>& heartbeat, const std::atomic<uint32_t>& pid, uint64_t now, uint64_t staleNs) noexcept {
+    const uint64_t hb = heartbeat.load(std::memory_order_relaxed);
+    return now > hb && now - hb > staleNs && !processAlive(pid.load(std::memory_order_relaxed));
+}
+
 } // namespace
 
 std::string makeUuid() {
@@ -96,6 +122,7 @@ int claimSlot(BusLayout& bus, const std::string& uuid, uint32_t sampleRate, uint
         s.heartbeatNs.store(now, std::memory_order_relaxed);
         s.claimNs.store(now, std::memory_order_relaxed);
         s.flags.store(kFlagMon | kFlagStr, std::memory_order_relaxed);
+        s.chainLatencyBits.store(floatBits(0.0f), std::memory_order_relaxed);
         s.strGainBits.store(floatBits(0.0f), std::memory_order_relaxed);
         s.strPanBits.store(floatBits(0.0f), std::memory_order_relaxed);
         s.strDelayBits.store(floatBits(0.0f), std::memory_order_relaxed);
@@ -107,6 +134,7 @@ int claimSlot(BusLayout& bus, const std::string& uuid, uint32_t sampleRate, uint
         }
         s.hubStatus.store(kHubStatusNone, std::memory_order_relaxed);
         s.hubLeadFrames.store(0, std::memory_order_relaxed);
+        s.hubMute.store(0, std::memory_order_relaxed);
         s.epoch.fetch_add(1, std::memory_order_relaxed);
         s.state.store(kSlotActive, std::memory_order_release);
         return i;
@@ -155,8 +183,7 @@ int reclaimDeadSlots(BusLayout& bus, uint64_t staleNs) noexcept {
         SlotHeader& s = bus.slots[i];
         const uint32_t st = s.state.load(std::memory_order_acquire);
         if (st == kSlotFree) continue;
-        const uint64_t hb = s.heartbeatNs.load(std::memory_order_relaxed);
-        if (now > hb && now - hb > staleNs && !processAlive(s.ownerPid.load(std::memory_order_relaxed))) {
+        if (deadOwner(s.heartbeatNs, s.ownerPid, now, staleNs)) {
             uint32_t expected = st;
             if (s.state.compare_exchange_strong(expected, kSlotFree, std::memory_order_acq_rel)) {
                 s.flags.store(0, std::memory_order_relaxed);
@@ -164,6 +191,12 @@ int reclaimDeadSlots(BusLayout& bus, uint64_t staleNs) noexcept {
                 ++count;
             }
         }
+    }
+    for (auto& s : bus.sources) {
+        uint32_t st = s.state.load(std::memory_order_acquire);
+        if (st != kSlotFree && deadOwner(s.heartbeatNs, s.ownerPid, now, staleNs)
+            && s.state.compare_exchange_strong(st, kSlotFree, std::memory_order_acq_rel))
+            ++count;
     }
     return count;
 }
@@ -208,24 +241,82 @@ void postCommand(SlotHeader& slot, ParamId id, float value) noexcept {
     slot.cmdWrite.store(w + 1, std::memory_order_release);
 }
 
-void requestRename(SlotHeader& slot, const std::string& name) noexcept {
-    const uint32_t s = slot.renameSeq.load(std::memory_order_relaxed) & ~1u;
-    slot.renameSeq.store(s + 1, std::memory_order_relaxed);
-    std::atomic_thread_fence(std::memory_order_release);
-    copyName(slot.renameTo, name, kNameBytes);
-    slot.renameSeq.store(s + 2, std::memory_order_release);
-}
+void requestRename(SlotHeader& slot, const std::string& name) noexcept { requestText(slot.renameSeq, slot.renameTo, name); }
 
 bool pollRename(const SlotHeader& slot, uint32_t& lastSeq, std::string& name) noexcept {
-    const uint32_t s1 = slot.renameSeq.load(std::memory_order_acquire);
-    if ((s1 & 1u) || s1 == lastSeq) return false;
-    char buf[kNameBytes];
-    std::memcpy(buf, slot.renameTo, kNameBytes);
-    std::atomic_thread_fence(std::memory_order_acquire);
-    if (slot.renameSeq.load(std::memory_order_relaxed) != s1) return false;
-    lastSeq = s1;
-    name = readCString(buf, kNameBytes);
-    return true;
+    return pollText(slot.renameSeq, slot.renameTo, lastSeq, name);
+}
+
+// ---------------------------------------------------------------------------------------------
+// App sources
+
+int claimSource(BusLayout& bus) noexcept {
+    for (int i = 0; i < kMaxSources; ++i) {
+        SourceHeader& s = bus.sources[i];
+        uint32_t expected = kSlotFree;
+        if (!s.state.compare_exchange_strong(expected, kSlotClaiming, std::memory_order_acq_rel)) continue;
+        s.ownerPid.store(currentPid(), std::memory_order_relaxed);
+        s.sequence.store(bus.header.slotSequence.fetch_add(1, std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        setSourceIdentity(s, {}, {}, 0);
+        s.flags.store(0, std::memory_order_relaxed);
+        s.heartbeatNs.store(nowNs(), std::memory_order_relaxed);
+        s.capture.store(0, std::memory_order_relaxed);
+        s.levelBits.store(floatBits(0.0f), std::memory_order_relaxed);
+        s.peakBits.store(0, std::memory_order_relaxed);
+        s.latencyBits.store(0, std::memory_order_relaxed);
+        s.recordMs.store(0, std::memory_order_relaxed);
+        s.delayBits.store(floatBits(0.0f), std::memory_order_relaxed);
+        s.hubMute.store(0, std::memory_order_relaxed);
+        s.trackSlot.store(-1, std::memory_order_relaxed);
+        s.state.store(kSlotActive, std::memory_order_release);
+        return i;
+    }
+    return -1;
+}
+
+void releaseSource(BusLayout& bus, int index) noexcept {
+    if (index < 0 || index >= kMaxSources) return;
+    bus.sources[index].flags.store(0, std::memory_order_relaxed);
+    bus.sources[index].state.store(kSlotFree, std::memory_order_release);
+}
+
+void setSourceIdentity(SourceHeader& src, const std::string& name, const std::string& app, uint32_t colorARGB) noexcept {
+    src.nameSeq.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    copyName(src.name, name, kNameBytes);
+    copyName(src.app, app, kNameBytes);
+    src.colorARGB = colorARGB;
+    src.nameSeq.fetch_add(1, std::memory_order_release);
+}
+
+bool readSourceIdentity(const SourceHeader& src, std::string& name, std::string& app, uint32_t& colorARGB) noexcept {
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        const uint32_t s1 = src.nameSeq.load(std::memory_order_acquire);
+        if (s1 & 1u) continue;
+        char n[kNameBytes], a[kNameBytes];
+        std::memcpy(n, src.name, kNameBytes);
+        std::memcpy(a, src.app, kNameBytes);
+        const uint32_t col = src.colorARGB;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (src.nameSeq.load(std::memory_order_relaxed) != s1) continue;
+        name = readCString(n, kNameBytes);
+        app = readCString(a, kNameBytes);
+        colorARGB = col;
+        return true;
+    }
+    return false;
+}
+
+void postSourceCommand(SourceHeader& src, SourceParam id, float value) noexcept {
+    const uint32_t w = src.cmdWrite.load(std::memory_order_relaxed);
+    src.cmds[w % kMailboxSize] = Command{ static_cast<uint32_t>(id), value };
+    src.cmdWrite.store(w + 1, std::memory_order_release);
+}
+
+void requestSourceApp(SourceHeader& src, const std::string& exe) noexcept { requestText(src.appSeq, src.appTo, exe); }
+
+bool pollSourceApp(const SourceHeader& src, uint32_t& lastSeq, std::string& exe) noexcept {
+    return pollText(src.appSeq, src.appTo, lastSeq, exe);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -268,40 +359,6 @@ void postRemote(BusLayout& bus, int target, uint32_t paramId, float value) noexc
     e.paramId.store(paramId, std::memory_order_relaxed);
     e.valueBits.store(floatBits(value), std::memory_order_relaxed);
     e.seq.store(idx + 1, std::memory_order_release);
-}
-
-void publishHubState(BusLayout& bus, const HubStateView& s) noexcept {
-    auto& h = bus.header;
-    const uint32_t seq = h.hubStateSeq.load(std::memory_order_relaxed) | 1u;
-    h.hubStateSeq.store(seq, std::memory_order_relaxed);   // odd: writing
-    std::atomic_thread_fence(std::memory_order_release);
-    h.hubMasterBits.store(floatBits(s.masterDb), std::memory_order_relaxed);
-    h.hubHeadphonesBits.store(floatBits(s.headphonesDb), std::memory_order_relaxed);
-    h.hubCeilingBits.store(floatBits(s.ceilingDb), std::memory_order_relaxed);
-    h.hubActiveScene.store(s.activeScene, std::memory_order_relaxed);
-    h.hubSceneMask.store(s.sceneMask, std::memory_order_relaxed);
-    h.hubSyncSafety.store(s.syncSafety, std::memory_order_relaxed);
-    for (int i = 0; i < kMaxScenes; ++i) copyName(h.sceneNames[i], s.sceneNames[i], kNameBytes);
-    h.hubStateSeq.store(seq + 1, std::memory_order_release);   // even: stable
-}
-
-bool readHubState(const BusLayout& bus, HubStateView& out) noexcept {
-    const auto& h = bus.header;
-    for (int attempt = 0; attempt < 8; ++attempt) {
-        const uint32_t s1 = h.hubStateSeq.load(std::memory_order_acquire);
-        if (s1 & 1u) continue;
-        HubStateView v;
-        v.masterDb = bitsFloat(h.hubMasterBits.load(std::memory_order_relaxed));
-        v.headphonesDb = bitsFloat(h.hubHeadphonesBits.load(std::memory_order_relaxed));
-        v.ceilingDb = bitsFloat(h.hubCeilingBits.load(std::memory_order_relaxed));
-        v.activeScene = h.hubActiveScene.load(std::memory_order_relaxed);
-        v.sceneMask = h.hubSceneMask.load(std::memory_order_relaxed);
-        v.syncSafety = h.hubSyncSafety.load(std::memory_order_relaxed);
-        for (int i = 0; i < kMaxScenes; ++i) v.sceneNames[i] = readCString(h.sceneNames[i], kNameBytes);
-        std::atomic_thread_fence(std::memory_order_acquire);
-        if (h.hubStateSeq.load(std::memory_order_relaxed) == s1) { out = std::move(v); return true; }
-    }
-    return false;
 }
 
 } // namespace ssbus

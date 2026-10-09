@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3F3F1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
+<title>HEARASIDE Send</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #F3F3F1; --ink: #181818; --on-ink: #FFFFFF; --ink2: #3E3E3A; --graphite: #5A5A56; --muted: #8A8A84;
+  --glass: rgba(255,255,255,0.62); --glass-edge: rgba(255,255,255,0.85); --inset: rgba(240,240,237,0.90);
+  --hair: rgba(24,24,24,0.08); --hair3: rgba(24,24,24,0.12); --rail: rgba(24,24,24,0.14); --switch-off: rgba(24,24,24,0.18);
+  --shadow: rgba(24,24,24,0.08); --warm: rgba(112,106,96,0.42); --cool: rgba(40,40,38,0.20); --grid: rgba(24,24,24,0.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151514; --ink: #EDEDEA; --on-ink: #151514; --ink2: #CFCFCA; --graphite: #A3A39D; --muted: #6E6E69;
+    --glass: rgba(38,38,36,0.62); --glass-edge: rgba(255,255,255,0.10); --inset: rgba(255,255,255,0.055);
+    --hair: rgba(255,255,255,0.10); --hair3: rgba(255,255,255,0.16); --rail: rgba(255,255,255,0.16); --switch-off: rgba(255,255,255,0.20);
+    --shadow: rgba(0,0,0,0.35); --warm: rgba(150,138,118,0.30); --cool: rgba(90,90,86,0.22); --grid: rgba(255,255,255,0.045);
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: "Anuphan", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--paper); color: var(--ink);
+  min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; overflow-x: hidden;
+}
+.backdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 32px 32px; }
+.blob { position: absolute; border-radius: 50%; filter: blur(70px); }
+.blob.warm { width: 60vmax; height: 60vmax; background: var(--warm); top: -22vmax; left: -18vmax; }
+.blob.cool { width: 50vmax; height: 50vmax; background: var(--cool); bottom: -20vmax; right: -16vmax; }
+.card {
+  width: min(440px, 100%); background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 28px;
+  backdrop-filter: blur(28px) saturate(1.2); -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: 0 24px 60px var(--shadow); padding: 28px 24px 22px;
+}
+.top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.lang { border: 1px solid var(--hair3); background: transparent; color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500;
+  border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.brand { letter-spacing: .42em; font-weight: 600; font-size: 15px; }
+.brand small { display: block; letter-spacing: .5em; font-weight: 500; font-size: 10px; color: var(--graphite); margin-top: 2px; }
+h1 { font-size: 26px; font-weight: 600; margin: 22px 0 4px; }
+.sub { color: var(--graphite); font-size: 14px; margin: 0; line-height: 1.5; }
+.stage { display: grid; place-items: center; padding: 30px 0 18px; }
+.mic {
+  position: relative; width: 112px; height: 112px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--ink); color: var(--on-ink); display: grid; place-items: center;
+  box-shadow: 0 14px 34px var(--shadow); transition: transform .15s ease;
+}
+.mic:active { transform: scale(.96); }
+.mic svg { width: 40px; height: 40px; }
+.level { position: absolute; inset: -12px; border-radius: 50%; border: 3px solid var(--ink); opacity: 0; transform: scale(.9); transition: transform .06s linear, opacity .06s linear; }
+.muted .mic { background: var(--switch-off); color: var(--ink); }
+.hint { margin-top: 16px; font-size: 14px; color: var(--graphite); min-height: 20px; text-align: center; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+  background: var(--inset); border: 1px solid var(--hair); font-size: 13px; color: var(--ink2); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.live .dot { background: var(--ink); box-shadow: 0 0 0 4px var(--hair3); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.panel { margin-top: 16px; padding: 14px 16px; border-radius: 18px; background: var(--inset); border: 1px solid var(--hair); display: grid; gap: 14px; }
+.label { font-size: 13px; }
+.cap { font-size: 11px; color: var(--graphite); margin-top: 2px; }
+select { width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: var(--paper); border: 1px solid var(--hair3);
+  border-radius: 12px; padding: 9px 12px; }
+.switch { position: relative; width: 46px; height: 28px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span { position: absolute; inset: 0; border-radius: 14px; background: var(--switch-off); transition: background .2s; cursor: pointer; }
+.switch span::after { content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+.switch input:checked + span { background: var(--ink); }
+.switch input:checked + span::after { transform: translateX(18px); }
+.mute { border: 1px solid var(--hair3); background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; font-weight: 500;
+  border-radius: 14px; padding: 12px; cursor: pointer; width: 100%; margin-top: 14px; }
+.warn { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--hair3); font-size: 13px; line-height: 1.5; }
+.insecure .warn { display: block; }
+.foot { margin-top: 14px; text-align: center; font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="backdrop"><div class="blob warm"></div><div class="blob cool"></div></div>
+<main class="card" id="app">
+  <div class="top"><div class="brand">HEARASIDE<small>SEND</small></div><button class="lang" id="lang"></button></div>
+  <h1 data-t="title"></h1>
+  <p class="sub" data-t="subtitle"></p>
+
+  <div class="stage">
+    <button class="mic" id="mic" aria-label="Microphone">
+      <span class="level" id="level"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>
+      </svg>
+    </button>
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="row"><span class="chip"><span class="dot"></span><span id="status"></span></span></div>
+  <button class="mute" id="mute" hidden></button>
+
+  <div class="panel">
+    <div>
+      <div class="label" data-t="device"></div>
+      <select id="device" style="margin-top:8px"></select>
+    </div>
+    <div class="row">
+      <div><div class="label" data-t="clean"></div><div class="cap" data-t="cleanCap"></div></div>
+      <label class="switch"><input type="checkbox" id="clean"><span></span></label>
+    </div>
+  </div>
+  <div class="warn" data-t="insecure"></div>
+  <div class="foot" id="foot"></div>
+</main>
+
+<script>
+const T = {
+  th: { title: "ส่งเสียงเข้า DAW", subtitle: "เสียงไมค์ของคุณจะเข้าไปในแทร็กของคนที่ส่งลิงก์นี้ให้ แบบสด ๆ",
+        device: "ไมค์ที่ใช้", clean: "ตัดเสียงรบกวน", cleanCap: "เปิดถ้าอยู่ในที่เสียงดัง (คุยมากกว่าร้องเพลง)",
+        tap: "แตะเพื่อเริ่มส่งเสียง", stopHint: "แตะเพื่อหยุดส่ง", idle: "ยังไม่ได้ส่ง", connecting: "กำลังเชื่อมต่อ...",
+        live: "กำลังส่งเสียงสด", lost: "หลุด กำลังต่อใหม่...", denied: "เบราว์เซอร์ไม่อนุญาตให้ใช้ไมค์",
+        mute: "ปิดไมค์ชั่วคราว", unmute: "เปิดไมค์", muted: "ปิดไมค์อยู่",
+        offline: "อีกฝั่งยังไม่ได้เปิดแชร์ จะเริ่มส่งเองเมื่อพร้อม",
+        insecure: "ต้องเปิดผ่านลิงก์ที่ขึ้นต้นด้วย https:// เบราว์เซอร์ถึงจะยอมให้ใช้ไมค์ ขอลิงก์ผ่านเน็ตจากคนที่ส่งลิงก์นี้ให้" },
+  en: { title: "Send your voice in", subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
+        device: "Microphone", clean: "Noise suppression", cleanCap: "Turn on in noisy places (talking rather than singing)",
+        tap: "Tap to start sending", stopHint: "Tap to stop", idle: "Not sending", connecting: "Connecting...",
+        live: "Sending live", lost: "Connection lost, retrying...", denied: "The browser blocked the microphone",
+        mute: "Mute for a moment", unmute: "Unmute", muted: "Muted",
+        offline: "They aren't sharing yet. Sending starts by itself when they are.",
+        insecure: "Open this through a link that starts with https:// - browsers only allow the microphone there. Ask for the internet link." }
+};
+// language: the visitor's choice (remembered), else the browser's
+let saved = null;
+try { saved = localStorage.getItem("hearaside-lang"); } catch (e) {}
+let lang = saved || ((navigator.language || "th").toLowerCase().startsWith("th") ? "th" : "en");
+let L = T[lang];
+function applyLang() {
+  L = T[lang];
+  document.querySelectorAll("[data-t]").forEach(e => e.textContent = L[e.dataset.t]);
+  document.documentElement.lang = lang;
+  document.getElementById("lang").textContent = lang === "th" ? "EN" : "ไทย";
+}
+applyLang();
+document.getElementById("lang").onclick = () => {
+  lang = lang === "th" ? "en" : "th";
+  try { localStorage.setItem("hearaside-lang", lang); } catch (e) {}
+  applyLang();
+  refreshTexts();
+};
+
+const $ = id => document.getElementById(id);
+const app = $("app");
+let running = false, muted = false, ctx = null, stream = null, node = null, ws = null, retry = null, peak = 0;
+
+// Where the audio comes from. Served by the Hub: the same host. Served by the share web site
+// (permanent link): ask its directory where the Hub's tunnel is right now; it changes each time
+// the Hub restarts, so ask again before every (re)connect. null = not shared right now.
+const token = location.pathname.split("/").filter(Boolean).pop() || "";
+let directory = false;
+async function locate(kind) {
+  try {
+    const r = await fetch("/api/resolve/" + encodeURIComponent(token), { cache: "no-store" });
+    if ((r.headers.get("content-type") || "").includes("json")) {
+      const j = await r.json();
+      if ("online" in j) { directory = true; return j.online ? j.ws : null; }
+    }
+  } catch (e) {}
+  if (directory) return null;   // the site answered before: it is down for a moment, not a Hub
+  return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/" + kind + "/" + token;
+}
+let backoff = 2000, gen = 0;
+// a dropped connection retries within 5 s (the Hub may be back on a new tunnel); "not shared" polls up to 30 s
+function later(fn, max = 30000) { retry = setTimeout(fn, backoff); backoff = Math.min(backoff * 2, max); }
+if (!window.isSecureContext || !navigator.mediaDevices) app.classList.add("insecure");
+
+function status(text, live) {
+  $("status").textContent = text;
+  app.classList.toggle("live", !!live);
+}
+function idle() { $("hint").textContent = L.tap; status(L.idle); $("mute").hidden = true; }
+idle();
+function refreshTexts() {
+  if (!running) { idle(); return; }
+  $("hint").textContent = L.stopHint;
+  $("mute").textContent = muted ? L.unmute : L.mute;
+  status(muted ? L.muted : ws && ws.readyState === 1 ? L.live : L.connecting, !muted && ws && ws.readyState === 1);
+}
+
+const worklet = `
+class Rec extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(1920); this.n = 0; this.pk = 0; this.t = 0; }
+  process(inputs) {
+    const ch = inputs[0];
+    if (!ch.length) return true;
+    const l = ch[0], r = ch[1] || ch[0];
+    for (let i = 0; i < l.length; i++) {
+      this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i];
+      this.pk = Math.max(this.pk, Math.abs(l[i]), Math.abs(r[i]));
+      if (++this.n === 960) { this.port.postMessage(this.buf.slice(0)); this.n = 0; }   // 20 ms at 48 kHz
+    }
+    if (++this.t % 8 === 0) { this.port.postMessage({ peak: this.pk }); this.pk = 0; }
+    return true;
+  }
+}
+registerProcessor("hearaside-rec", Rec);`;
+
+async function listDevices() {
+  const sel = $("device"), cur = sel.value;
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+  sel.innerHTML = "";
+  devs.forEach((d, i) => sel.add(new Option(d.label || ("Mic " + (i + 1)), d.deviceId)));
+  if (cur) sel.value = cur;
+}
+
+async function openMic() {
+  const clean = $("clean").checked;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({ audio: {
+    deviceId: $("device").value ? { exact: $("device").value } : undefined,
+    echoCancellation: false, noiseSuppression: clean, autoGainControl: false, channelCount: 2 } });
+  const src = ctx.createMediaStreamSource(stream);
+  src.connect(node);
+  listDevices();
+}
+
+async function start() {
+  running = true;
+  $("hint").textContent = L.stopHint;
+  status(L.connecting);
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: "interactive" });
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "application/javascript" })));
+    node = new AudioWorkletNode(ctx, "hearaside-rec", { numberOfInputs: 1, numberOfOutputs: 0 });
+    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data);
+    await openMic();
+    await ctx.resume();
+  } catch (e) {
+    stop();
+    status(L.denied);
+    return;
+  }
+  $("mute").hidden = false;
+  connect();
+  meter();
+}
+
+async function connect() {
+  const mine = ++gen;
+  const url = await locate("s");
+  if (mine !== gen || !running) return;
+  if (!url) { status(L.offline); later(connect); return; }
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { backoff = 2000; status(muted ? L.muted : L.live, !muted); };
+  ws.onclose = () => { if (!running) return; status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
+}
+
+function send(f) {
+  if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 192000) return;   // don't pile up on a slow line
+  const n = f.length / 2, buf = new ArrayBuffer(16 + f.length * 2), d = new DataView(buf), s = new Int16Array(buf, 16);
+  d.setUint32(0, 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, 2, true); d.setUint32(12, n, true);
+  for (let i = 0; i < f.length; i++) s[i] = muted ? 0 : Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767)));
+  ws.send(buf);
+}
+
+function meter() {
+  if (!running) return;
+  const lv = muted ? 0 : Math.max(0, Math.min(1, (20 * Math.log10(Math.max(peak, 1e-6)) + 50) / 50));
+  $("level").style.opacity = (0.15 + lv * 0.6).toFixed(2);
+  $("level").style.transform = "scale(" + (0.92 + lv * 0.28).toFixed(3) + ")";
+  if (ctx) $("foot").textContent = (ctx.sampleRate / 1000).toFixed(1) + " kHz · 16-bit";
+  requestAnimationFrame(meter);
+}
+
+function stop() {
+  running = false;
+  clearTimeout(retry);
+  gen++;
+  backoff = 2000;
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if (ctx) { ctx.close(); ctx = null; node = null; }
+  $("level").style.opacity = 0;
+  idle();
+}
+
+$("mic").onclick = () => running ? stop() : start();
+$("mute").onclick = () => {
+  muted = !muted;
+  app.classList.toggle("muted", muted);
+  $("mute").textContent = muted ? L.unmute : L.mute;
+  if (ws && ws.readyState === 1) status(muted ? L.muted : L.live, !muted);
+};
+$("mute").textContent = L.mute;
+$("device").onchange = () => { if (running) openMic(); };
+$("clean").onchange = () => { if (running) openMic(); };
+if (navigator.mediaDevices) listDevices().catch(() => {});
+</script>
+</body>
+</html>

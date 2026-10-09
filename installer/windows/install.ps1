@@ -34,13 +34,14 @@ $plugins = Join-Path $BuildDir 'plugins'
 if (-not (Test-Path $plugins)) { throw "No plug-in build found in $BuildDir (run .\build.ps1 first)" }
 
 New-Item -ItemType Directory -Force $vst3Dest | Out-Null
-foreach ($name in 'Track', 'Hub') {
-    $bundle = Join-Path $plugins "Hearaside${name}_artefacts\Release\VST3\HEARASIDE $name.vst3"
-    if (-not (Test-Path $bundle)) { throw "missing $bundle" }
+foreach ($target in 'Track', 'Hub', 'AppAudio') {
+    $name = if ($target -eq 'AppAudio') { 'App Audio' } else { $target }
+    $bundle = Join-Path $plugins "Hearaside${target}_artefacts\Release\VST3\HEARASIDE $name.vst3"
+    if (-not (Test-Path $bundle)) { if ($target -eq 'AppAudio') { continue } else { throw "missing $bundle" } }
     Copy-Item -Recurse -Force $bundle $vst3Dest
     "VST3  HEARASIDE $name -> $vst3Dest"
 
-    $vst2 = Join-Path $plugins "Hearaside${name}_artefacts\Release\VST\HEARASIDE $name.dll"
+    $vst2 = Join-Path $plugins "Hearaside${target}_artefacts\Release\VST\HEARASIDE $name.dll"
     if (Test-Path $vst2) {
         New-Item -ItemType Directory -Force $vst2Dest | Out-Null
         Copy-Item -Force $vst2 $vst2Dest

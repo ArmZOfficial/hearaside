@@ -1,0 +1,14 @@
+{
+  "name": "hearaside-share",
+  "private": true,
+  "type": "module",
+  "description": "HEARASIDE permanent share links: a directory (token -> the Hub's tunnel) and the listen / send pages. No audio passes through here.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "sync": "node scripts/sync-web.mjs",
+    "check": "node scripts/sync-web.mjs --check",
+    "test": "node --test \"test/*.test.js\"",
+    "dev": "node scripts/dev-server.mjs",
+    "build": "node scripts/sync-web.mjs --check"
+  }
+}

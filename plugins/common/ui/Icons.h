@@ -5,7 +5,7 @@
 
 namespace hearaside::icons {
 
-enum class Icon { Headphones, Broadcast, SpeakerOff, Sliders, Warning, More, Solo };
+enum class Icon { Headphones, Broadcast, SpeakerOff, Sliders, Warning, More, Solo, Power, Record, Drag, Folder, Link, Check, Info, Close, Count };
 
 const juce::Path& path(Icon);
 void draw(juce::Graphics&, Icon, juce::Rectangle<float> bounds, juce::Colour, float strokeWidth = 1.8f);

@@ -22,7 +22,7 @@
 namespace ssbus {
 
 constexpr uint32_t kMagic           = 0x53535031; // 'SSP1'
-constexpr uint32_t kProtocolVersion = 2;   // v2: remote-control queue + Hub state mirror in BusHeader
+constexpr uint32_t kProtocolVersion = 12;   // v2: remote-control queue; v4: no scenes / Hub state mirror; v6: stream = master bus; v7: chain latency; v8: App Audio sources; v9: Hub mute for auto sync; v10: App Audio signal + delay for auto sync; v11: link input; v12: App Audio track slot (you hear / viewers hear)
 constexpr int      kMaxSlots        = 64;
 constexpr int      kMaxStems        = 8;
 constexpr int      kNumStreamOuts   = 1 + kMaxStems;   // [0] = Stream Mix, [1..8] = stems
@@ -34,8 +34,8 @@ constexpr int      kMailboxSize     = 32;
 constexpr int      kTagRingSize     = 512;             // timeline tags per slot (one per processed block)
 constexpr int      kNameBytes       = 64;              // UTF-8, NUL terminated
 constexpr int      kUuidBytes       = 40;
-constexpr int      kRemoteQueueSize = 64;              // remote commands (OBS dock / hotkeys -> Hub)
-constexpr int      kMaxScenes       = 8;
+constexpr int      kRemoteQueueSize = 64;              // remote commands (OBS hotkeys -> Hub)
+constexpr int      kMaxSources      = 16;              // HEARASIDE App Audio instances per bus
 
 static_assert((kRingFrames & kRingMask) == 0, "kRingFrames must be a power of two");
 static_assert(std::atomic<uint64_t>::is_always_lock_free, "need lock-free 64-bit atomics");
@@ -53,11 +53,13 @@ enum HubFlags : uint32_t {
     kHubLimiter  = 1u << 4,
 };
 
-// Remote control (OBS dock, hotkeys, any consumer) -> Hub. target = -1 addresses the Hub itself
+// Remote control (OBS hotkeys, any consumer) -> Hub. target = -1 addresses the Hub itself
 // (paramId is a RemoteParam), target = 0..63 a Track slot (paramId is a ParamId; the Hub forwards
 // it through that Track's mailbox so the Track's host still sees the change).
 enum class RemoteParam : uint32_t {
-    Panic = 1, Preview, MasterDb, LimiterOn, HeadphonesDb, RecallScene, SyncSafety,
+    Panic = 1, Preview,
+    AutoSync,   // target = microphone slot, value = reference (music) slot: measure and line them up
+    Share,      // value 1 / 0: share links on / off
 };
 
 // Multi-writer entry: writers claim an index with fetch_add on remoteReserve, fill the entry and
@@ -95,18 +97,7 @@ struct alignas(64) BusHeader {
     uint32_t              reserved1;
     RemoteCommand         remote[kRemoteQueueSize];
 
-    // ---- v2: Hub state mirror for remote UIs (Hub message thread writes, seqlock: odd = writing)
-    std::atomic<uint32_t> hubStateSeq;
-    std::atomic<uint32_t> hubMasterBits;     // dB
-    std::atomic<uint32_t> hubHeadphonesBits; // dB
-    std::atomic<uint32_t> hubCeilingBits;    // dBFS
-    std::atomic<int32_t>  hubActiveScene;    // -1 = custom
-    std::atomic<uint32_t> hubSceneMask;      // bit i = scene i is shown
-    std::atomic<uint32_t> hubSyncSafety;
-    uint32_t              reserved2;
-    char                  sceneNames[kMaxScenes][kNameBytes];   // UTF-8
-
-    char                  pad[4096 - 72 - 8 - kRemoteQueueSize * 16 - 32 - kMaxScenes * kNameBytes];
+    char                  pad[4096 - 72 - 8 - kRemoteQueueSize * 16];
 };
 static_assert(sizeof(BusHeader) == 4096, "BusHeader must stay 4 KB");
 
@@ -122,6 +113,7 @@ enum SlotFlags : uint32_t {
     kFlagBypassed = 1u << 3,   // host bypass active (monitor passes audio through!)
     kFlagOffline  = 1u << 4,   // host rendering offline
     kFlagMono     = 1u << 5,   // track is mono (written as dual mono)
+    kFlagApp      = 1u << 6,   // the slot of an App Audio (the Hub lists it with the program audio, not the tracks)
 };
 
 enum class ParamId : uint32_t {
@@ -184,6 +176,10 @@ struct alignas(64) SlotHeader {
     // Hub -> Track status feedback
     std::atomic<uint32_t> hubStatus;        // see SlotHubStatus
     std::atomic<uint32_t> hubLeadFrames;    // measured lead of this slot vs the Hub cursor
+    std::atomic<uint32_t> hubMute;          // 1 = the Hub is measuring: send nothing to the DAW for a moment
+                                            // (the Track still publishes; ignored when the Hub is gone)
+    std::atomic<uint32_t> chainLatencyBits; // ms (float bits): latency of the plug-ins before this Track. The Hub
+                                            // measures it, the Track keeps it in its state for live use
 
     // timeline tags
     std::atomic<uint64_t> tagWrite;         // number of tags written
@@ -220,6 +216,62 @@ struct alignas(64) StreamOutHeader {
 };
 
 // ---------------------------------------------------------------------------------------------
+// App sources (HEARASIDE App Audio). Their audio goes through the DAW track like any other
+// signal; only status and remote control live here so the Hub can list and switch them.
+
+enum SourceFlags : uint32_t {
+    kSrcOn        = 1u << 0,   // capture switched on
+    kSrcRecording = 1u << 1,   // printing a take to a file
+    kSrcFollowRec = 1u << 2,   // records whenever the DAW records
+    kSrcSystem    = 1u << 3,   // captures the whole computer except the DAW
+    kSrcDropped   = 1u << 4,   // the take lost audio (disk too slow)
+};
+
+enum class SourceParam : uint32_t { On = 1, LevelDb, Record, FollowRecord, DelayMs };
+
+struct alignas(64) SourceHeader {
+    std::atomic<uint32_t> state;            // SlotState
+    std::atomic<uint32_t> ownerPid;
+    std::atomic<uint32_t> sequence;         // copy of BusHeader::slotSequence at claim time
+    std::atomic<uint32_t> nameSeq;          // seqlock over name / app / colour (odd = writing)
+    char                  name[kNameBytes]; // track name from the host
+    char                  app[kNameBytes];  // "chrome.exe", "" = none
+    uint32_t              colorARGB;
+    std::atomic<uint32_t> flags;            // SourceFlags
+    std::atomic<uint64_t> heartbeatNs;      // last processBlock()
+    std::atomic<uint32_t> capture;          // capture state (0 idle, 1 starting, 2 running, 3 program closed, 4 failed)
+    std::atomic<uint32_t> levelBits;        // dB
+    std::atomic<uint32_t> peakBits;         // linear
+    std::atomic<uint32_t> latencyBits;      // ms from the program to the DAW output
+    std::atomic<uint32_t> recordMs;         // length of the take being recorded (or the last one)
+    std::atomic<uint32_t> delayBits;        // ms: delay of the program audio (set by auto sync)
+    std::atomic<uint32_t> hubMute;          // 1 = the Hub is measuring: add nothing to the track for a moment
+    std::atomic<int32_t>  trackSlot;        // slot (kFlagApp) where it publishes the program for the headphones, -1 = none
+
+    // Hub -> App Audio mailbox (single writer: Hub message thread), SourceParam ids
+    std::atomic<uint32_t> cmdWrite;
+    Command               cmds[kMailboxSize];
+
+    // Hub -> App Audio program choice (seqlock like SlotHeader::renameSeq)
+    std::atomic<uint32_t> appSeq;
+    char                  appTo[kNameBytes];
+
+    // what this App Audio adds to its track, before its own delay (the Hub's auto sync reference)
+    alignas(64) std::atomic<uint64_t> writePos;
+};
+
+// ---------------------------------------------------------------------------------------------
+// Link input: audio someone sends in through the Hub's "send to me" link (browser microphone).
+// The Hub's share server writes it, App Audio set to "*link*" plays it on its track.
+
+struct alignas(64) LinkInHeader {
+    std::atomic<uint32_t> sampleRate;       // of the sender (the browser's audio rate)
+    std::atomic<uint32_t> active;           // 1 while a sender is connected
+    std::atomic<uint64_t> heartbeatNs;      // last audio received
+    alignas(64) std::atomic<uint64_t> writePos;
+};
+
+// ---------------------------------------------------------------------------------------------
 // Whole segment
 
 struct ChannelRing {
@@ -231,7 +283,11 @@ struct BusLayout {
     SlotHeader      slots[kMaxSlots];
     SlotTags        slotTags[kMaxSlots];
     StreamOutHeader streamHeader;
+    SourceHeader    sources[kMaxSources];
     alignas(64) ChannelRing slotAudio[kMaxSlots];
+    alignas(64) ChannelRing sourceAudio[kMaxSources];
+    LinkInHeader    linkIn;
+    alignas(64) ChannelRing linkInAudio;
     alignas(64) ChannelRing streamAudio[kNumStreamOuts];
 };
 

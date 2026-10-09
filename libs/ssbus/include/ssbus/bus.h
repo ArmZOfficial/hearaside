@@ -63,7 +63,7 @@ void setSlotIdentity(SlotHeader& slot, const std::string& name, uint32_t colorAR
 // Copies name/uuid/colour consistently. Returns false if a writer kept interfering.
 bool readSlotIdentity(const SlotHeader& slot, std::string& name, std::string& uuid, uint32_t& colorARGB) noexcept;
 
-// Hub side: frees slots whose owner process died, returns number reclaimed.
+// Hub side: frees slots and App Audio sources whose owner process died, returns number reclaimed.
 int  reclaimDeadSlots(BusLayout& bus, uint64_t staleNs) noexcept;
 
 // ---------------------------------------------------------------------------------------------
@@ -126,17 +126,32 @@ int pollRemote(BusLayout& bus, uint32_t& cursor, Fn&& fn) {
     return count;
 }
 
-// Hub state mirror for remote UIs.
-struct HubStateView {
-    float masterDb = 0, headphonesDb = 0, ceilingDb = -1;
-    int   activeScene = -1;
-    uint32_t sceneMask = 0, syncSafety = 0;
-    std::string sceneNames[kMaxScenes];
-};
-void publishHubState(BusLayout& bus, const HubStateView& s) noexcept;
-bool readHubState(const BusLayout& bus, HubStateView& out) noexcept;
 // Returns true and fills `name` if a new rename request arrived since lastSeq.
 bool pollRename(const SlotHeader& slot, uint32_t& lastSeq, std::string& name) noexcept;
+
+// ---------------------------------------------------------------------------------------------
+// App sources (HEARASIDE App Audio side claims, Hub side lists / controls). Message thread only.
+
+int  claimSource(BusLayout& bus) noexcept;   // -1 = all kMaxSources in use
+void releaseSource(BusLayout& bus, int index) noexcept;
+void setSourceIdentity(SourceHeader& src, const std::string& name, const std::string& app, uint32_t colorARGB) noexcept;
+bool readSourceIdentity(const SourceHeader& src, std::string& name, std::string& app, uint32_t& colorARGB) noexcept;
+
+void postSourceCommand(SourceHeader& src, SourceParam id, float value) noexcept;
+template <typename Fn>
+int pollSourceCommands(SourceHeader& src, uint32_t& readCursor, Fn&& fn) {
+    const uint32_t w = src.cmdWrite.load(std::memory_order_acquire);
+    if (w - readCursor > uint32_t(kMailboxSize)) readCursor = w - uint32_t(kMailboxSize);
+    int count = 0;
+    for (; readCursor != w; ++readCursor, ++count) {
+        const Command c = src.cmds[readCursor % kMailboxSize];
+        fn(static_cast<SourceParam>(c.paramId), c.value);
+    }
+    return count;
+}
+// Hub asks the App Audio to capture another program ("" = none).
+void requestSourceApp(SourceHeader& src, const std::string& exe) noexcept;
+bool pollSourceApp(const SourceHeader& src, uint32_t& lastSeq, std::string& exe) noexcept;
 
 // ---------------------------------------------------------------------------------------------
 // Timeline tags

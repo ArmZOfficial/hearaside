@@ -68,6 +68,17 @@ int main(int argc, char** argv) {
                             (hs & kHubStatusOk) ? "ok " : "", (hs & kHubStatusRateMismatch) ? "RATE " : "", (hs & kHubStatusAhead) ? "AHEAD " : "",
                             (hs & kHubStatusUnderrun) ? "underrun " : "", (fl & kFlagBypassed) ? "BYPASSED " : "", (fl & kFlagOffline) ? "offline" : "");
             }
+            std::printf("\nApp Audio sources\n # pid    name                 app                  capture  level  peak dB  latency  delay  slot  hb ms\n");
+            for (int i = 0; i < kMaxSources; ++i) {
+                const auto& s = L.sources[i];
+                if (s.state.load() == kSlotFree) continue;
+                std::string name, app; uint32_t col = 0;
+                readSourceIdentity(s, name, app, col);
+                std::printf("%2d %-6u %-20.20s %-20.20s %u        %+5.1f  %6.1f   %5.1f  %5.1f  %4d  %6.0f\n", i, s.ownerPid.load(),
+                            name.empty() ? "(unnamed)" : name.c_str(), app.c_str(), s.capture.load(), bitsFloat(s.levelBits.load()),
+                            db(bitsFloat(s.peakBits.load())), bitsFloat(s.latencyBits.load()), bitsFloat(s.delayBits.load()),
+                            s.trackSlot.load(), ageMs(s.heartbeatNs.load()));
+            }
         }
         if (once) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(250));

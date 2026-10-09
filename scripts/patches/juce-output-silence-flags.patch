@@ -1,0 +1,17 @@
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+index 40d8a74..e5be82c 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -3607,6 +3607,12 @@ public:
+             if      (processSetup.symbolicSampleSize == Vst::kSample32) processAudio<float>  (data);
+             else if (processSetup.symbolicSampleSize == Vst::kSample64) processAudio<double> (data);
+             else jassertfalse;
++
++            // HEARASIDE patch: the outputs are never known to be silent. Hosts may hand over output
++            // silence flags copied from a silent input (Studio One on a record-armed track); left
++            // set, the host throws away audio the plug-in generated on its own.
++            for (Steinberg::int32 i = 0; i < data.numOutputs; ++i)
++                data.outputs[i].silenceFlags = 0;
+         }
+ 
+         if (auto* changes = data.outputParameterChanges)

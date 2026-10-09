@@ -1,5 +1,6 @@
-// HEARASIDE Track: last insert on every track. Publishes the post-FX signal to the bus (the Hub
-// decides what reaches the viewers) and controls what the DAW / headphones get.
+// HEARASIDE Track: last insert on every track. Sends what viewers hear to the DAW (so plug-ins
+// on the master bus above the Hub master the stream) and publishes the post-FX signal to the bus,
+// from which the Hub builds what you hear in your headphones.
 #pragma once
 
 #include "Settings.h"
@@ -85,10 +86,14 @@ private:
     std::atomic<float>* solo_ = nullptr;
     std::atomic<int> stem_ { -1 };
     std::atomic<bool> bypassed_ { false };
+    std::atomic<bool> busSolo_ { false };   // some Track on the bus is soloed for the viewers
+    std::atomic<bool> hubMute_ { false };   // the Hub is measuring (auto sync)
     std::atomic<float> peak_[2] {};
     std::atomic<int> lastBlock_ { 0 };
 
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> monitorGain_;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> viewersGain_[2];   // gain x pan, per channel
+    juce::AudioBuffer<float> delayLine_;
+    int delayWrite_ = 0;
     double sampleRate_ = 48000.0;
     int numChannels_ = 2;
 
@@ -98,6 +103,7 @@ private:
     juce::Colour hostColour_, pendingHostColour_;
     bool hostDirty_ = false;
     juce::String nameOverride_, busName_ = defaultBusName(), uuid_;
+    float chainMs_ = 0.0f;   // plug-in latency before this Track, measured by the Hub, saved for live use
     juce::String pushedName_;
     juce::uint32 pushedColour_ = 0;
     uint32_t cmdCursor_ = 0, renameSeq_ = 0;

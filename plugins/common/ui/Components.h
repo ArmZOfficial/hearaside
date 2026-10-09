@@ -4,6 +4,7 @@
 
 #include "Icons.h"
 #include "LookAndFeel.h"
+#include "../Strings.h"
 
 #include <functional>
 
@@ -35,12 +36,17 @@ private:
 // ---- AudiblePill: "ได้ยิน" / "ไม่ได้ยิน" status button (118 x 44) ----------------------------
 class AudiblePill : public juce::Button {
 public:
-    explicit AudiblePill(icons::Icon icon);
+    explicit AudiblePill(icons::Icon icon, Str onLabel = Str::StateOn, Str offLabel = Str::StateOff);
     void setOn(bool on);
     bool isOn() const noexcept { return on_; }
+    void setLabelOverride(const juce::String& label);   // replaces the on/off word ("" = back to it)
+    void setPrefix(const juce::String& p);               // "You · " before the word (narrow rows)
+    int idealWidth() const;                              // fits the longer of the two words
     void paintButton(juce::Graphics&, bool highlighted, bool down) override;
 private:
     icons::Icon icon_;
+    Str onLabel_, offLabel_;
+    juce::String override_, prefix_;
     bool on_ = false;
 };
 
@@ -154,29 +160,6 @@ public:
     void paintButton(juce::Graphics&, bool highlighted, bool down) override;
 private:
     icons::Icon icon_;
-};
-
-// ---- SceneBar: segmented pill buttons, right-click = menu ----------------------------------
-class SceneBar : public juce::Component {
-public:
-    std::function<void(int)> onPick;
-    std::function<void(int)> onContextMenu;
-    void setScenes(const juce::StringArray& names);
-    void setSelected(int index);   // -1 = "custom" (nothing selected)
-    int idealWidth() const;
-    void resized() override;
-    void paint(juce::Graphics&) override;
-private:
-    class Segment : public juce::Button {
-    public:
-        Segment(SceneBar& o, int i) : juce::Button({}), owner(o), index(i) {}
-        void paintButton(juce::Graphics&, bool highlighted, bool down) override;
-        void mouseUp(const juce::MouseEvent&) override;
-        SceneBar& owner;
-        int index;
-    };
-    juce::OwnedArray<Segment> segs_;
-    int selected_ = -1;
 };
 
 } // namespace hearaside

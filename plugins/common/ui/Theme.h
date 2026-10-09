@@ -141,4 +141,22 @@ constexpr float fadeMs = 120.0f;
 constexpr float meterFps = 30.0f;
 }
 
+namespace layout {
+constexpr float compactBelow = 760.0f;
+constexpr float wideAbove = 1180.0f;
+constexpr float hysteresis = 24.0f;
+constexpr float compactPad = 12.0f;
+constexpr float hubMinW = 420.0f;
+constexpr float hubMinH = 460.0f;
+constexpr float trackMinW = 380.0f;
+constexpr float trackMinH = 460.0f;
+constexpr float appMinW = 380.0f;
+constexpr float appMinH = 400.0f;
+constexpr float panelMargin = 32.0f;
+constexpr float screenFit = 0.85f;
+constexpr float rowH = 68.0f;
+constexpr float rowNarrowH = 104.0f;
+constexpr float minTarget = 32.0f;
+}
+
 } // namespace hearaside::theme

@@ -106,7 +106,8 @@ bool Anim::tick(double dt, double duration) {
 }
 
 // ---------------------------------------------------------------------------------------------
-AudiblePill::AudiblePill(icons::Icon icon) : juce::Button({}), icon_(icon) {
+AudiblePill::AudiblePill(icons::Icon icon, Str onLabel, Str offLabel)
+    : juce::Button({}), icon_(icon), onLabel_(onLabel), offLabel_(offLabel) {
     setWantsKeyboardFocus(true);
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
 }
@@ -116,6 +117,24 @@ void AudiblePill::setOn(bool on) {
     on_ = on;
     setToggleState(on, juce::dontSendNotification);
     repaint();
+}
+
+void AudiblePill::setLabelOverride(const juce::String& label) {
+    if (label == override_) return;
+    override_ = label;
+    repaint();
+}
+
+void AudiblePill::setPrefix(const juce::String& p) {
+    if (p == prefix_) return;
+    prefix_ = p;
+    repaint();
+}
+
+int AudiblePill::idealWidth() const {
+    const auto f = uiFont(13.0f, Weight::Medium);
+    const float words = override_.isNotEmpty() ? textWidth(f, override_) : juce::jmax(textWidth(f, tr(onLabel_)), textWidth(f, tr(offLabel_)));
+    return juce::roundToInt(textWidth(f, prefix_) + words + 16.0f + 8.0f + 2.0f * 12.0f);
 }
 
 void AudiblePill::paintButton(juce::Graphics& g, bool highlighted, bool down) {
@@ -128,7 +147,7 @@ void AudiblePill::paintButton(juce::Graphics& g, bool highlighted, bool down) {
     g.drawRoundedRectangle(r, theme::radius::small, 1.0f);
 
     const auto fg = on_ ? p.onInk : p.offFg;
-    const auto label = on_ ? tr(Str::StateOn) : tr(Str::StateOff);
+    const auto label = prefix_ + (override_.isNotEmpty() ? override_ : tr(on_ ? onLabel_ : offLabel_));
     const auto f = uiFont(13.0f, Weight::Medium);
     const float tw = textWidth(f, label);
     const float total = 16.0f + 8.0f + tw;
@@ -418,82 +437,6 @@ void IconButton::paintButton(juce::Graphics& g, bool highlighted, bool down) {
     g.drawRoundedRectangle(r, r.getHeight() * 0.5f, 1.0f);
     icons::draw(g, icon_, r.withSizeKeepingCentre(17.0f, 17.0f), p.ink2);
     if (hasKeyboardFocus(false)) drawFocusRing(g, r, r.getHeight() * 0.5f, p);
-}
-
-// ---------------------------------------------------------------------------------------------
-void SceneBar::setScenes(const juce::StringArray& names) {
-    bool same = names.size() == segs_.size();
-    for (int i = 0; same && i < names.size(); ++i) same = segs_[i]->getButtonText() == names[i];
-    if (same) return;
-    segs_.clear();
-    for (int i = 0; i < names.size(); ++i) {
-        auto* s = segs_.add(new Segment(*this, i));
-        s->setButtonText(names[i]);
-        s->setTitle(names[i]);
-        s->setWantsKeyboardFocus(true);
-        s->setMouseCursor(juce::MouseCursor::PointingHandCursor);
-        s->onClick = [this, i] { if (onPick) onPick(i); };
-        addAndMakeVisible(s);
-    }
-    resized();
-}
-
-void SceneBar::setSelected(int index) {
-    if (index == selected_) return;
-    selected_ = index;
-    for (auto* s : segs_) s->setToggleState(s->index == index, juce::dontSendNotification);
-    repaint();
-}
-
-int SceneBar::idealWidth() const {
-    float w = 8.0f + float(juce::jmax(0, segs_.size() - 1)) * 4.0f;
-    for (auto* s : segs_) w += textWidth(uiFont(13.0f, Weight::Medium), s->getButtonText()) + 36.0f;
-    return juce::roundToInt(w);
-}
-
-void SceneBar::resized() {
-    float x = 4.0f;
-    const float h = float(getHeight()) - 8.0f;
-    for (auto* s : segs_) {
-        const float w = textWidth(uiFont(13.0f, Weight::Medium), s->getButtonText()) + 36.0f;
-        s->setBounds(juce::Rectangle<float>(x, 4.0f, w, h).toNearestInt());
-        x += w + 4.0f;
-    }
-}
-
-void SceneBar::paint(juce::Graphics& g) {
-    const auto& p = paletteOf(*this);
-    auto r = getLocalBounds().toFloat().reduced(0.5f);
-    g.setColour(p.ink.withAlpha(0.04f));
-    g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
-    g.setColour(p.hairline1);
-    g.drawRoundedRectangle(r, r.getHeight() * 0.5f, 1.0f);
-}
-
-void SceneBar::Segment::paintButton(juce::Graphics& g, bool highlighted, bool down) {
-    const auto& p = paletteOf(*this);
-    auto r = getLocalBounds().toFloat();
-    const bool on = getToggleState();
-    if (on) {
-        juce::DropShadow(p.shadow.withMultipliedAlpha(1.3f), 12, { 0, 4 }).drawForRectangle(g, r.toNearestInt());
-        g.setColour(p.paper.getBrightness() < 0.5f ? p.paper.brighter(0.35f) : juce::Colours::white);
-        g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
-    } else if (highlighted || down) {
-        g.setColour(p.ink.withAlpha(down ? 0.08f : 0.04f));
-        g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
-    }
-    g.setColour(on ? p.ink : p.offFg);
-    g.setFont(uiFont(13.0f, Weight::Medium));
-    g.drawText(getButtonText(), r, juce::Justification::centred, false);
-    if (hasKeyboardFocus(false)) drawFocusRing(g, r, r.getHeight() * 0.5f, p);
-}
-
-void SceneBar::Segment::mouseUp(const juce::MouseEvent& e) {
-    if (e.mods.isPopupMenu()) {
-        if (owner.onContextMenu) owner.onContextMenu(index);
-        return;
-    }
-    juce::Button::mouseUp(e);
 }
 
 } // namespace hearaside

@@ -43,6 +43,33 @@ juce::Path build(Icon i) {
         case Icon::Solo:
             p = svg({ "M12 3v18", "M7 8h10", "M5 16h14" });
             break;
+        case Icon::Power:
+            p = svg({ "M12 3v8", "M6.3 6.8a8 8 0 1 0 11.4 0" });
+            break;
+        case Icon::Record:
+            p.addEllipse(6.0f, 6.0f, 12.0f, 12.0f);
+            break;
+        case Icon::Drag:   // arrow into a tray: "drag this into the DAW"
+            p = svg({ "M12 3v12", "M7 10l5 5 5-5", "M4 17v3h16v-3" });
+            break;
+        case Icon::Folder:
+            p = svg({ "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" });
+            break;
+        case Icon::Link:
+            p = svg({ "M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1", "M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" });
+            break;
+        case Icon::Check:
+            p = svg({ "M5 12.5l4.5 4.5L19 7.5" });
+            break;
+        case Icon::Info:
+            p = svg({ "M12 11v6", "M12 7.5h.01" });
+            p.addEllipse(3.0f, 3.0f, 18.0f, 18.0f);
+            break;
+        case Icon::Close:
+            p = svg({ "M6 6l12 12", "M18 6 6 18" });
+            break;
+        case Icon::Count:
+            break;
     }
     return p;
 }
@@ -50,8 +77,11 @@ juce::Path build(Icon i) {
 } // namespace
 
 const juce::Path& path(Icon i) {
-    static const std::array<juce::Path, 7> cache { build(Icon::Headphones), build(Icon::Broadcast), build(Icon::SpeakerOff),
-                                                   build(Icon::Sliders), build(Icon::Warning), build(Icon::More), build(Icon::Solo) };
+    static const auto cache = [] {
+        std::array<juce::Path, size_t(Icon::Count)> c;
+        for (size_t k = 0; k < c.size(); ++k) c[k] = build(Icon(k));
+        return c;
+    }();
     return cache[size_t(i)];
 }
 
@@ -60,7 +90,7 @@ void draw(juce::Graphics& g, Icon i, juce::Rectangle<float> b, juce::Colour c, f
     const auto t = juce::AffineTransform::scale(s).translated(b.getCentreX() - 12.0f * s, b.getCentreY() - 12.0f * s);
     g.setColour(c);
     g.strokePath(path(i), juce::PathStrokeType(strokeWidth * s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), t);
-    if (i == Icon::More) g.fillPath(path(i), t);
+    if (i == Icon::More || i == Icon::Record) g.fillPath(path(i), t);
 }
 
 } // namespace hearaside::icons

@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3F3F1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
+<title>HEARASIDE Listen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #F3F3F1; --ink: #181818; --on-ink: #FFFFFF; --ink2: #3E3E3A; --graphite: #5A5A56; --muted: #8A8A84;
+  --glass: rgba(255,255,255,0.62); --glass-edge: rgba(255,255,255,0.85); --inset: rgba(240,240,237,0.90);
+  --hair: rgba(24,24,24,0.08); --hair3: rgba(24,24,24,0.12); --rail: rgba(24,24,24,0.14);
+  --shadow: rgba(24,24,24,0.08); --warm: rgba(112,106,96,0.42); --cool: rgba(40,40,38,0.20); --grid: rgba(24,24,24,0.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151514; --ink: #EDEDEA; --on-ink: #151514; --ink2: #CFCFCA; --graphite: #A3A39D; --muted: #6E6E69;
+    --glass: rgba(38,38,36,0.62); --glass-edge: rgba(255,255,255,0.10); --inset: rgba(255,255,255,0.055);
+    --hair: rgba(255,255,255,0.10); --hair3: rgba(255,255,255,0.16); --rail: rgba(255,255,255,0.16);
+    --shadow: rgba(0,0,0,0.35); --warm: rgba(150,138,118,0.30); --cool: rgba(90,90,86,0.22); --grid: rgba(255,255,255,0.045);
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: "Anuphan", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--paper); color: var(--ink);
+  min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; overflow-x: hidden;
+}
+.backdrop { position: fixed; inset: 0; z-index: -1; overflow: hidden;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 32px 32px; }
+.blob { position: absolute; border-radius: 50%; filter: blur(70px); }
+.blob.warm { width: 60vmax; height: 60vmax; background: var(--warm); top: -22vmax; right: -18vmax; }
+.blob.cool { width: 50vmax; height: 50vmax; background: var(--cool); bottom: -20vmax; left: -16vmax; }
+.card {
+  width: min(440px, 100%); background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 28px;
+  backdrop-filter: blur(28px) saturate(1.2); -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  box-shadow: 0 24px 60px var(--shadow); padding: 28px 24px 22px;
+}
+.top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.lang { border: 1px solid var(--hair3); background: transparent; color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500;
+  border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.brand { letter-spacing: .42em; font-weight: 600; font-size: 15px; }
+.brand small { display: block; letter-spacing: .5em; font-weight: 500; font-size: 10px; color: var(--graphite); margin-top: 2px; }
+h1 { font-size: 26px; font-weight: 600; margin: 22px 0 4px; }
+.sub { color: var(--graphite); font-size: 14px; margin: 0; line-height: 1.5; }
+.stage { display: grid; place-items: center; padding: 28px 0 18px; }
+.play {
+  position: relative; width: 112px; height: 112px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--ink); color: var(--on-ink); display: grid; place-items: center;
+  box-shadow: 0 14px 34px var(--shadow); transition: transform .15s ease;
+}
+.play:active { transform: scale(.96); }
+.play svg { width: 40px; height: 40px; }
+.play .ring { position: absolute; inset: -10px; border-radius: 50%; border: 2px solid var(--ink); opacity: 0; }
+.playing .play .ring { animation: pulse 1.8s ease-out infinite; }
+@keyframes pulse { 0% { transform: scale(.92); opacity: .35; } 100% { transform: scale(1.25); opacity: 0; } }
+.connecting .play svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.hint { margin-top: 14px; font-size: 14px; color: var(--graphite); min-height: 20px; text-align: center; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+  background: var(--inset); border: 1px solid var(--hair); font-size: 13px; color: var(--ink2); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.playing .dot { background: var(--ink); box-shadow: 0 0 0 4px var(--hair3); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.meters { margin: 18px 0 6px; display: grid; gap: 8px; }
+.meter { display: grid; grid-template-columns: 14px 1fr; align-items: center; gap: 8px; font-size: 11px; color: var(--graphite); }
+.bar { height: 6px; border-radius: 3px; background: var(--rail); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--ink); border-radius: 3px; transition: width .08s linear; }
+.panel { margin-top: 16px; padding: 14px 16px; border-radius: 18px; background: var(--inset); border: 1px solid var(--hair); display: grid; gap: 14px; }
+.label { font-size: 13px; color: var(--ink); }
+.value { font-size: 12px; color: var(--graphite); font-variant-numeric: tabular-nums; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; margin: 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(var(--ink), var(--ink)) 0/var(--fill, 80%) 100% no-repeat, var(--rail); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--rail); }
+input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--ink); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; margin-top: -7px;
+  background: #fff; border: 1px solid var(--hair3); box-shadow: 0 2px 6px var(--shadow); }
+input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 1px solid var(--hair3); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: var(--rail); }
+.seg button { border: 0; border-radius: 9px; padding: 8px 4px; font: inherit; font-size: 13px; color: var(--ink2); background: transparent; cursor: pointer; }
+.seg button.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 4px var(--shadow); font-weight: 500; }
+.foot { margin-top: 14px; text-align: center; font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="backdrop"><div class="blob warm"></div><div class="blob cool"></div></div>
+<main class="card" id="app">
+  <div class="top"><div class="brand">HEARASIDE<small>LISTEN</small></div><button class="lang" id="lang"></button></div>
+  <h1 data-t="title"></h1>
+  <p class="sub" data-t="subtitle"></p>
+
+  <div class="stage">
+    <button class="play" id="play" aria-label="Play">
+      <span class="ring"></span>
+      <svg id="icon" viewBox="0 0 24 24" fill="currentColor"></svg>
+    </button>
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="row">
+    <span class="chip"><span class="dot"></span><span id="status"></span></span>
+    <span class="value" id="delay"></span>
+  </div>
+
+  <div class="meters">
+    <div class="meter"><span>L</span><div class="bar"><i id="ml"></i></div></div>
+    <div class="meter"><span>R</span><div class="bar"><i id="mr"></i></div></div>
+  </div>
+
+  <div class="panel">
+    <div>
+      <div class="row"><span class="label" data-t="volume"></span><span class="value" id="volv"></span></div>
+      <input type="range" id="vol" min="0" max="100" value="80">
+    </div>
+    <div>
+      <div class="row" style="margin-bottom:8px"><span class="label" data-t="mode"></span></div>
+      <div class="seg" id="mode">
+        <button data-v="0.12" data-t="fast"></button>
+        <button data-v="0.3" data-t="balanced" class="on"></button>
+        <button data-v="0.8" data-t="smooth"></button>
+      </div>
+    </div>
+  </div>
+  <div class="foot" id="foot"></div>
+</main>
+
+<script>
+const T = {
+  th: { title: "ฟังสด", subtitle: "เสียงเดียวกับที่คนดูได้ยิน ส่งตรงจาก DAW", volume: "ระดับเสียง", mode: "ความหน่วง",
+        fast: "เร็วสุด", balanced: "สมดุล", smooth: "ลื่นสุด", tap: "แตะเพื่อฟัง", connecting: "กำลังเชื่อมต่อ...",
+        playing: "กำลังฟังสด", waiting: "รอเสียงจาก DAW", lost: "หลุด กำลังต่อใหม่...", stopped: "หยุดอยู่",
+        stopHint: "แตะเพื่อหยุด", delay: "ดีเลย์", quality: "ไม่บีบอัด",
+        offline: "ผู้สตรีมยังไม่ได้เปิดแชร์ หน้านี้จะเริ่มเล่นเองเมื่อพร้อม", offlineIdle: "ผู้สตรีมยังไม่ได้เปิดแชร์ แตะไว้ได้เลย จะเริ่มเล่นเองเมื่อพร้อม" },
+  en: { title: "Listen live", subtitle: "What the viewers hear, straight from the DAW", volume: "Volume", mode: "Latency",
+        fast: "Fastest", balanced: "Balanced", smooth: "Smoothest", tap: "Tap to listen", connecting: "Connecting...",
+        playing: "Listening live", waiting: "Waiting for the DAW", lost: "Connection lost, retrying...", stopped: "Stopped",
+        stopHint: "Tap to stop", delay: "Delay", quality: "lossless",
+        offline: "The streamer isn't sharing yet. This page starts playing by itself when they are.",
+        offlineIdle: "The streamer isn't sharing yet. Tap now and it starts playing by itself when they are." }
+};
+// language: the visitor's choice (remembered), else the browser's
+let saved = null;
+try { saved = localStorage.getItem("hearaside-lang"); } catch (e) {}
+let lang = saved || ((navigator.language || "th").toLowerCase().startsWith("th") ? "th" : "en");
+let L = T[lang];
+function applyLang() {
+  L = T[lang];
+  document.querySelectorAll("[data-t]").forEach(e => e.textContent = L[e.dataset.t]);
+  document.documentElement.lang = lang;
+  document.getElementById("lang").textContent = lang === "th" ? "EN" : "ไทย";
+}
+applyLang();
+document.getElementById("lang").onclick = () => {
+  lang = lang === "th" ? "en" : "th";
+  try { localStorage.setItem("hearaside-lang", lang); } catch (e) {}
+  applyLang();
+  refreshTexts();
+};
+
+const $ = id => document.getElementById(id);
+const ICON = {
+  play: '<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/>',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/>',
+  wait: '<path d="M12 3a9 9 0 1 0 9 9h-2.2A6.8 6.8 0 1 1 12 5.2z"/>'
+};
+const app = $("app");
+let state = "idle", ctx = null, node = null, gain = null, ws = null, retry = null, target = 0.3, rate = 0, lastAudio = 0;
+
+// Where the audio comes from. Served by the Hub: the same host. Served by the share web site
+// (permanent link): ask its directory where the Hub's tunnel is right now; it changes each time
+// the Hub restarts, so ask again before every (re)connect. null = not shared right now.
+const token = location.pathname.split("/").filter(Boolean).pop() || "";
+let directory = false;
+async function locate(kind) {
+  try {
+    const r = await fetch("/api/resolve/" + encodeURIComponent(token), { cache: "no-store" });
+    if ((r.headers.get("content-type") || "").includes("json")) {
+      const j = await r.json();
+      if ("online" in j) { directory = true; return j.online ? j.ws : null; }
+    }
+  } catch (e) {}
+  if (directory) return null;   // the site answered before: it is down for a moment, not a Hub
+  return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/" + kind + "/" + token;
+}
+let backoff = 2000, gen = 0;
+let idleOffline = false;   // permanent link, nobody sharing: say so before the tap
+// a dropped connection retries within 5 s (the Hub may be back on a new tunnel); "not shared" polls up to 30 s
+function later(fn, max = 30000) { retry = setTimeout(fn, backoff); backoff = Math.min(backoff * 2, max); }
+
+function view(s, status) {
+  state = s;
+  app.classList.toggle("playing", s === "playing");
+  app.classList.toggle("connecting", s === "connecting");
+  $("icon").innerHTML = s === "idle" ? ICON.play : s === "connecting" ? ICON.wait : ICON.stop;
+  $("hint").textContent = s === "idle" ? (idleOffline ? L.offlineIdle : L.tap) : L.stopHint;
+  $("status").textContent = status || (s === "idle" ? L.stopped : L.connecting);
+}
+view("idle");
+locate("l").then(u => { if (!u && directory) { idleOffline = true; if (state === "idle") $("hint").textContent = L.offlineIdle; } });
+function refreshTexts() {
+  view(state, state === "playing" ? L.playing : state === "connecting" ? L.connecting : undefined);
+  if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · 16-bit · " + L.quality;
+}
+
+// The jitter buffer. Runs in an AudioWorklet, or on the page through a ScriptProcessor where
+// AudioWorklet is missing: browsers only offer it on https and localhost, and the WiFi link is http.
+const core = `
+class Core {
+  constructor(post) {
+    this.post = post;
+    this.cap = 48000 * 6; this.l = new Float32Array(this.cap); this.r = new Float32Array(this.cap);
+    this.w = 0; this.rd = 0; this.rate = 48000; this.target = 0.3; this.primed = false; this.adj = 0; this.tick = 0;
+    this.pl = 0; this.pr = 0;
+  }
+  message(m) {
+    if (m.target) { this.target = m.target; this.primed = false; return; }
+    this.rate = m.rate;
+    const s = m.pcm, ch = m.ch, n = s.length / ch;
+    for (let i = 0; i < n; i++) {
+      const k = (this.w + i) % this.cap;
+      this.l[k] = s[i * ch] / 32768; this.r[k] = s[i * ch + ch - 1] / 32768;
+    }
+    this.w += n;
+    if (this.w - this.rd > this.cap - 4096) this.rd = this.w - this.target * this.rate;   // fell far behind
+  }
+  render(L, R, outRate, every) {
+    const n = L.length;
+    let fill = this.w - this.rd;
+    const want = this.target * this.rate;
+    if (!this.primed) {
+      if (fill >= want) { this.primed = true; this.rd = this.w - want; fill = want; }
+      else { L.fill(0); R.fill(0); this.report(fill, every); return; }
+    }
+    // follow the sender's clock: play a hair faster or slower to keep the buffer at the target
+    const err = (fill - want) / want;
+    this.adj += (Math.max(-0.004, Math.min(0.004, err * 0.01)) - this.adj) * 0.02;
+    const step = this.rate / outRate * (1 + this.adj);
+    if (fill < n * step + 2) { this.primed = false; L.fill(0); R.fill(0); this.report(fill, every); return; }
+    if (fill > want + this.rate * 0.6) this.rd = this.w - want;   // a burst arrived: catch up
+    let pos = this.rd, pl = 0, pr = 0;
+    for (let i = 0; i < n; i++) {
+      const i0 = Math.floor(pos), f = pos - i0, a = i0 % this.cap, b = (i0 + 1) % this.cap;
+      const l = this.l[a] + (this.l[b] - this.l[a]) * f, r = this.r[a] + (this.r[b] - this.r[a]) * f;
+      L[i] = l; if (R !== L) R[i] = r;
+      pl = Math.max(pl, Math.abs(l)); pr = Math.max(pr, Math.abs(r));
+      pos += step;
+    }
+    this.rd = pos;
+    this.pl = Math.max(pl, this.pl * 0.9); this.pr = Math.max(pr, this.pr * 0.9);
+    this.report(fill, every);
+  }
+  report(fill, every) {
+    if (++this.tick % every) return;
+    this.post({ fill: fill / this.rate, pl: this.pl, pr: this.pr, primed: this.primed });
+  }
+}`;
+const worklet = core + `
+class Player extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.core = new Core(m => this.port.postMessage(m));
+    this.port.onmessage = e => this.core.message(e.data);
+  }
+  process(_, outputs) {
+    const out = outputs[0];
+    this.core.render(out[0], out[1] || out[0], sampleRate, 12);
+    return true;
+  }
+}
+registerProcessor("hearaside-player", Player);`;
+
+// the same interface as an AudioWorkletNode's port, on the page
+function scriptPlayer() {
+  const Core = new Function(core + "; return Core;")();
+  const sp = ctx.createScriptProcessor(2048, 0, 2);
+  const port = { onmessage: null, postMessage: m => c.message(m) };
+  const c = new Core(m => port.onmessage && port.onmessage({ data: m }));
+  sp.onaudioprocess = e => c.render(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1), ctx.sampleRate, 1);
+  sp.port = port;
+  return sp;
+}
+
+async function start() {
+  view("connecting");
+  ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+  if (ctx.audioWorklet) {
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "application/javascript" })));
+    node = new AudioWorkletNode(ctx, "hearaside-player", { outputChannelCount: [2] });
+  } else {
+    node = scriptPlayer();
+  }
+  gain = ctx.createGain();
+  setVolume();
+  node.connect(gain).connect(ctx.destination);
+  node.port.postMessage({ target });
+  node.port.onmessage = e => stats(e.data);
+  await ctx.resume();
+  connect();
+}
+
+async function connect() {
+  const mine = ++gen;
+  const url = await locate("l");
+  if (mine !== gen || state === "idle") return;
+  if (!url) { view("connecting", L.offline); later(connect); return; }
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); };
+  ws.onmessage = e => {
+    const d = new DataView(e.data);
+    if (d.getUint32(0, true) !== 0x31415248) return;   // "HRA1"
+    rate = d.getUint32(4, true);
+    const ch = d.getUint16(8, true), frames = d.getUint32(12, true);
+    if (!frames) return;
+    lastAudio = performance.now();
+    const pcm = new Int16Array(e.data.slice(16));
+    node.port.postMessage({ rate, ch, pcm }, [pcm.buffer]);
+  };
+  ws.onclose = () => {
+    if (state === "idle") return;
+    view("connecting", L.lost);
+    later(connect, 5000);   // the tunnel may have moved: locate() again first
+  };
+}
+
+function stop() {
+  clearTimeout(retry);
+  gen++;
+  backoff = 2000;
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  if (ctx) { ctx.close(); ctx = null; node = null; }
+  $("ml").style.width = $("mr").style.width = "0";
+  $("delay").textContent = "";
+  view("idle");
+}
+
+function stats(s) {
+  const fresh = performance.now() - lastAudio < 1000;
+  if (state !== "idle") {
+    if (fresh && s.primed) view("playing", L.playing);
+    else if (state === "playing" && !fresh) view("connecting", L.waiting);
+  }
+  const pos = v => Math.max(0, Math.min(100, (20 * Math.log10(Math.max(v, 1e-6)) + 60) / 60 * 100)) + "%";
+  $("ml").style.width = pos(s.pl);
+  $("mr").style.width = pos(s.pr);
+  if (fresh) $("delay").textContent = L.delay + " ~" + (s.fill + (ctx ? ctx.baseLatency || 0 : 0)).toFixed(2) + " s";
+  if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · 16-bit · " + L.quality;
+}
+
+function setVolume() {
+  const v = $("vol").value / 100;
+  $("vol").style.setProperty("--fill", $("vol").value + "%");
+  $("volv").textContent = Math.round(v * 100) + "%";
+  if (gain) gain.gain.value = v * v;
+}
+
+$("play").onclick = () => state === "idle" ? start().catch(e => { stop(); $("status").textContent = String(e && e.message || e); }) : stop();
+$("vol").oninput = setVolume;
+setVolume();
+document.querySelectorAll("#mode button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#mode button").forEach(x => x.classList.toggle("on", x === b));
+  target = parseFloat(b.dataset.v);
+  if (node) node.port.postMessage({ target });
+});
+</script>
+</body>
+</html>

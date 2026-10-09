@@ -19,7 +19,7 @@ class TrackFinePanel : public juce::Component {
 public:
     explicit TrackFinePanel(TrackProcessor& p) : proc_(p) {
         name_.setText(proc_.displayName(), false);
-        name_.setTextToShowWhenEmpty(tr(Str::NewName), paletteOf(*this).muted);
+        name_.setTextToShowWhenEmpty(tr(Str::NewName), paletteOf(*this).graphite);
         name_.onReturnKey = name_.onFocusLost = [this] { proc_.setDisplayNameOverride(name_.getText()); };
         bus_.setText(proc_.busName(), false);
         bus_.onReturnKey = bus_.onFocusLost = [this] { proc_.setBusName(bus_.getText()); };
@@ -81,13 +81,14 @@ private:
 
 } // namespace
 
-TrackEditor::TrackEditor(TrackProcessor& p) : EditorShell(p, kWidth, kHeight), proc_(p) {
-    backdrop_.setBlobs({ { { -60.0f, -110.0f, 380.0f, 240.0f }, true },
-                         { { 180.0f, float(kHeight) - 240.0f, 300.0f, 300.0f }, false } });
-
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &chip_, &fineButton_, &banner_, &inputMeter_, &monRow_, &strRow_,
-                                                                        &headphoneSlider_, &viewersSlider_, &delaySlider_, &delayValue_, &footer_ })
+TrackEditor::TrackEditor(TrackProcessor& p)
+    : EditorShell(p, kWidth, kHeight, int(theme::layout::trackMinW), int(theme::layout::trackMinH), "track", 640, 1400), proc_(p) {
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &chip_, &fineButton_, &banner_, &inputMeter_, &monRow_, &strRow_, &bodyView_ })
         content_.addAndMakeVisible(c);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &headphoneSlider_, &viewersSlider_, &delaySlider_, &delayValue_, &footer_ })
+        body_.addAndMakeVisible(c);
+    bodyView_.setViewedComponent(&body_, false);
+    bodyView_.setScrollBarsShown(true, false);
     banner_.setVisible(false);
 
     monRow_.onClick = [this] { toggle(trackparam::Mon); };
@@ -96,6 +97,10 @@ TrackEditor::TrackEditor(TrackProcessor& p) : EditorShell(p, kWidth, kHeight), p
 
     headphoneLink_ = std::make_unique<DbSliderLink>(headphoneSlider_, *proc_.params().getParameter(trackparam::MonTrim));
     viewersLink_ = std::make_unique<DbSliderLink>(viewersSlider_, *proc_.params().getParameter(trackparam::StrGain));
+    headValue_ = std::make_unique<ValueField>(*proc_.params().getParameter(trackparam::MonTrim), ValueField::Unit::Db);
+    viewValue_ = std::make_unique<ValueField>(*proc_.params().getParameter(trackparam::StrGain), ValueField::Unit::Db);
+    body_.addAndMakeVisible(*headValue_);
+    body_.addAndMakeVisible(*viewValue_);
 
     delaySlider_.setRange(0.0, 500.0, 1.0);
     delaySlider_.setSkewFactorFromMidPoint(100.0);   // fine control in the usual 0-100 ms region
@@ -105,6 +110,7 @@ TrackEditor::TrackEditor(TrackProcessor& p) : EditorShell(p, kWidth, kHeight), p
     delayAttachment_ = std::make_unique<juce::SliderParameterAttachment>(*proc_.params().getParameter(trackparam::StrDelay), delaySlider_);
     delayValue_.setEditable(true, true, false);
     delayValue_.setJustificationType(juce::Justification::centredRight);
+    delayValue_.setBorderSize({ 1, 4, 1, 0 });
     delayValue_.setFont(uiFont(12.0f));
     footer_.setFont(uiFont(11.0f));
     footer_.setJustificationType(juce::Justification::centredLeft);
@@ -198,10 +204,15 @@ void TrackEditor::timerCallback() {
         delaySlider_.setEnabled(str);
         lastMon_ = mon;
         lastStr_ = str;
+        layout();   // the summary sentence changes length
         content_.repaint();
     }
     headphoneLink_->update();
     viewersLink_->update();
+    headValue_->update();
+    viewValue_->update();
+    headValue_->setColour(juce::Label::textColourId, mon ? lnf_.pal().ink : lnf_.pal().muted);
+    viewValue_->setColour(juce::Label::textColourId, str ? lnf_.pal().ink : lnf_.pal().muted);
     if (!delayValue_.isBeingEdited()) delayValue_.setText(msText(delaySlider_.getValue()), juce::dontSendNotification);
     delayValue_.setColour(juce::Label::textColourId, str ? lnf_.pal().ink : lnf_.pal().muted);
     inputMeter_.setLevel(meterPosition(juce::jmax(proc_.inputPeak(0), proc_.inputPeak(1))));
@@ -211,7 +222,11 @@ void TrackEditor::timerCallback() {
         const juce::String t = blk > 0 ? tr(Str::DawBuffer) + " " + juce::String(blk) + " " + tr(Str::Samples) + " = "
                                              + juce::String(blk * 1000.0 / juce::jmax(8000.0, sr), 1) + " ms  ·  " + juce::String(sr / 1000.0, 1) + " kHz"
                                        : juce::String();
-        if (footer_.getText() != t) footer_.setText(t, juce::dontSendNotification);
+        juce::String full = t;
+        if (auto* slot = proc_.publisher().slot())   // measured by the Hub
+            if (const float chain = ssbus::bitsFloat(slot->chainLatencyBits.load(std::memory_order_relaxed)); chain >= 0.5f)
+                full << "  ·  " << tr(Str::ChainLatency) << " " << juce::String(chain, 1) << " ms";
+        if (footer_.getText() != full) footer_.setText(full, juce::dontSendNotification);
         footer_.setColour(juce::Label::textColourId, lnf_.pal().graphite);
     }
 
@@ -219,25 +234,27 @@ void TrackEditor::timerCallback() {
     if (name != lastName_) { lastName_ = name; content_.repaint(nameRow_.toNearestInt().expanded(4)); }
 
     if (++slowTick_ % 10 == 0) refreshStatus();
-    content_.repaint(headLabel_.getUnion(viewLabel_).getUnion(delayLabel_).toNearestInt().expanded(2));
+    body_.repaint(headLabel_.getUnion(viewLabel_).getUnion(delayLabel_).toNearestInt().expanded(2));
 }
 
 void TrackEditor::showFineSettings() {
     auto panel = std::make_unique<TrackFinePanel>(proc_);
     panel->setLookAndFeel(&lnf_);
-    auto& box = juce::CallOutBox::launchAsynchronously(std::move(panel), fineButton_.getScreenBounds(), nullptr);
-    box.setLookAndFeel(&lnf_);
+    launchPanel(std::move(panel), fineButton_);
 }
 
 void TrackEditor::layout() {
     const auto b = content_.getLocalBounds().toFloat();
-    card_ = b.reduced(16.0f);
+    narrow_ = b.getWidth() < 380.0f;   // a narrow window gives the status chip the room of the margins
+    card_ = b.reduced(narrow_ ? 10.0f : 16.0f);
+    backdrop_.setBlobs({ { { -60.0f, -110.0f, 380.0f, 240.0f }, true },
+                         { { b.getWidth() - 200.0f, b.getHeight() - 240.0f, 300.0f, 300.0f }, false } });
     backdrop_.setCards({ { card_, theme::radius::card } });
-    auto r = card_.reduced(20.0f);
+    auto r = card_.reduced(narrow_ ? 14.0f : 20.0f);
 
     auto header = r.removeFromTop(30.0f);
-    wordmark_ = header.removeFromLeft(130.0f);
-    fineButton_.setBounds(header.removeFromRight(30.0f).toNearestInt());
+    wordmark_ = header.removeFromLeft(narrow_ ? 112.0f : 130.0f);
+    fineButton_.setBounds(header.removeFromRight(30.0f).withSizeKeepingCentre(theme::layout::minTarget, theme::layout::minTarget).toNearestInt());
     header.removeFromRight(8.0f);
     const float chipW = float(juce::jmin(chip_.idealWidth(), int(header.getWidth())));
     chip_.setBounds(header.removeFromRight(chipW).toNearestInt());
@@ -260,12 +277,26 @@ void TrackEditor::layout() {
     monRow_.setBounds(r.removeFromTop(64.0f).toNearestInt());
     r.removeFromTop(10.0f);
     strRow_.setBounds(r.removeFromTop(64.0f).toNearestInt());
-    r.removeFromTop(16.0f);
+    r.removeFromTop(14.0f);
 
-    // bottom group (anchored to the bottom of the card)
+    // the summary sentence stays with the switches; the levels below scroll when there is no room
+    const Str key = lastMon_ && lastStr_ ? Str::SumBoth : (!lastMon_ && lastStr_ ? Str::SumViewersOnly : (lastMon_ ? Str::SumYouOnly : Str::SumSilent));
+    const float th = wrappedHeight(uiFont(13.0f), tr(key), r.getWidth() - 28.0f);
+    summary_ = r.removeFromTop(juce::jmin(r.getHeight(), th + 24.0f));
+    r.removeFromTop(14.0f);
+
+    bodyView_.setBounds(r.toNearestInt());
+    const bool scrolls = r.getHeight() < kBodyH;
+    const float w = r.getWidth() - (scrolls ? float(bodyView_.getScrollBarThickness() + 4) : 0.0f);
+    body_.setSize(juce::roundToInt(w), juce::roundToInt(juce::jmax(kBodyH, r.getHeight())));
+    layoutBody(w, float(body_.getHeight()));
+}
+
+void TrackEditor::layoutBody(float w, float h) {
+    auto r = juce::Rectangle<float>(0.0f, 0.0f, w, h);
     footer_.setBounds(r.removeFromBottom(16.0f).toNearestInt());
     r.removeFromBottom(8.0f);
-    auto bottom = r.removeFromBottom(46.0f * 3.0f + 28.0f);
+    auto bottom = r.removeFromBottom(46.0f * 3.0f + 28.0f);   // anchored to the bottom of the card
     auto place = [&](juce::Rectangle<float>& label, juce::Component& slider) {
         auto blk = bottom.removeFromTop(46.0f);
         label = blk.removeFromTop(18.0f);
@@ -276,9 +307,9 @@ void TrackEditor::layout() {
     place(headLabel_, headphoneSlider_);
     place(viewLabel_, viewersSlider_);
     place(delayLabel_, delaySlider_);
-    delayValue_.setBounds(delayLabel_.removeFromRight(70.0f).toNearestInt().translated(4, 0));
-
-    summary_ = r.withHeight(juce::jmin(r.getHeight(), 84.0f));
+    delayValue_.setBounds(delayLabel_.removeFromRight(70.0f).toNearestInt());
+    headValue_->setBounds(headLabel_.withLeft(headLabel_.getRight() - 70.0f).toNearestInt());
+    viewValue_->setBounds(viewLabel_.withLeft(viewLabel_.getRight() - 70.0f).toNearestInt());
 }
 
 void TrackEditor::paintContent(juce::Graphics& g) {
@@ -286,7 +317,7 @@ void TrackEditor::paintContent(juce::Graphics& g) {
     backdrop_.paint(g, content_.getLocalBounds(), p, settings_->glassAlpha(), lnf_.isDark());
 
     g.setColour(p.ink);
-    drawWordmark(g, wordmark_.withTrimmedTop(4.0f), "TRACK", 14.0f, p.ink);
+    drawWordmark(g, wordmark_.withTrimmedTop(4.0f), "TRACK", narrow_ ? 12.0f : 14.0f, p.ink);
 
     // name + colour dot
     auto nr = nameRow_;
@@ -307,8 +338,7 @@ void TrackEditor::paintContent(juce::Graphics& g) {
     const bool mon = lastMon_, str = lastStr_;
     const Str key = mon && str ? Str::SumBoth : (!mon && str ? Str::SumViewersOnly : (mon ? Str::SumYouOnly : Str::SumSilent));
     const auto sf = uiFont(13.0f);
-    const float th = wrappedHeight(sf, tr(key), summary_.getWidth() - 28.0f);
-    auto box = summary_.withHeight(th + 24.0f);
+    auto box = summary_;
     if (!mon && !str) {
         g.setColour(p.paper.getBrightness() < 0.5f ? p.paper.brighter(0.25f) : juce::Colours::white);
         g.fillRoundedRectangle(box, theme::radius::small);
@@ -318,20 +348,18 @@ void TrackEditor::paintContent(juce::Graphics& g) {
     }
     drawWrapped(g, tr(key), sf, p.ink, box.reduced(14.0f, 12.0f));
 
-    // slider labels + values
-    auto label = [&](juce::Rectangle<float> r, Str text, const juce::String& value, bool enabled, bool drawValue = true) {
+}
+
+void TrackEditor::paintBody(juce::Graphics& g) {
+    const auto& p = lnf_.pal();
+    auto label = [&](juce::Rectangle<float> r, Str text) {   // values: typeable fields
         g.setColour(p.ink);
         g.setFont(uiFont(13.0f));
-        g.drawText(tr(text), r, juce::Justification::centredLeft, true);
-        if (drawValue) {
-            g.setColour(enabled ? p.ink : p.muted);
-            g.setFont(uiFont(12.0f));
-            g.drawText(value, r, juce::Justification::centredRight, false);
-        }
+        g.drawText(tr(text), r.withTrimmedRight(74.0f), juce::Justification::centredLeft, true);
     };
-    label(headLabel_, Str::HeadphoneLevel, formatDb(float(headphoneSlider_.getValue())), mon);
-    label(viewLabel_, Str::ViewersLevel, formatDb(float(viewersSlider_.getValue())), str);
-    label(delayLabel_, Str::ViewersDelay, {}, str, false);
+    label(headLabel_, Str::HeadphoneLevel);
+    label(viewLabel_, Str::ViewersLevel);
+    label(delayLabel_, Str::ViewersDelay);
 }
 
 } // namespace hearaside

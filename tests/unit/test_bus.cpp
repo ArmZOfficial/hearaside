@@ -181,6 +181,44 @@ TEST_CASE("rename: seqlock request") {
     CHECK(!pollRename(slot, last, name));
 }
 
+TEST_CASE("sources: claim 16, identity, commands, program choice, dead owner reclaimed") {
+    SharedMemory::Status st{};
+    auto shm = SharedMemory::open(uniqueBus("sources"), st);
+    REQUIRE(shm);
+    auto& L = shm->layout();
+    std::set<int> got;
+    for (int i = 0; i < kMaxSources; ++i) got.insert(claimSource(L));
+    CHECK(int(got.size()) == kMaxSources && !got.count(-1));
+    CHECK(claimSource(L) == -1);
+    releaseSource(L, 5);
+    CHECK(claimSource(L) == 5);
+
+    SourceHeader& s = L.sources[5];
+    setSourceIdentity(s, "เพลง YouTube", "chrome.exe", 0xFF112233u);
+    std::string name, app;
+    uint32_t col = 0;
+    CHECK(readSourceIdentity(s, name, app, col) && name == "เพลง YouTube" && app == "chrome.exe" && col == 0xFF112233u);
+
+    uint32_t cursor = s.cmdWrite.load();
+    postSourceCommand(s, SourceParam::On, 0.0f);
+    postSourceCommand(s, SourceParam::LevelDb, -6.0f);
+    std::vector<std::pair<SourceParam, float>> cmds;
+    pollSourceCommands(s, cursor, [&](SourceParam id, float v) { cmds.push_back({ id, v }); });
+    CHECK(cmds.size() == 2 && cmds[0].first == SourceParam::On && cmds[1].second == -6.0f);
+
+    uint32_t last = s.appSeq.load();
+    std::string exe;
+    CHECK(!pollSourceApp(s, last, exe));
+    requestSourceApp(s, "spotify.exe");
+    CHECK(pollSourceApp(s, last, exe) && exe == "spotify.exe");
+
+    // owner process gone + stale heartbeat -> the Hub frees it
+    s.ownerPid.store(0);
+    s.heartbeatNs.store(nowNs() - 10000000000ull);
+    CHECK(reclaimDeadSlots(L, 5000000000ull) == 1);
+    CHECK(s.state.load() == kSlotFree);
+}
+
 TEST_CASE("tags: timeline lookup finds ahead-rendered block") {
     static SlotHeader slot;
     static SlotTags tags;
@@ -243,17 +281,3 @@ TEST_CASE("remote: many writers, one reader, every command delivered once and in
     CHECK(received > 0);
 }
 
-TEST_CASE("remote: hub state mirror round trip") {
-    SharedMemory::Status st{};
-    auto shm = SharedMemory::open(uniqueBus("hubstate"), st);
-    CHECK(shm != nullptr);
-    if (!shm) return;
-    HubStateView in;
-    in.masterDb = -2.5f; in.headphonesDb = -12.0f; in.ceilingDb = -1.0f; in.activeScene = 1; in.sceneMask = 0x7; in.syncSafety = 1;
-    in.sceneNames[0] = "ร้องเพลง"; in.sceneNames[1] = "คุยกับคนดู"; in.sceneNames[2] = "พักจอ";
-    publishHubState(shm->layout(), in);
-    HubStateView out;
-    CHECK(readHubState(shm->layout(), out));
-    CHECK(out.masterDb == -2.5f && out.headphonesDb == -12.0f && out.activeScene == 1 && out.sceneMask == 0x7u);
-    CHECK(out.sceneNames[1] == in.sceneNames[1]);
-}

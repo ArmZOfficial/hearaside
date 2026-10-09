@@ -50,8 +50,6 @@ TrackProcessor::TrackProcessor()
     delay_ = apvts_.getRawParameterValue(trackparam::StrDelay);
     trim_  = apvts_.getRawParameterValue(trackparam::MonTrim);
     solo_  = apvts_.getRawParameterValue(trackparam::StrSolo);
-    monitorGain_.reset(48000.0, 0.010);
-    monitorGain_.setCurrentAndTargetValue(1.0f);
     connect();
     startTimerHz(30);
 }
@@ -67,12 +65,13 @@ bool TrackProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
     return in == out && (out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo());
 }
 
-void TrackProcessor::prepareToPlay(double sampleRate, int) {
+void TrackProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     numChannels_ = juce::jlimit(1, 2, getTotalNumOutputChannels());
-    const float target = mon_->load() > 0.5f ? ssdsp::dbToGain(trim_->load()) : 0.0f;
-    monitorGain_.reset(sampleRate_, 0.010);   // ~10 ms ramp, no clicks
-    monitorGain_.setCurrentAndTargetValue(target);
+    for (auto& g : viewersGain_) { g.reset(sampleRate_, 0.020); g.setCurrentAndTargetValue(0.0f); }   // fade in, no clicks
+    delayLine_.setSize(2, int(sampleRate_ * 0.5) + juce::jmax(16, samplesPerBlock) + 1);   // Viewers Delay up to 500 ms
+    delayLine_.clear();
+    delayWrite_ = 0;
     pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
 }
 
@@ -110,17 +109,40 @@ void TrackProcessor::process(juce::AudioBuffer<float>& buffer, bool bypassed) {
     }
 
     if (bypassed) return;   // host bypass: audio passes untouched (the editor warns about it)
-    monitorGain_.setTargetValue(mon ? ssdsp::dbToGain(trim_->load()) : 0.0f);
-    if (monitorGain_.isSmoothing()) {
-        for (int i = 0; i < n; ++i) {
-            const float g = monitorGain_.getNextValue();
-            for (int c = 0; c < buffer.getNumChannels(); ++c) buffer.getWritePointer(c)[i] *= g;
+
+    // what viewers hear goes to the DAW: Viewers Hear / Solo / Level / Pan / Delay
+    const bool solo = solo_->load() > 0.5f;
+    const bool on = str_->load() > 0.5f && (solo || !busSolo_.load(std::memory_order_relaxed))
+                 && !hubMute_.load(std::memory_order_relaxed);
+    const float g = on ? ssdsp::dbToGain(gain_->load()) : 0.0f;
+    float gl = 1.0f, gr = 1.0f;
+    if (numCh == 2) ssdsp::panGains(pan_->load() * 0.01f, gl, gr);
+    viewersGain_[0].setTargetValue(g * gl);
+    viewersGain_[1].setTargetValue(g * gr);
+
+    // ponytail: changing the delay jumps (no crossfade); it is set once per song, not automated
+    const int len = delayLine_.getNumSamples();
+    const int d = len > n ? juce::jlimit(0, len - n, juce::roundToInt(delay_->load() * 0.001 * sampleRate_)) : 0;
+    // copy the block in / the delayed block out in at most two pieces (no per-sample modulo)
+    auto ringCopy = [len](float* dst, const float* src, int at, int count, bool intoRing) {
+        const int first = juce::jmin(count, len - at);
+        if (intoRing) { std::memcpy(dst + at, src, size_t(first) * sizeof(float)); std::memcpy(dst, src + first, size_t(count - first) * sizeof(float)); }
+        else          { std::memcpy(dst, src + at, size_t(first) * sizeof(float)); std::memcpy(dst + first, src, size_t(count - first) * sizeof(float)); }
+    };
+    for (int c = 0; c < numCh; ++c) {
+        float* x = buffer.getWritePointer(c);
+        if (len > n) {   // always record, so turning the delay on later already has history
+            float* line = delayLine_.getWritePointer(c);
+            ringCopy(line, x, delayWrite_, n, true);
+            if (d > 0) ringCopy(x, line, (delayWrite_ - d + len) % len, n, false);
         }
-    } else {
-        const float g = monitorGain_.getTargetValue();
-        if (g == 0.0f) buffer.clear();
-        else if (g != 1.0f) buffer.applyGain(g);
+        auto& sg = viewersGain_[c];
+        if (sg.isSmoothing()) for (int i = 0; i < n; ++i) x[i] *= sg.getNextValue();
+        else if (const float gv = sg.getTargetValue(); gv == 0.0f) juce::FloatVectorOperations::clear(x, n);
+        else if (gv != 1.0f) juce::FloatVectorOperations::multiply(x, gv, n);
     }
+    if (len > n) delayWrite_ = (delayWrite_ + n) % len;
+    for (int c = numCh; c < buffer.getNumChannels(); ++c) buffer.clear(c, 0, n);
 }
 
 juce::AudioProcessorEditor* TrackProcessor::createEditor() { return new TrackEditor(*this); }
@@ -136,6 +158,7 @@ void TrackProcessor::connect() {
     if (auto* s = pub_.slot()) {
         cmdCursor_ = s->cmdWrite.load(std::memory_order_acquire);    // ignore commands meant for a previous owner
         renameSeq_ = s->renameSeq.load(std::memory_order_acquire);
+        s->chainLatencyBits.store(ssbus::floatBits(chainMs_), std::memory_order_relaxed);
         pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
     }
     pushedName_ = {};
@@ -221,6 +244,7 @@ void TrackProcessor::applyCommand(ssbus::ParamId id, float v) {
 }
 
 void TrackProcessor::timerCallback() {
+    busSolo_.store(pub_.soloActive(), std::memory_order_relaxed);   // 64-slot scan 30x a second, not every block
     if (pub_.status() != TrackPublisher::Status::Connected
         && juce::Time::getMillisecondCounter() - lastConnectAttempt_ > 2000)
         connect();
@@ -248,6 +272,8 @@ void TrackProcessor::timerCallback() {
     }
 
     const bool hub = pub_.hubPresent();
+    hubMute_.store(hub && pub_.slot() != nullptr && pub_.slot()->hubMute.load(std::memory_order_relaxed) != 0,
+                   std::memory_order_relaxed);
     if (pub_.status() != lastStatus_ || hub != lastHub_) {
         lastStatus_ = pub_.status();
         lastHub_ = hub;
@@ -264,6 +290,8 @@ void TrackProcessor::getStateInformation(juce::MemoryBlock& dest) {
     state.setProperty("name", nameOverride_, nullptr);
     state.setProperty("bus", busName_, nullptr);
     state.setProperty("stem", stem_.load(), nullptr);
+    if (auto* s = pub_.slot()) chainMs_ = ssbus::bitsFloat(s->chainLatencyBits.load(std::memory_order_relaxed));
+    state.setProperty("chainMs", chainMs_, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -275,6 +303,8 @@ void TrackProcessor::setStateInformation(const void* data, int size) {
     const juce::String bus = state.getProperty("bus", defaultBusName());
     nameOverride_ = state.getProperty("name", "").toString();
     stem_.store(juce::jlimit(-1, ssbus::kMaxStems - 1, int(state.getProperty("stem", -1))));
+    chainMs_ = float(state.getProperty("chainMs", 0.0));
+    if (auto* s = pub_.slot()) s->chainLatencyBits.store(ssbus::floatBits(chainMs_), std::memory_order_relaxed);
     apvts_.replaceState(state);
     if (uuid != uuid_ || bus != busName_) {
         uuid_ = uuid;

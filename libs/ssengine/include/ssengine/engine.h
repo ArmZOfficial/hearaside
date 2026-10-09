@@ -6,9 +6,11 @@
 #include "ssbus/bus.h"
 #include "ssdsp/dsp.h"
 
+#include <optional>
 #include <array>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -41,13 +43,16 @@ public:
     ssbus::BusLayout*  bus() const noexcept { return bus_.load(std::memory_order_acquire); }
     ssbus::SlotHeader* slot() const noexcept { return slot_.load(std::memory_order_acquire); }
     bool   hubPresent() const noexcept;
+    bool   soloActive() const noexcept;
 
     // ---- any thread ---------------------------------------------------------------------
-    struct Mirror { bool mon, str, solo; float gainDb, pan, delayMs, trimDb; int stem; };
+    struct Mirror { bool mon, str, solo; float gainDb, pan, delayMs, trimDb; int stem; bool app = false; };   // app: an App Audio's slot
     void mirror(const Mirror& m) noexcept;
 
     // ---- audio thread -------------------------------------------------------------------
     // Publishes the post-FX block. timeSamples = kNoTime when the host gives no playhead.
+    // The Track itself sends what viewers hear to the DAW; soloActive() tells it whether any
+    // track on the bus is soloed for the viewers.
     void process(const float* const* ch, int numCh, int n, int64_t timeSamples, bool playing,
                  bool offline, bool bypassed) noexcept;
 
@@ -65,7 +70,9 @@ private:
 };
 
 // =============================================================================================
-// HubEngine - lives in the HEARASIDE Hub on the master bus.
+// HubEngine - lives in the HEARASIDE Hub on the master bus. Each Track sends what viewers hear
+// into the DAW, so the master bus (after any plug-ins above the Hub) is the Stream Mix; the Hub
+// rebuilds what you hear in your headphones from the Tracks' signals on the bus.
 
 struct HubParams {
     float masterDb    = 0.0f;
@@ -75,23 +82,12 @@ struct HubParams {
     bool  panic       = false;
     int   syncSafety  = 0;      // extra blocks of latency (0..2)
     bool  bypassed    = false;
-};
-
-// Optional processing on the Stream Mix only (e.g. mastering plug-ins hosted by the Hub). Runs on
-// the audio thread after the stream master gain and before the safety limiter.
-class StreamInsert {
-public:
-    virtual ~StreamInsert() = default;
-    virtual void processStream(float* left, float* right, int numFrames) noexcept = 0;
-    virtual int  latencyFrames() const noexcept { return 0; }
+    bool  silence     = false;  // nothing to the viewers (auto sync is measuring); the master bus is still analysed
 };
 
 class HubEngine {
 public:
     enum class Role { Disconnected, Owner, Secondary };
-
-    // The insert must outlive its registration; pass nullptr before destroying it.
-    void setStreamInsert(StreamInsert* insert) noexcept { insert_.store(insert, std::memory_order_release); }
 
     HubEngine();
     ~HubEngine();
@@ -108,9 +104,27 @@ public:
     ssbus::BusLayout* bus() const noexcept { return bus_.load(std::memory_order_acquire); }
     const std::string& busName() const noexcept { return busName_; }
     int latencyFrames() const noexcept;
+    // Plug-in latency, measured by finding how late each Track's viewers signal arrives on the
+    // master bus. The DAW delays every track to line up with the slowest chain, so with two or
+    // more tracks sounding the spread gives each Track's chain latency (kept in
+    // SlotHeader::chainLatencyBits, which the Track saves). Live, with one track sounding, the
+    // remembered chain latencies give the master plug-ins above the Hub.
+    // tracksMs = slowest remembered chain among active tracks. -1 = not measured yet.
+    // Any non-audio thread, a few times a second.
+    struct FxLatency { double masterMs = -1.0, tracksMs = -1.0; };
+    FxLatency measureLatencies();
+    // How late (ms) one Track's (or App Audio's, source = true) signal reaches the master bus right
+    // now, -1 = not found (silent or not correlated above minScore). anyPolarity also accepts an
+    // inverted copy (a microphone). score (optional) = the best correlation found, even when -1.
+    // faint: a weak, filtered copy (music leaking from headphones into a mic, through noise
+    // suppressors): 1 s window, whitened, also up to 400 ms early (negative result).
+    std::optional<double> measureLag(int index, double minScore, bool anyPolarity, bool source = false,
+                                     double* score = nullptr, bool faint = false);
+    // Analysed history so far, in frames at the sample rate (moves with the audio, not the clock).
+    uint64_t historyFrames() const noexcept { return uint64_t(capWrite_.load(std::memory_order_acquire)) * 4u; }
 
     // ---- audio thread -------------------------------------------------------------------
-    // io: the master bus block (in place). Writes Stream Mix + stems to shared memory.
+    // io in: the master bus = Stream Mix. io out: the headphone mix. Writes Stream Mix + stems.
     void process(float* const* io, int numCh, int n, const HubParams& p,
                  int64_t timeSamples, bool playing, bool offline) noexcept;
 
@@ -129,7 +143,8 @@ private:
         int      mismatch = 0;
         int      aheadBlocks = 0;
         bool     timelineLocked = false;
-        ssdsp::Smoother gain, panL, panR;
+        ssdsp::Smoother gain, panL, panR;   // stems
+        ssdsp::Smoother mon;                // headphones
         float    peak[2] = { 0, 0 };
     };
 
@@ -144,7 +159,6 @@ private:
     std::string busName_;
     uint64_t token_ = 0;
     std::atomic<Role> role_{ Role::Disconnected };
-    std::atomic<StreamInsert*> insert_{ nullptr };
     std::atomic<uint32_t> gen_{ 0 };   // bumped on (re)connect so the audio thread resets slot state
     uint32_t seenGen_ = ~0u;
 
@@ -154,7 +168,27 @@ private:
     uint32_t xfLen_ = 240;
 
     std::array<SlotState, ssbus::kMaxSlots> slots_;
-    std::vector<float> tmpA_[2], tmpB_[2];
+    std::vector<float> tmpA_[2], tmpB_[2], phones_[2];
+    // decimated (sample rate / 4) mono history for measureLatencies(): each Track's viewers signal
+    // and the master bus input. Audio thread writes, the measuring thread reads behind capWrite_.
+    std::vector<float> slotBlock_;                  // this chunk, kMaxSlots x maxBlock_
+    std::vector<float> capSlots_, capIn_;           // kMaxSlots x capLen_, capLen_
+    std::array<bool, ssbus::kMaxSlots> slotLive_{};
+    std::array<float, ssbus::kMaxSlots> decSlot_{};
+    std::array<uint32_t, ssbus::kMaxSlots> quiet_{};   // zero history samples written since the slot went quiet
+    // App Audio signals (what each adds to its track), same history layout as the Tracks
+    std::vector<float> capSources_;                 // kMaxSources x capLen_
+    std::array<uint64_t, ssbus::kMaxSources> srcCursor_{};
+    std::array<bool, ssbus::kMaxSources> srcKnown_{};
+    std::array<float, ssbus::kMaxSources> decSrc_{};
+    std::array<uint32_t, ssbus::kMaxSources> srcQuiet_{};
+    uint32_t capLen_ = 0;
+    std::atomic<uint32_t> capWrite_{ 0 };
+    float decIn_ = 0;
+    int decCount_ = 0;
+    int lastBlock_ = 256;
+    std::mutex measureMutex_;                       // prepare() vs measureLatencies()
+
     std::vector<float> outs_[ssbus::kNumStreamOuts][2];
     std::array<bool, ssbus::kNumStreamOuts> outUsed_{};
     std::array<ssdsp::Limiter, ssbus::kNumStreamOuts> limiters_;

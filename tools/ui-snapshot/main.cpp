@@ -2,22 +2,28 @@
 // so the native UI can be checked against the design mock-up without a DAW.
 //   ui-snapshot <output folder>
 #include "track/TrackProcessor.h"
+#include "track/TrackEditor.h"
 #include "hub/HubProcessor.h"
+#include "hub/HubEditor.h"
 #include "Settings.h"
-#include "hub/MasteringPanel.h"
-#include "ui/LookAndFeel.h"
+#ifdef _WIN32
+#include "app/AppAudioProcessor.h"
+extern "C" __declspec(dllimport) unsigned int __stdcall timeBeginPeriod(unsigned int);   // winmm, no <windows.h> here
+#pragma comment(lib, "winmm.lib")
+#endif
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <functional>
+#include <thread>
 
 using namespace hearaside;
 
 namespace {
 
-void save(juce::Component& c, const juce::File& file) {
+void save(juce::Component& c, const juce::File& file, float scale = 2.0f) {
     c.setVisible(true);
-    const auto img = c.createComponentSnapshot(c.getLocalBounds(), true, 2.0f);
+    const auto img = c.createComponentSnapshot(c.getLocalBounds(), true, scale);
     file.deleteFile();
     juce::FileOutputStream out(file);
     juce::PNGImageFormat().writeImageToStream(img, out);
@@ -25,6 +31,38 @@ void save(juce::Component& c, const juce::File& file) {
 }
 
 std::function<void(int)> gAudio;   // runs n audio blocks (keeps heartbeats / meters alive)
+
+// Layout check: visible sibling components must not overlap and must stay inside their parent
+// (a Viewport's scrolled content is exempt). Returns the problems found, one per line.
+juce::StringArray layoutProblems(juce::Component& root) {
+    juce::StringArray out;
+    std::function<void(juce::Component&, const juce::String&)> walk = [&](juce::Component& c, const juce::String& path) {
+        if (dynamic_cast<juce::Viewport*>(&c) != nullptr) {
+            if (auto* v = static_cast<juce::Viewport&>(c).getViewedComponent()) walk(*v, path + "/" + v->getName());
+            return;
+        }
+        std::vector<juce::Component*> kids;
+        for (auto* k : c.getChildren())
+            if (k->isVisible() && !k->getBounds().isEmpty() && dynamic_cast<juce::TooltipWindow*>(k) == nullptr
+                && dynamic_cast<juce::ScrollBar*>(k) == nullptr && dynamic_cast<juce::ResizableCornerComponent*>(k) == nullptr)
+                kids.push_back(k);
+        auto name = [](juce::Component* k) {
+            const auto t = k->getTitle().isNotEmpty() ? k->getTitle() : k->getName();
+            return juce::String(typeid(*k).name()).fromLastOccurrenceOf(":", false, false) + (t.isNotEmpty() ? "(" + t + ")" : juce::String());
+        };
+        for (size_t i = 0; i < kids.size(); ++i) {
+            const auto b = kids[i]->getBounds();
+            if (!c.getLocalBounds().contains(b) && dynamic_cast<juce::Viewport*>(c.getParentComponent()) == nullptr)
+                out.add(path + ": " + name(kids[i]) + " " + b.toString() + " outside " + c.getLocalBounds().toString());
+            for (size_t j = i + 1; j < kids.size(); ++j)
+                if (b.intersects(kids[j]->getBounds()))
+                    out.add(path + ": " + name(kids[i]) + " " + b.toString() + " overlaps " + name(kids[j]) + " " + kids[j]->getBounds().toString());
+            walk(*kids[i], path + "/" + name(kids[i]));
+        }
+    };
+    walk(root, "editor");
+    return out;
+}
 
 void pump(int ms) {
     const auto end = juce::Time::getMillisecondCounter() + juce::uint32(ms);
@@ -34,80 +72,251 @@ void pump(int ms) {
     }
 }
 
-} // namespace
-
-// --test-mastering [plug-in name]: hosts a real VST3 in the Hub's mastering chain, runs audio
-// through it, saves and restores the chain. Exit code 0 = ok.
-static int testMastering(const juce::String& wanted) {
-    MasteringChain chain;
-    chain.prepare(48000.0, 512);
-    const auto files = MasteringChain::findPluginFiles();
-    std::printf("found %d plug-in files (VST3 + VST2)\n", files.size());
-    int failures = 0;
-    auto check = [&](bool ok, const char* what) { std::printf("[%s] %s\n", ok ? " ok " : "FAIL", what); failures += ok ? 0 : 1; };
-    check(files.size() > 0, "plug-in folder scan (files only, nothing loaded)");
-
-    juce::File pick;
-    for (const auto& f : files)
-        if (wanted.isEmpty() ? f.getFileNameWithoutExtension().containsIgnoreCase("limiter") : f.getFileNameWithoutExtension().containsIgnoreCase(wanted)) { pick = f; break; }
-    if (pick == juce::File()) { std::printf("no matching plug-in to test with\n"); return failures; }
-    std::printf("testing with %s\n", pick.getFileName().toRawUTF8());
-
-    auto types = chain.typesIn(pick);
-    check(types.size() > 0, "plug-in types read from the file");
-    if (types.isEmpty()) return failures + 1;
-    const auto err = chain.add(*types[0]);
-    std::printf("  add -> '%s'\n", err.toRawUTF8());
-    check(err.isEmpty() && chain.size() == 1, "plug-in loaded into the chain");
-
-    std::vector<float> l(512), r(512);
-    float peakIn = 0, peakOut = 0;
-    bool finite = true;
-    for (int b = 0; b < 200; ++b) {
-        for (int i = 0; i < 512; ++i) l[size_t(i)] = r[size_t(i)] = 0.5f * std::sin(float(b * 512 + i) * 0.0628f);
-        for (int i = 0; i < 512; ++i) peakIn = std::max(peakIn, std::abs(l[size_t(i)]));
-        chain.processStream(l.data(), r.data(), 512);
-        for (int i = 0; i < 512; ++i) { peakOut = std::max(peakOut, std::abs(l[size_t(i)])); finite &= std::isfinite(l[size_t(i)]); }
+#ifdef _WIN32
+// --test-app-audio <program.exe> [snapshot.png] [block]: runs the App Audio plug-in in real time for
+// 3 s on that program (play something in it first) and checks that sound arrives.
+int testAppAudio(const juce::String& exe, const juce::String& png, int block) {
+    std::printf("programs with audio:");
+    for (const auto& a : AppCapture::listAudioApps()) std::printf(" %s", a.exe.c_str());
+    std::printf("\n");
+    timeBeginPeriod(1);   // 1 ms sleeps: blocks arrive about as evenly as from an audio interface
+    AppAudioProcessor p;
+    p.setPlayConfigDetails(2, 2, 48000.0, block);   // an effect on a plain (silent) audio track
+    p.prepareToPlay(48000.0, block);
+    p.setApp(exe);
+    juce::AudioBuffer<float> buf(2, block);
+    juce::MidiBuffer midi;
+    float peak = 0;
+    int blocks = 0, loud = 0, counted = 0;
+    const auto t0 = juce::Time::getMillisecondCounter();
+    const int seconds = juce::jmax(3, juce::SystemStats::getEnvironmentVariable("HEARASIDE_TEST_SECONDS", "3").getIntValue());
+    for (auto now = t0; now - t0 < juce::uint32(seconds * 1000); now = juce::Time::getMillisecondCounter()) {
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(1);   // the plug-in starts the capture from its timer
+        while (blocks * block < int(now - t0) * 48) {   // the DAW's pace: one block every block / 48 ms
+            buf.clear();
+            p.processBlock(buf, midi);
+            if (now - t0 > 1000) { peak = std::max(peak, buf.getMagnitude(0, block)); loud += buf.getMagnitude(0, block) > 1e-3f; ++counted; }
+            ++blocks;
+        }
+        juce::Thread::sleep(1);
     }
-    std::printf("  in %.3f -> out %.3f, latency %d frames\n", peakIn, peakOut, chain.totalLatencyFrames());
-    check(finite && peakOut > 0.0f, "audio runs through the hosted plug-in");
+    std::printf("state %d, peak %.3f, blocks with sound %d of %d, delay ~%.1f ms (block %.1f ms, packets %u frames%s)\n",
+                int(p.captureState()), peak, loud, counted, p.latencyMs(), block / 48.0, p.capturePacketFrames(),
+                p.captureShortPeriod() ? ", Windows low-latency" : "");
+    if (png.isNotEmpty()) {
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        pump(300);
+        save(*ed, juce::File::getCurrentWorkingDirectory().getChildFile(png));
+    }
+    return peak > 1e-3f && loud == counted ? 0 : 1;
+}
+#endif
 
-    chain.setBypassed(0, true);
-    for (int i = 0; i < 512; ++i) l[size_t(i)] = r[size_t(i)] = 0.25f;
-    chain.processStream(l.data(), r.data(), 512);
-    check(l[100] == 0.25f, "bypass passes audio untouched");
+#ifdef _WIN32
+// --test-sync <program.exe>: one-press auto sync with App Audio as the music (no Track on it).
+// The program must play something broadband (real music); a pure tone repeats too often to time.
+// The music track is App Audio capturing the program; the "mic" is a second capture of the same
+// program delayed 23 ms (like the headphones heard by the mic). Real time, real capture.
+int testSync(const juce::String& exe) {
+    timeBeginPeriod(1);
+    constexpr int B = 256, D = 1104;   // block, mic delay (23 ms)
+    _putenv_s("HEARASIDE_DEFAULT_BUS", "SyncMic");   // the mic's own capture is not a source of the tested bus
+    AppAudioProcessor micApp;
+    _putenv_s("HEARASIDE_DEFAULT_BUS", "SyncTest");
+    AppAudioProcessor music;
+    TrackProcessor mic;
+    HubProcessor hub;
+    for (juce::AudioProcessor* p : std::initializer_list<juce::AudioProcessor*> { &micApp, &music, &mic, &hub }) {
+        p->setPlayConfigDetails(2, 2, 48000.0, B);
+        p->prepareToPlay(48000.0, B);
+    }
+    micApp.setApp(exe);
+    music.setApp(exe);
+    mic.setDisplayNameOverride(juce::String::fromUTF8("เสียงร้อง"));
+    auto* monParam = mic.params().getParameter(trackparam::Mon);
+    monParam->setValueNotifyingHost(0.0f);
 
-    const auto xml = chain.toXml();
-    MasteringChain restored;
-    restored.prepare(48000.0, 512);
-    restored.fromXml(*xml);
-    check(restored.size() == 1 && restored.isBypassed(0) && restored.name(0) == chain.name(0), "chain saved and restored with the project");
-    chain.remove(0);
-    check(chain.size() == 0, "plug-in removed");
-    std::printf("%s\n", failures == 0 ? "MASTERING TEST PASSED" : "MASTERING TEST FAILED");
-    return failures;
+    juce::AudioBuffer<float> m(2, B), v(2, B), line(2, 48000), master(2, B);
+    juce::MidiBuffer midi;
+    int lw = 0, blocks = 0;
+    auto run = [&] {
+        m.clear();
+        music.processBlock(m, midi);
+        v.clear();
+        micApp.processBlock(v, midi);
+        for (int c = 0; c < 2; ++c)   // the mic hears it 23 ms later
+            for (int i = 0; i < B; ++i) {
+                line.setSample(c, (lw + i) % 48000, v.getSample(c, i));
+                v.setSample(c, i, line.getSample(c, (lw + i - D + 48000) % 48000));
+            }
+        lw = (lw + B) % 48000;
+        mic.processBlock(v, midi);
+        master.makeCopyOf(m);
+        master.addFrom(0, 0, v, 0, 0, B);
+        master.addFrom(1, 0, v, 1, 0, B);
+        hub.processBlock(master, midi);
+        ++blocks;
+    };
+    auto realtime = [&](int ms, std::function<bool()> until) {
+        const auto t0 = juce::Time::getMillisecondCounter();
+        const int b0 = blocks;
+        for (auto now = t0; now - t0 < juce::uint32(ms); now = juce::Time::getMillisecondCounter()) {
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(1);
+            while ((blocks - b0) * B < int(now - t0) * 48) run();
+            if (until && until()) return;
+            juce::Thread::sleep(1);
+        }
+    };
+    realtime(6000, nullptr);   // captures start, buffers settle
+    std::printf("music delay ~%.1f ms, mic capture delay ~%.1f ms\n", music.latencyMs(), micApp.latencyMs());
+    hub.startAutoSync();
+    using P = HubProcessor::SyncPhase;
+    realtime(15000, [&] { const auto ph = hub.autoSync().phase; return ph == P::Done || ph == P::Failed; });
+    realtime(500, nullptr);
+    const auto st = hub.autoSync();
+    const double expected = D / 48.0 + micApp.latencyMs() - music.latencyMs();
+    const float got = music.params().getRawParameterValue(appparam::Delay)->load();
+    std::printf("phase %d (error \"%s\"), mic late by %.2f ms, App Audio sync delay %.2f ms, expected ~%.2f ms\n",
+                int(st.phase), tr(st.error).toRawUTF8(), st.deltaMs, got, expected);
+    return st.phase == P::Done && std::abs(got - expected) < 1.5 ? 0 : 1;
+}
+#endif
+
+// --test-directory: ShareDirectory (permanent links) against a mock share web site: register,
+// heartbeat, retry after errors, unregister when sharing stops, and a quick shutdown while the
+// site hangs (the DAW must never wait on the network). Exit 1 on a failure.
+int testDirectory() {
+    struct Mock {
+        juce::StreamingSocket listener;
+        std::thread thread;
+        std::atomic<bool> run { true }, hang { false };
+        std::atomic<int> status { 200 }, registers { 0 }, unregisters { 0 };
+        std::mutex m;
+        juce::String lastBody;
+        int port = 0;
+        Mock() {
+            for (int p = 47870; p < 47890 && port == 0; ++p) if (listener.createListener(p, "127.0.0.1")) port = p;
+            thread = std::thread([this] {
+                while (run) {
+                    std::unique_ptr<juce::StreamingSocket> s(listener.waitForNextConnection());
+                    if (!s) continue;
+                    std::string req;
+                    char buf[4096];
+                    while (req.find("\r\n\r\n") == std::string::npos && s->waitUntilReady(true, 2000) == 1) {
+                        const int n = s->read(buf, sizeof buf, false);
+                        if (n <= 0) break;
+                        req.append(buf, size_t(n));
+                    }
+                    const auto head = req.substr(0, req.find("\r\n\r\n"));
+                    const auto lenAt = juce::String(head).indexOfIgnoreCase("Content-Length:");
+                    const int len = lenAt >= 0 ? juce::String(head).substring(lenAt + 15).getIntValue() : 0;
+                    while (int(req.size() - head.size() - 4) < len && s->waitUntilReady(true, 2000) == 1) {
+                        const int n = s->read(buf, sizeof buf, false);
+                        if (n <= 0) break;
+                        req.append(buf, size_t(n));
+                    }
+                    if (hang) { while (hang && run) juce::Thread::sleep(20); continue; }   // never answers
+                    const bool reg = req.find("POST /api/register") == 0;
+                    (reg ? registers : unregisters)++;
+                    { const std::lock_guard<std::mutex> l(m); lastBody = juce::String(req.substr(head.size() + 4)); }
+                    const auto body = juce::String(status == 200 ? "{\"ok\":true}" : "{\"error\":\"x\"}");
+                    const auto resp = "HTTP/1.1 " + juce::String(status.load()) + " X\r\nContent-Type: application/json\r\nContent-Length: "
+                                    + juce::String(body.length()) + "\r\nConnection: close\r\n\r\n" + body;
+                    s->write(resp.toRawUTF8(), int(resp.getNumBytesAsUTF8()));
+                }
+            });
+        }
+        ~Mock() { run = false; hang = false; listener.close(); thread.join(); }
+    } mock;
+    int failures = 0;
+    auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+    auto waitFor = [](std::function<bool()> f, int ms) {
+        for (int t = 0; t < ms && !f(); t += 20) juce::Thread::sleep(20);
+        return f();
+    };
+    const auto base = "http://127.0.0.1:" + juce::String(mock.port);
+    const juce::String secret = juce::String::repeatedString("ab", 32);
+    {
+        ShareDirectory dir;
+        dir.setTimings(300, 100);
+        dir.update(base, "listentokenlisten000000000", "sendtokensendtoken00000000", secret, {});
+        juce::Thread::sleep(300);
+        expect("no tunnel yet: nothing sent", mock.registers == 0 && dir.state() == ShareDirectory::State::Off);
+        dir.update(base, "listentokenlisten000000000", "sendtokensendtoken00000000", secret, "https://abc-def.trycloudflare.com");
+        expect("tunnel ready: registered, online", waitFor([&] { return dir.state() == ShareDirectory::State::Online; }, 3000));
+        {
+            const std::lock_guard<std::mutex> l(mock.m);
+            const auto j = juce::JSON::parse(mock.lastBody);
+            expect("body: tunnel, both tokens, the secret", j["tunnel"] == "https://abc-def.trycloudflare.com" && j["tokens"]["l"] == "listentokenlisten000000000"
+                                                            && j["tokens"]["s"] == "sendtokensendtoken00000000" && j["secret"] == secret);
+        }
+        expect("permanent link address", dir.listenUrl() == base + "/l/listentokenlisten000000000");
+        const int before = mock.registers;
+        expect("heartbeat keeps registering", waitFor([&] { return mock.registers >= before + 2; }, 3000));
+        mock.status = 503;
+        expect("site errors: unreachable", waitFor([&] { return dir.state() == ShareDirectory::State::Unreachable; }, 3000));
+        mock.status = 200;
+        expect("site back: online again (retry with backoff)", waitFor([&] { return dir.state() == ShareDirectory::State::Online; }, 5000));
+        dir.stop();
+        expect("sharing off: unregistered", waitFor([&] { return mock.unregisters == 1; }, 3000));
+        expect("then off", waitFor([&] { return dir.state() == ShareDirectory::State::Off; }, 2000));
+    }
+    {
+        auto dir = std::make_unique<ShareDirectory>();
+        dir->update(base, "listentokenlisten000000000", {}, secret, "https://abc-def.trycloudflare.com");
+        juce::Thread::sleep(100);
+        mock.hang = true;   // the site takes the request and never answers
+        dir->update(base, "listentokenlisten000000000", {}, secret, "https://other-name.trycloudflare.com");
+        juce::Thread::sleep(300);
+        const auto t0 = juce::Time::getMillisecondCounter();
+        dir.reset();   // the DAW closes the song now
+        const auto ms = juce::Time::getMillisecondCounter() - t0;
+        std::printf("     shutdown with a hanging request took %u ms\n", ms);
+        expect("closing never waits on the network (< 1 s)", ms < 1000);
+        mock.hang = false;
+    }
+    std::printf("%s\n", failures == 0 ? "share directory: all passed" : "share directory: FAILED");
+    return failures == 0 ? 0 : 1;
 }
 
+} // namespace
+
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    _putenv_s("HEARASIDE_SETTINGS_NAME", "settings-ui-snapshot");   // never the user's window sizes, flags, language
+#else
+    setenv("HEARASIDE_SETTINGS_NAME", "settings-ui-snapshot", 1);
+#endif
     juce::ScopedJuceInitialiser_GUI gui;
-    if (argc > 1 && juce::String(argv[1]) == "--test-mastering")
-        return testMastering(argc > 2 ? juce::String(argv[2]) : juce::String()) == 0 ? 0 : 1;
-    const juce::File dir = argc > 1 && juce::String(argv[1]) != "--demo" ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
-                                    : juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots");
+    if (argc > 1 && juce::String(argv[1]) == "--test-directory") return testDirectory();
+#ifdef _WIN32
+    if (argc > 2 && juce::String(argv[1]) == "--test-sync") return testSync(argv[2]);
+    if (argc > 2 && juce::String(argv[1]) == "--test-app-audio") return testAppAudio(argv[2], argc > 3 ? juce::String(argv[3]) : juce::String(), argc > 4 ? juce::String(argv[4]).getIntValue() : 480);
+#endif
+    // --audit [folder]: the UX audit matrix (sizes x language x theme x states) + a layout check;
+    // exits 1 when a layout problem is found
+    const bool audit = argc > 1 && juce::String(argv[1]) == "--audit";
+    const juce::String outArg = audit ? (argc > 2 ? juce::String(argv[2]) : juce::String("ui-snapshots/audit"))
+                              : argc > 1 && !juce::String(argv[1]).startsWith("--") ? juce::String(argv[1]) : juce::String("ui-snapshots");
+    const juce::File dir = juce::File::getCurrentWorkingDirectory().getChildFile(outArg);
     dir.createDirectory();
 
     SharedSettings settings;
     const auto oldLang = settings->language();
     const auto oldTheme = settings->themeMode();
 
-    // a Hub and five Tracks on a private bus, like the mock-up
+    // a Hub and five Tracks on a private bus, like the mock-up (new instances must not touch a
+    // running DAW's "Main" bus even before setBusName)
+#ifdef _WIN32
+    _putenv_s("HEARASIDE_DEFAULT_BUS", "Snapshot");
+#endif
     HubProcessor hub;
     hub.setBusName("Snapshot");
     hub.prepareToPlay(48000, 256);
     struct T { const char* name; bool mon, str; float db, trim; };
-    const T demo[] = { { "à¸”à¸™à¸•à¸£à¸µ (Backing)", true, true, -3.0f, 0.0f }, { "à¹€à¸ªà¸µà¸¢à¸‡à¸£à¹‰à¸­à¸‡", false, true, 0.0f, 0.0f },
-                       { "à¸à¸µà¸•à¸²à¸£à¹Œ", true, true, -2.0f, -6.0f }, { "à¹€à¸¡à¹‚à¸—à¸£à¸™à¸­à¸¡ / à¹„à¸à¸”à¹Œ", true, false, -6.0f, -10.0f },
-                       { "à¹„à¸¡à¸„à¹Œà¸žà¸¹à¸”", false, false, 0.0f, 0.0f } };
+    const T demo[] = { { "ดนตรี (Backing)", true, true, -3.0f, 0.0f }, { "เสียงร้อง", false, true, 0.0f, 0.0f },
+                       { "กีตาร์", true, true, -2.0f, -6.0f }, { "เมโทรนอม / ไกด์", true, false, -6.0f, -10.0f },
+                       { "ไมค์พูด", false, false, 0.0f, 0.0f } };
     std::vector<std::unique_ptr<TrackProcessor>> tracks;
     for (const auto& d : demo) {
         auto t = std::make_unique<TrackProcessor>();
@@ -122,28 +331,249 @@ int main(int argc, char** argv) {
         if (tracks.empty()) set(trackparam::StrDelay, 40.0f);
         tracks.push_back(std::move(t));
     }
+#ifdef _WIN32
+    // two App Audio instances on the same bus (they join HEARASIDE_DEFAULT_BUS)
+    std::vector<std::unique_ptr<AppAudioProcessor>> apps;
+    for (const char* exe : { "chrome.exe", AppAudioProcessor::kSystemAudio }) {
+        auto a = std::make_unique<AppAudioProcessor>();
+        a->setPlayConfigDetails(2, 2, 48000.0, 256);
+        a->prepareToPlay(48000.0, 256);
+        a->setApp(exe);
+        apps.push_back(std::move(a));
+    }
+    apps[1]->setFollowRecord(true);
+#endif
     // run a few audio blocks so meters, heartbeats and mirrors are live
-    juce::AudioBuffer<float> buf(2, 256);
+    juce::AudioBuffer<float> buf(2, 256), master(2, 256);
     juce::MidiBuffer midi;
     int block = 0;
     gAudio = [&](int count) { for (int k = 0; k < count; ++k, ++block) {
         const int b = block;
+        master.clear();
+#ifdef _WIN32
+        for (auto& a : apps) { buf.clear(); a->processBlock(buf, midi); }
+#endif
         for (size_t i = 0; i < tracks.size(); ++i) {
             for (int c = 0; c < 2; ++c)
                 for (int s = 0; s < 256; ++s)
                     buf.setSample(c, s, 0.3f / float(i + 1) * std::sin(float(b * 256 + s) * 0.03f * float(i + 1)));
             tracks[i]->processBlock(buf, midi);
+            for (int c = 0; c < 2; ++c) master.addFrom(c, 0, buf, c, 0, 256, 0.3f);   // the tracks reach the master (what viewers hear)
         }
-        buf.clear();
-        hub.processBlock(buf, midi);
+        hub.processBlock(master, midi);
     } };
     gAudio(200);
 
-    // --demo <seconds>: keep the Hub and Tracks running (bus "Snapshot") so the OBS control dock
-    // can be tried live: http://127.0.0.1:47621/?bus=Snapshot
+    if (audit) {
+        const auto oldScale = settings->uiScale();
+        settings->setUiScaleAuto(1.0f);   // (does not count as the user's choice)
+        juce::String report;
+        int problems = 0;
+        auto check = [&](juce::Component& c, const juce::String& name) {
+            const auto probs = layoutProblems(c);
+            problems += probs.size();
+            report << name << " (" << c.getWidth() << "x" << c.getHeight() << "): " << (probs.isEmpty() ? juce::String("ok") : juce::String(probs.size()) + " problem(s)") << "\n";
+            for (const auto& pr : probs) report << "    " << pr << "\n";
+        };
+        // an editor at a content size (w, h); 0 = its default size
+        auto shot = [&](auto& p, const juce::String& name, int w, int h) {
+            std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+            if (w > 0) ed->setSize(w, h);
+            pump(250);
+            save(*ed, dir.getChildFile(name + ".png"), 1.0f);
+            check(*ed, name);
+        };
+        auto panelShot = [&](HubEditor::Panel which, const juce::String& name, int slot = -1) {
+            std::unique_ptr<juce::AudioProcessorEditor> ed(hub.createEditor());
+            auto* he = dynamic_cast<HubEditor*>(ed.get());
+            auto panel = he->createPanel(which, slot);
+            struct Frame : juce::Component { void paint(juce::Graphics& g) override { g.fillAll(paletteOf(*this).paper); } } frame;
+            frame.setLookAndFeel(&panel->getLookAndFeel());
+            frame.setSize(panel->getWidth(), panel->getHeight());
+            frame.addAndMakeVisible(*panel);
+            pump(250);
+            save(frame, dir.getChildFile(name + ".png"), 1.0f);
+            check(frame, name);
+            frame.removeChildComponent(panel.get());
+            frame.setLookAndFeel(nullptr);
+        };
+        struct Size { const char* tag; int w, h; };
+        const Size hubSizes[] = { { "default", 1040, 790 }, { "oldmin", 880, 750 }, { "wide", 1600, 1000 }, { "laptop", 1000, 560 },
+                                  { "regular-edge", 780, 600 }, { "compact", 560, 480 },
+                                  { "min", int(theme::layout::hubMinW), int(theme::layout::hubMinH) }, { "tall", 420, 760 } };
+        for (int lang = 0; lang < 2; ++lang) {
+            for (int dark = 0; dark < 2; ++dark) {
+                settings->setLanguage(lang == 0 ? Language::Thai : Language::English);
+                settings->setThemeMode(dark ? ThemeMode::Dark : ThemeMode::Light);
+                const juce::String sfx = juce::String(lang == 0 ? "th" : "en") + (dark ? "-dark" : "-light");
+                for (const auto& s : hubSizes) shot(hub, "hub-" + juce::String(s.tag) + "-" + sfx, s.w, s.h);
+                shot(*tracks[1], "track-default-" + sfx, TrackEditor::kWidth, TrackEditor::kHeight);
+                shot(*tracks[1], "track-short-" + sfx, 380, 520);
+                shot(*tracks[1], "track-min-" + sfx, int(theme::layout::trackMinW), int(theme::layout::trackMinH));
+#ifdef _WIN32
+                shot(*apps[0], "app-default-" + sfx, 460, 610);
+                shot(*apps[0], "app-short-" + sfx, 460, 480);
+                shot(*apps[0], "app-min-" + sfx, int(theme::layout::appMinW), int(theme::layout::appMinH));
+#endif
+            }
+        }
+        // states (Thai + English, light)
+        for (int lang = 0; lang < 2; ++lang) {
+            settings->setLanguage(lang == 0 ? Language::Thai : Language::English);
+            settings->setThemeMode(ThemeMode::Light);
+            const juce::String sfx = lang == 0 ? "th" : "en";
+            for (auto p : { HubEditor::Panel::Share, HubEditor::Panel::Settings, HubEditor::Panel::Sync })
+                panelShot(p, juce::String(p == HubEditor::Panel::Share ? "panel-share-" : p == HubEditor::Panel::Settings ? "panel-settings-" : "panel-sync-") + sfx);
+            panelShot(HubEditor::Panel::Track, "panel-track-" + sfx, hub.tracks().front().slot);
+            panelShot(HubEditor::Panel::Levels, "panel-levels-" + sfx);
+            panelShot(HubEditor::Panel::Setup, "panel-setup-" + sfx);
+            if (!hub.sources().empty()) panelShot(HubEditor::Panel::SourceLevels, "panel-source-levels-" + sfx, hub.sources().front().index);
+            hub.setParam(hubparam::Preview, 1.0f);
+            hub.setParam(hubparam::Panic, 1.0f);
+            shot(hub, "state-preview-panic-default-" + sfx, 1040, 790);
+            shot(hub, "state-preview-panic-compact-" + sfx, 560, 480);
+            hub.setParam(hubparam::Preview, 0.0f);
+            hub.setParam(hubparam::Panic, 0.0f);
+        }
+        settings->setLanguage(Language::Thai);
+        {   // nothing on the bus yet: the empty state
+#ifdef _WIN32
+            _putenv_s("HEARASIDE_DEFAULT_BUS", "AuditEmpty");
+#endif
+            HubProcessor empty;
+            empty.setBusName("AuditEmpty");
+            empty.prepareToPlay(48000, 256);
+            juce::AudioBuffer<float> b(2, 256);
+            for (int i = 0; i < 20; ++i) empty.processBlock(b, midi);
+            shot(empty, "state-empty-default-th", 1040, 790);
+            shot(empty, "state-empty-compact-th", 560, 480);
+#ifdef _WIN32
+            _putenv_s("HEARASIDE_DEFAULT_BUS", "Snapshot");
+#endif
+        }
+        {   // 40+ tracks, one with a very long name
+            const size_t keep = tracks.size();
+            for (int i = 0; i < 38; ++i) {
+                auto t = std::make_unique<TrackProcessor>();
+                t->setBusName("Snapshot");
+                t->setDisplayNameOverride(i == 0 ? juce::String::fromUTF8("เสียงร้องประสานชุดที่สองแบบยาวมากจริงๆ (Backing Vocals Group B, double-tracked)")
+                                                 : "Track " + juce::String(i + 6));
+                t->prepareToPlay(48000, 256);
+                tracks.push_back(std::move(t));
+            }
+            gAudio(40);
+            shot(hub, "state-40tracks-default-th", 1040, 790);
+            shot(hub, "state-40tracks-compact-th", 560, 480);
+            settings->setLanguage(Language::English);
+            shot(hub, "state-40tracks-laptop-en", 1000, 560);
+            settings->setLanguage(Language::Thai);
+            gAudio = nullptr;   // the extra tracks go first
+            tracks.resize(keep);
+        }
+        {   // an extra Hub on the same bus
+            HubProcessor extra;
+            extra.setBusName("Snapshot");
+            shot(extra, "state-second-hub-th", 1040, 790);
+            shot(extra, "state-second-hub-compact-th", 560, 480);
+        }
+        report = "HEARASIDE UI audit - " + juce::Time::getCurrentTime().toString(true, true) + "\nlayout problems: "
+               + juce::String(problems) + "\n\n" + report;
+        dir.getChildFile("layout-report.txt").replaceWithText(report);
+        std::printf("%s", report.toRawUTF8());
+        settings->setUiScaleAuto(oldScale);
+        settings->setLanguage(oldLang);
+        settings->setThemeMode(oldTheme);
+        return problems == 0 ? 0 : 1;
+    }
+
+    // --test-rest: the REST API end to end (docs/rest-api.md) over a raw socket; exit 1 on a failure
+    if (audit == false && argc > 1 && juce::String(argv[1]) == "--test-rest") {
+        settings->setRestApi(true);
+        settings->setRestApiKey("0123456789abcdef0123456789abcdef");
+        for (int i = 0; i < 40 && !hub.control().running(); ++i) pump(50);
+        if (!hub.control().running()) { std::printf("FAIL: the REST API did not start\n"); return 1; }
+        const int port = hub.control().port();
+        // one request on a raw socket: [status, body]
+        auto call = [port](const juce::String& method, const juce::String& path, const juce::String& body, const juce::String& extra) {
+            juce::StreamingSocket s;
+            if (!s.connect("127.0.0.1", port, 2000)) return std::pair<int, juce::String>(0, {});
+            const auto req = method + " " + path + " HTTP/1.1\r\n" + extra + "Content-Length: " + juce::String(body.getNumBytesAsUTF8())
+                           + "\r\nConnection: close\r\n\r\n" + body;
+            s.write(req.toRawUTF8(), int(req.getNumBytesAsUTF8()));
+            juce::MemoryOutputStream out;
+            char buf[4096];
+            for (int n; s.waitUntilReady(true, 3000) == 1 && (n = s.read(buf, sizeof buf, false)) > 0;) out.write(buf, size_t(n));
+            const auto text = out.toString();
+            return std::pair<int, juce::String>(text.fromFirstOccurrenceOf(" ", false, false).getIntValue(), text.fromFirstOccurrenceOf("\r\n\r\n", false, false));
+        };
+        const juce::String host = "Host: 127.0.0.1:" + juce::String(port) + "\r\n", key = "Authorization: Bearer 0123456789abcdef0123456789abcdef\r\n";
+        int failures = 0;
+        auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+        // the requests block until the message thread answers: run them beside the message loop
+        std::atomic<bool> finished { false };
+        std::thread client([&] {
+            auto r = call("GET", "/api/v1/state", {}, host);
+            expect("no key -> 401", r.first == 401);
+            r = call("GET", "/api/v1/state", {}, host + "Authorization: Bearer wrongwrongwrongwrongwrongwrong00\r\n");
+            expect("wrong key -> 401", r.first == 401);
+            r = call("GET", "/api/v1/state", {}, host + key + "Origin: https://evil.example\r\n");
+            expect("a web page (Origin) -> 403", r.first == 403);
+            r = call("GET", "/api/v1/state", {}, "Host: evil.example:" + juce::String(port) + "\r\n" + key);
+            expect("another host name (DNS rebinding) -> 403", r.first == 403);
+            r = call("GET", "/api/v1/state", {}, host + key);
+            const auto state = juce::JSON::parse(r.second);
+            expect("GET /api/v1/state -> 200 with the 5 tracks", r.first == 200 && state["tracks"].size() == 5);
+            r = call("POST", "/api/v1/mute", "{\"on\": true}", host + key);
+            expect("POST /api/v1/mute {on: true} -> 200, stream_muted", r.first == 200 && bool(juce::JSON::parse(r.second)["stream_muted"]));
+            r = call("POST", "/api/v1/tracks/" + juce::URL::addEscapeChars(juce::String::fromUTF8("เสียงร้อง"), false), "{\"you_hear\": true, \"viewers_db\": -6}", host + key);
+            expect("POST /api/v1/tracks/<name> -> 200", r.first == 200);
+            r = call("POST", "/api/v1/tracks/nope", "{}", host + key);
+            expect("unknown track -> 404", r.first == 404);
+            r = call("POST", "/api/v1/stream", "not json", host + key);
+            expect("bad JSON -> 400", r.first == 400);
+            finished = true;
+        });
+        for (int i = 0; i < 400 && !finished; ++i) pump(25);
+        client.join();
+        pump(300);   // the Track takes the command within a block, through its own parameters
+        expect("the Hub parameter changed (host sees it)", hub.params().getRawParameterValue(hubparam::Panic)->load() > 0.5f);
+        expect("the Track's \"you hear\" changed", tracks[1]->params().getRawParameterValue(trackparam::Mon)->load() > 0.5f);
+        expect("the Track's viewers level changed", std::abs(tracks[1]->params().getRawParameterValue(trackparam::StrGain)->load() + 6.0f) < 0.01f);
+        gAudio = nullptr;
+        std::printf("%s\n", failures == 0 ? "REST API: all passed" : "REST API: FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+
+    // --demo <seconds>: keep the Hub and Tracks running (bus "Snapshot") so the OBS source
+    // can be tried live
     for (int i = 1; i + 1 < argc; ++i) {
         if (juce::String(argv[i]) == "--demo") {
+            // --share-base <url>: permanent links through that share web site (web/share-vercel)
+            // --state <file>: the Hub's project state (its links) kept between runs, like a saved song
+            juce::File stateFile;
+            for (int k = 1; k + 1 < argc; ++k) {
+                if (juce::String(argv[k]) == "--share-base") settings->setShareBase(argv[k + 1]);
+                if (juce::String(argv[k]) == "--state") stateFile = juce::File::getCurrentWorkingDirectory().getChildFile(argv[k + 1]);
+            }
+            if (stateFile.existsAsFile()) {
+                juce::MemoryBlock mb;
+                stateFile.loadFileAsData(mb);
+                hub.setStateInformation(mb.getData(), int(mb.getSize()));
+            }
             const int seconds = juce::String(argv[i + 1]).getIntValue();
+            hub.setSharing(true);   // try the share links (listen / send pages) while the demo runs
+            pump(500);
+            for (int k = 0; k < 60 && hub.share().tunnel() == ShareServer::Tunnel::Starting; ++k) pump(250);   // internet link (cloudflared)
+            for (int k = 0; k < 40 && hub.permanentLinksSet() && hub.directory().state() != ShareDirectory::State::Online; ++k) pump(250);
+            if (stateFile != juce::File()) {
+                juce::MemoryBlock mb;
+                hub.getStateInformation(mb);
+                stateFile.replaceWithData(mb.getData(), mb.getSize());
+            }
+            std::printf("listen link %s%c" "send link %s%c", hub.share().listenUrl().toRawUTF8(), 10, hub.share().sendUrl().toRawUTF8(), 10);
+            if (hub.permanentLinksSet())
+                std::printf("permanent listen link %s (%s)%c", hub.directory().listenUrl().toRawUTF8(),
+                            hub.directory().state() == ShareDirectory::State::Online ? "online" : "not online", 10);
             std::printf("demo running for %d s on bus \"Snapshot\"\n", seconds);
             std::fflush(stdout);
             pump(seconds * 1000);
@@ -167,38 +597,44 @@ int main(int argc, char** argv) {
                 pump(400);
                 save(*ed, dir.getChildFile("track-" + suffix + ".png"));
             }
+#ifdef _WIN32
+            {
+                std::unique_ptr<juce::AudioProcessorEditor> ed(apps[0]->createEditor());
+                pump(400);
+                save(*ed, dir.getChildFile("app-" + suffix + ".png"));
+            }
+#endif
         }
     }
-    // mastering panel (list page with one plug-in, and the picker page)
+    // an extra Hub on the same bus (start of a viewers FX channel until it finds an end Hub)
+    settings->setLanguage(Language::Thai);
+    settings->setThemeMode(ThemeMode::Dark);
     {
-        settings->setLanguage(Language::Thai);
-        settings->setThemeMode(ThemeMode::Dark);
-        hearaside::LookAndFeel lnf;
-        lnf.setDark(true);
-        for (const auto& f : MasteringChain::findPluginFiles()) {
-            if (!f.getFileNameWithoutExtension().containsIgnoreCase("limiter")) continue;
-            auto types = hub.mastering().typesIn(f);
-            if (!types.isEmpty()) hub.mastering().add(*types[0]);
-            break;
+        HubProcessor extra;
+        extra.setBusName("Snapshot");
+        std::unique_ptr<juce::AudioProcessorEditor> ed(extra.createEditor());
+        pump(400);
+        save(*ed, dir.getChildFile("hub-th-extra.png"));
+    }
+
+    // share panel (Thai, dark)
+    {
+        hub.setSharing(true);
+        pump(300);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(hub.createEditor());
+        if (auto* he = dynamic_cast<HubEditor*>(ed.get())) {
+            auto panel = he->createPanel(HubEditor::Panel::Share);
+            struct Frame : juce::Component { void paint(juce::Graphics& g) override { g.fillAll(paletteOf(*this).paper); } } frame;
+            frame.setLookAndFeel(&panel->getLookAndFeel());
+            frame.setSize(panel->getWidth(), panel->getHeight());
+            frame.addAndMakeVisible(*panel);
+            pump(400);
+            save(frame, dir.getChildFile("hub-th-share.png"));
+            frame.removeChildComponent(panel.get());
+            frame.setLookAndFeel(nullptr);
         }
-        {
-            MasteringPanel panel(hub.mastering());
-            panel.setLookAndFeel(&lnf);
-            pump(200);
-            juce::Component bg;
-            bg.setSize(panel.getWidth(), panel.getHeight());
-            save(panel, dir.getChildFile("mastering-list.png"));
-            panel.setLookAndFeel(nullptr);
-        }
-        {
-            MasteringPanel panel(hub.mastering());
-            panel.setLookAndFeel(&lnf);
-            if (auto* add = dynamic_cast<juce::Button*>(panel.getChildComponent(0))) add->triggerClick();
-            pump(300);
-            save(panel, dir.getChildFile("mastering-picker.png"));
-            panel.setLookAndFeel(nullptr);
-        }
-        while (hub.mastering().size() > 0) hub.mastering().remove(0);
+        pump(200);
+        hub.setSharing(false);
     }
 
     // preview + panic state (Thai, light)

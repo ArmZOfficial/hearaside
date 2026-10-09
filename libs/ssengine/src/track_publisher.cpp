@@ -74,12 +74,23 @@ bool TrackPublisher::hubPresent() const noexcept {
     return false;
 }
 
+bool TrackPublisher::soloActive() const noexcept {
+    const BusLayout* b = bus();
+    if (!b) return false;
+    for (const auto& sh : b->slots) {
+        if (sh.state.load(std::memory_order_acquire) != kSlotActive) continue;
+        const uint32_t f = sh.flags.load(std::memory_order_relaxed);
+        if ((f & kFlagSolo) && (f & kFlagStr)) return true;
+    }
+    return false;
+}
+
 void TrackPublisher::mirror(const Mirror& m) noexcept {
     lastMirror_ = m;
     SlotHeader* s = slot();
     if (!s) return;
     uint32_t keep = s->flags.load(std::memory_order_relaxed) & (kFlagBypassed | kFlagOffline | kFlagMono);
-    uint32_t f = keep | (m.mon ? kFlagMon : 0u) | (m.str ? kFlagStr : 0u) | (m.solo ? kFlagSolo : 0u);
+    uint32_t f = keep | (m.mon ? kFlagMon : 0u) | (m.str ? kFlagStr : 0u) | (m.solo ? kFlagSolo : 0u) | (m.app ? kFlagApp : 0u);
     s->strGainBits.store(floatBits(m.gainDb), std::memory_order_relaxed);
     s->strPanBits.store(floatBits(m.pan), std::memory_order_relaxed);
     s->strDelayBits.store(floatBits(m.delayMs), std::memory_order_relaxed);

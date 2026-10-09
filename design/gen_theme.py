@@ -1,7 +1,8 @@
 """Generates plugins/common/ui/Theme.h from design/tokens.json.
 
     python design/gen_theme.py           # write Theme.h
-    python design/gen_theme.py --check   # exit 1 if Theme.h is out of date (CTest / CI)
+    python design/gen_theme.py --check   # exit 1 if Theme.h is out of date or a text colour fails contrast (CTest / CI)
+    python design/gen_theme.py --contrast  # only the WCAG contrast check (docs/ux-roadmap.md, 6.2)
 """
 import json
 import re
@@ -53,9 +54,11 @@ def generate() -> str:
         out.append("    return p;")
         out.append("}")
         out.append("")
-    for group in ("radius", "space", "type", "glass", "motion"):
+    for group in ("radius", "space", "type", "glass", "motion", "layout"):
         out.append(f"namespace {group} {{")
         for k, v in t[group].items():
+            if k.startswith("$"):
+                continue
             out.append(f"constexpr float {k} = {float(v)!r}f;")
         out.append("}")
         out.append("")
@@ -63,8 +66,65 @@ def generate() -> str:
     return "\n".join(out) + "\n"
 
 
+def parse_colour(value: str):
+    v = argb(value)
+    n = int(v, 16)
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, ((n >> 24) & 255) / 255]
+
+
+def over(top, bottom):
+    a = top[3]
+    return [top[i] * a + bottom[i] * (1 - a) for i in range(3)] + [1.0]
+
+
+def luminance(c) -> float:
+    f = lambda x: x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
+
+
+def contrast_ratio(a, b) -> float:
+    la, lb = luminance(a), luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def contrast_problems() -> list:
+    """WCAG contrast of every text token on every background, both themes (section 6.2)."""
+    t = json.loads(TOKENS.read_text(encoding="utf-8"))
+    rules = t["contrast"]
+    problems = []
+    for mode in ("light", "dark"):
+        pal = {k: parse_colour(v) for k, v in t["color"][mode].items()}
+
+        def layer(stack: str):
+            names = stack.split(">")
+            colour = pal[names[-1]]
+            for n in reversed(names[:-1]):
+                colour = over(pal[n], colour)
+            return colour
+
+        pairs = [(fg, bg) for fg in rules["text"] for bg in rules["backgrounds"]] + [tuple(p) for p in rules["pairs"]]
+        for fg, bg in pairs:
+            back = layer(bg)
+            ratio = contrast_ratio(over(pal[fg], back), back)
+            if ratio < rules["minRatio"]:
+                problems.append(f"{mode}: {fg} on {bg} = {ratio:.2f}:1 (needs {rules['minRatio']}:1)")
+    for name in rules["disabledOnly"]:
+        if name in rules["text"]:
+            problems.append(f"{name} is listed as disabled-only and as text")
+    return problems
+
+
 def main() -> int:
     text = generate()
+    if "--contrast" in sys.argv or "--check" in sys.argv:
+        problems = contrast_problems()
+        for p in problems:
+            print("contrast:", p)
+        if problems:
+            return 1
+        print("contrast: every text token reaches the minimum ratio in both themes")
+        if "--contrast" in sys.argv:
+            return 0
     if "--check" in sys.argv:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
         if current.replace("\r\n", "\n") != text:

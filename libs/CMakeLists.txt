@@ -34,6 +34,7 @@ target_link_libraries(ssdsp PUBLIC ssbus PRIVATE ss_speex_resampler)
 add_library(ssengine STATIC
     ssengine/src/track_publisher.cpp
     ssengine/src/hub_engine.cpp
-    ssengine/src/hub_friends.cpp)
+    ssengine/src/hub_friends.cpp
+    ssengine/src/friend_reader.cpp)
 target_include_directories(ssengine PUBLIC ssengine/include)
 target_link_libraries(ssengine PUBLIC ssbus ssdsp)

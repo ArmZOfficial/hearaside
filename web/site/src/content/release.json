@@ -1,9 +1,9 @@
 {
-    "version":  "1.0.1",
+    "version":  "1.0.2",
     "date":  "10 Oct 2026",
-    "installer":  "/downloads/HEARASIDE-Setup-1.0.1.exe",
+    "installer":  "/downloads/HEARASIDE-Setup-1.0.2.exe",
     "sizeMb":  "19.3",
-    "sha256":  "d164d2e7c121bd1ad53131a0bf10fa2ef6ad49078a4cdcd53f9958da0013ef6b",
+    "sha256":  "5e0d03582a30dda6ec8978320e9e89f5ac57767fa160e9b80089e1a3900d28a3",
     "obsMin":  "32",
     "notes":  [
                   {

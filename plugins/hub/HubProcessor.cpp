@@ -842,14 +842,18 @@ void HubProcessor::serviceAutoSync() {
     if (now - syncWall_ > 12000) { finishAutoSync(Str::SyncNoAudio); return; }   // the DAW isn't running audio
     // wait until the analysed window is all after the switch (everything mutes within ~50 ms of it)
     const bool music = st.phase == SyncPhase::Reference;
-    if (engine_.historyFrames() - syncFrom_ < uint64_t(sampleRate_ * (music ? 1.2 : 2.0)) || now - syncWall_ < 250) return;
+    // both steps read a 1 s window (+ up to 0.9 s of lag): wait until all of it is after the switch
+    if (engine_.historyFrames() - syncFrom_ < uint64_t(sampleRate_ * 2.0) || now - syncWall_ < 250) return;
     const uint64_t frames = engine_.historyFrames();
     if (!syncReads_.empty() && frames - syncLastRead_ < uint64_t(sampleRate_ * 0.4)) return;
     syncLastRead_ = frames;
     double score = 0.0;
-    // phase 2: music that reaches the master another way (an FX return, a channel without HEARASIDE
-    // Track) would line up at the music's own lag and outvote the faint mic: take it out first
-    const auto lag = engine_.measureLag(st.ref, music ? 0.3 : 0.1, !music, st.refSource, &score, !music,
+    // Both steps use the long, whitened window ("faint"): in the music step a second copy of the music
+    // (the program also played straight to the interface and looped back, an FX return) otherwise
+    // pulls 0.25 s readings apart (autosync.log: 210 / 195 / 213 / 130 / 211 ms).
+    // Phase 2: music that reaches the master another way would line up at the music's own lag and
+    // outvote the faint mic: take it out first.
+    const auto lag = engine_.measureLag(st.ref, music ? 0.3 : 0.1, !music, st.refSource, &score, true,
                                         music ? std::nullopt : std::optional<double>(syncRefMs_));
     syncReads_.push_back({ lag, score });
     if (syncReads_.size() < 5) return;

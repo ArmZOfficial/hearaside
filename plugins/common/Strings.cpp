@@ -524,7 +524,7 @@ Table build() {
     s(Str::SyncCheck2, "เอาหูฟังจ่อไมค์", "Hold your headphones up to the mic");
     s(Str::SyncCheck3, "เงียบไว้จนกว่าจะเสร็จ", "Stay quiet until it’s done");
     s(Str::SyncStartMeasuring, "เริ่มวัด", "Start measuring");
-    s(Str::SyncTakes, "ใช้เวลาราว 7 วินาที", "Takes about 7 seconds.");
+    s(Str::SyncTakes, "ใช้เวลาราว 10 วินาที", "Takes about 10 seconds.");
     s(Str::SyncViewersNothing, "ระหว่างวัดคนดูจะไม่ได้ยินอะไร", "Viewers hear nothing while it measures.");
     s(Str::SyncViewersUntil, "คนดูจะไม่ได้ยินอะไรจนกว่าจะวัดเสร็จ", "Viewers hear nothing until this finishes");
     s(Str::SyncStartingIn, "เริ่มวัดใน %d…", "Starting in %d…");

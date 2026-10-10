@@ -3,7 +3,7 @@
 ; AppId never changes, so a newer installer upgrades the old one in place.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.0.2"
 #endif
 #ifndef BuildDir
   #error BuildDir is required (use build-installer.ps1)

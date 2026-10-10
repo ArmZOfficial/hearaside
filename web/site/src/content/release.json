@@ -7,6 +7,11 @@
     "obsMin":  "32",
     "notes":  [
                   {
+                      "version":  "1.0.2",
+                      "en":  "Auto-sync vocal works when music also reaches the master another way (an FX return, a group, a channel without HEARASIDE Track), and with “Hear viewers’ mix” switched on.",
+                      "th":  "ซิงก์เสียงร้องอัตโนมัติวัดได้แม้เพลงไปถึง master ทางอื่นด้วย (ช่อง FX return, group หรือช่องที่ไม่มี HEARASIDE Track) และตอนเปิด “ฟังแบบคนดู” อยู่"
+                  },
+                  {
                       "version":  "1.0.1",
                       "en":  "Fixes: text in fields readable in the light theme, the OBS delay no longer cut off, the Settings › Account title no longer shows twice, friends mixed in a DAW track stay audible with large buffers, more stable latency measuring.",
                       "th":  "แก้บั๊ก: ตัวอักษรในช่องพิมพ์อ่านได้ในธีมสว่าง ตัวเลขความหน่วง OBS ไม่ถูกตัด หัวข้อบัญชีในการตั้งค่าไม่ซ้ำ เสียงเพื่อนในแทร็ก DAW ไม่หายเมื่อใช้บัฟเฟอร์ใหญ่ และวัดความหน่วงได้นิ่งขึ้น"

@@ -119,8 +119,11 @@ public:
     // inverted copy (a microphone). score (optional) = the best correlation found, even when -1.
     // faint: a weak, filtered copy (music leaking from headphones into a mic, through noise
     // suppressors): 1 s window, whitened, also up to 400 ms early (negative result).
+    // removeMs: a direct copy of the signal that reaches the master this many ms late (a channel
+    // without HEARASIDE Track, an FX return) is subtracted first, so it can't outvote the mic.
     std::optional<double> measureLag(int index, double minScore, bool anyPolarity, bool source = false,
-                                     double* score = nullptr, bool faint = false);
+                                     double* score = nullptr, bool faint = false,
+                                     std::optional<double> removeMs = std::nullopt);
     // Analysed history so far, in frames at the sample rate (moves with the audio, not the clock).
     uint64_t historyFrames() const noexcept { return uint64_t(capWrite_.load(std::memory_order_acquire)) * 4u; }
 

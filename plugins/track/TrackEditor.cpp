@@ -1,4 +1,7 @@
 #include "TrackEditor.h"
+#include "FriendDirectory.h"
+#include "Host.h"
+#include "Links.h"
 
 namespace hearaside {
 
@@ -35,17 +38,81 @@ void TrackEditor::Body::resized() {
     }
 }
 
+TrackEditor::Sheet::AccountRow::AccountRow(TrackEditor& e) : ed(e) {
+    AccountManager::get().addListener(this);
+    addAndMakeVisible(actionBtn);
+    refreshTexts();
+}
+
+TrackEditor::Sheet::AccountRow::~AccountRow() {
+    AccountManager::get().removeListener(this);
+}
+
+void TrackEditor::Sheet::AccountRow::accountStateChanged(AccountManager::State) {
+    refreshTexts();
+    repaint();
+}
+
+void TrackEditor::Sheet::AccountRow::accountProfileChanged(const AccountManager::Profile&) {
+    refreshTexts();
+    repaint();
+}
+
+void TrackEditor::Sheet::AccountRow::refreshTexts() {
+    const bool signedIn = AccountManager::get().isSignedIn();
+    actionBtn.setButtonText(signedIn ? tr(Str::EditArrow) : tr(Str::SignInEllipsis));
+    actionBtn.setTitle(signedIn ? tr(Str::EditArrow) : tr(Str::SignInEllipsis));
+    actionBtn.setTooltip(signedIn ? tr(Str::EditArrow) : tr(Str::SignInEllipsis));
+    repaint();
+}
+
+void TrackEditor::Sheet::AccountRow::paint(juce::Graphics& g) {
+    const auto& p = paletteOf(*this);
+    auto r = getLocalBounds().toFloat();
+    const bool signedIn = AccountManager::get().isSignedIn();
+    const auto& prof = AccountManager::get().profile();
+
+    auto avR = r.removeFromLeft(28.0f).withSizeKeepingCentre(28.0f, 28.0f);
+    r.removeFromLeft(10.0f);
+    r.removeFromRight(float(actionBtn.getWidth() + 8));
+
+    if (signedIn) {
+        drawAvatar(g, avR, prof.displayName.isNotEmpty() ? prof.displayName : prof.handle, true, p, prof.avatarImage);
+        auto top = r.removeFromTop(18.0f);
+        g.setColour(p.ink);
+        g.setFont(uiFont(13.0f, Weight::Medium));
+        g.drawText(prof.displayName.isNotEmpty() ? prof.displayName : prof.handle, top, juce::Justification::centredLeft, true);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(11.5f, Weight::Regular));
+        g.drawText("@" + prof.handle, r, juce::Justification::centredLeft, true);
+    } else {
+        drawAvatar(g, avR, "?", false, p);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(13.0f, Weight::Regular));
+        g.drawText(tr(Str::NotSignedIn), r, juce::Justification::centredLeft, true);
+    }
+}
+
+void TrackEditor::Sheet::AccountRow::resized() {
+    const int btnW = actionBtn.idealWidth() > 0 ? actionBtn.idealWidth() : 74;
+    actionBtn.setBounds(getWidth() - btnW, (getHeight() - 30) / 2, btnW, 30);
+}
+
 TrackEditor::Sheet::Sheet(TrackEditor& e)
-    : ed(e), nameField({}, &name, 38), panField({}, &pan, PanSlider::kFullHeight, &panValue),
-      stemField({}, &stem, 38), busField({}, &bus, 38), soloField({}, &soloRow, 44), appearanceField({}, &appearance, 400) {
+    : ed(e), sourceField({}, &source, 48), nameField({}, &name, 38), panField({}, &pan, PanSlider::kFullHeight, &panValue),
+      stemField({}, &stem, 38), busField({}, &bus, 38), soloField({}, &soloRow, 44), appearanceField({}, &appearance, 400),
+      accountRow(e), accountField({}, &accountRow, 46) {
+    source.buildMenu = [this] { return buildSourceMenu(); };
     soloRow.sw = &solo;
     soloRow.addAndMakeVisible(solo);
     addAndMakeVisible(back);
     addAndMakeVisible(scroll);
     scroll.setContent(body);
-    body.fields = { &nameField, &panField, &stemField, &soloField, &busField, &appearanceField };
-    for (auto* f : body.fields) body.addAndMakeVisible(f);
+    body.fields = { &sourceField, &nameField, &panField, &stemField, &soloField, &busField, &appearanceField, &accountField };
+    for (auto* f : { &sourceField, &nameField, &panField, &stemField, &soloField, &busField, &appearanceField, &accountField })
+        body.addAndMakeVisible(f);
 
+    accountRow.actionBtn.onClick = [this] { ed.openAccount(true); };
     back.onClick = [this] { ed.openFineSettings(false); };
     name.setMaxUtf8Bytes(63);
     name.onReturnKey = [this] { ed.proc_.setDisplayNameOverride(name.getText()); ed.grabKeyboardFocus(); };
@@ -68,9 +135,133 @@ TrackEditor::Sheet::Sheet(TrackEditor& e)
     sync();
 }
 
+Menu TrackEditor::Sheet::buildSourceMenu() {
+    Menu m(260);
+    m.header(tr(Str::ChooseSource));
+
+    const bool isTrack = (ed.proc_.role() == TrackProcessor::Role::Track);
+    m.check(tr(Str::SourceThisTrack), isTrack, [this] {
+        if (ed.proc_.role() != TrackProcessor::Role::Track) {
+            ed.proc_.setRole(TrackProcessor::Role::Track);
+            sync();
+            ed.refreshStatus();
+            ed.layout();
+            ed.content_.repaint();
+        }
+    });
+    m.last().icon = icons::Icon::Waveform;
+
+    m.separator();
+
+    const auto friends = FriendDirectory::all();
+    const uint32_t currentFriendId = ed.proc_.isFriendInput() ? ed.proc_.friendId() : 0;
+    bool currentFound = false;
+
+    for (const auto& f : friends) {
+        const bool isSelected = (ed.proc_.isFriendInput() && currentFriendId == f.id);
+        if (isSelected) currentFound = true;
+
+        juce::String label;
+        if (f.inDaw && f.feeder != ed.proc_.feederIndex()) {
+            label = trf(Str::FriendInTrack, { f.name, f.feeder >= 0 ? juce::String(f.feeder + 1) : juce::String() });
+        } else {
+            label = trf(Str::FriendItem, { f.name });
+        }
+
+        m.check(label, isSelected, [this, fid = f.id] {
+            ed.proc_.setRole(TrackProcessor::Role::FriendInput);
+            ed.proc_.setFriendId(fid);
+            sync();
+            ed.refreshStatus();
+            ed.layout();
+            ed.content_.repaint();
+        });
+        m.last().icon = icons::Icon::Person;
+        m.last().dot = f.live() ? Dot::Ok : f.state == ssbus::kFriendWaiting ? Dot::Warn : Dot::Muted;
+    }
+
+    if (friends.empty() && !ed.proc_.publisher().hubPresent()) {
+        m.item(tr(Str::SourceNeedsHub), [] {});
+        m.last().enabled = false;
+    }
+
+    if (ed.proc_.isFriendInput() && currentFriendId != 0 && !currentFound) {
+        const auto fn = FriendDirectory::nameOf(currentFriendId);
+        m.check(trf(Str::FriendItem, { fn.isNotEmpty() ? fn : tr(Str::FriendWord) }), true, [] {});
+        m.last().icon = icons::Icon::Person;
+        m.last().dot = Dot::Warn;
+    }
+
+    m.separator();
+
+    m.item(tr(Str::SourcePasteLink), [this] {
+        const auto clip = juce::SystemClipboard::getTextFromClipboard().trim();
+        if (clip.isNotEmpty()) {
+            const auto parsed = links::parse(clip);
+            if (parsed.kind == links::Kind::Listen) {
+                ed.overlay().toast(tr(Str::LinkListenNotLinedUp));
+                return;
+            }
+            if (parsed.kind == links::Kind::Send || clip.contains("/s/")) {
+                ed.proc_.setRole(TrackProcessor::Role::FriendInput);
+                ed.proc_.requestResolveToken(parsed.token.isNotEmpty() ? parsed.token : clip);
+                sync();
+                ed.refreshStatus();
+                ed.layout();
+                ed.content_.repaint();
+                return;
+            }
+        }
+        ed.overlay().toast(tr(Str::LinkNotHearaside));
+    });
+    m.last().icon = icons::Icon::Link;
+
+    m.item(tr(Str::SourceInviteFriend), [this] {
+        if (!ed.proc_.publisher().hubPresent() && ed.proc_.bus() == nullptr) {
+            ed.overlay().toast(tr(Str::SourceNeedsHub));
+            return;
+        }
+        const int nextNum = int(FriendDirectory::all().size()) + 1;
+        ed.proc_.setRole(TrackProcessor::Role::FriendInput);
+        ed.proc_.requestCreateFriend(trf(Str::FriendDefaultName, { juce::String(nextNum) }));
+        sync();
+        ed.refreshStatus();
+        ed.layout();
+        ed.content_.repaint();
+    });
+    m.last().icon = icons::Icon::Plus;
+
+    if (ed.proc_.isFriendInput()) {
+        const uint32_t fid = ed.proc_.friendId();
+        FriendDirectory::Info fi;
+        const auto fn = (fid != 0 && FriendDirectory::find(fid, fi)) ? fi.name : tr(Str::FriendWord);
+
+        m.separator();
+        if (fid != 0) {
+            m.item(trf(Str::LinkCopiedSendTo, { fn }), [this, fid, fn] {
+                ed.proc_.requestCopyLink(fid);
+                ed.overlay().toast(trf(Str::LinkCopiedSendTo, { fn }));
+            });
+            m.last().icon = icons::Icon::Link;
+        }
+        m.item(trf(Str::StopBringing, { fn }), [this] {
+            ed.proc_.requestReleaseFriend();
+            ed.proc_.setRole(TrackProcessor::Role::Track);
+            sync();
+            ed.refreshStatus();
+            ed.layout();
+            ed.content_.repaint();
+        });
+        m.last().danger = true;
+    }
+
+    return m;
+}
+
 void TrackEditor::Sheet::refreshTexts() {
     back.setTitle(tr(Str::BackToTrack));
     back.setTooltip(tr(Str::BackToTrack));
+    sourceField.setTexts(tr(Str::ChooseSource), {});
     nameField.setTexts(tr(Str::RenameDisplay), tr(Str::RenameCap));
     panField.setTexts(tr(Str::Pan), {});
     stemField.setTexts(tr(Str::Stem), {});
@@ -81,18 +272,36 @@ void TrackEditor::Sheet::refreshTexts() {
     solo.setTitle(tr(Str::StreamSolo));
     appearanceField.setTexts(tr(Str::SecAppearance), {});
     name.setTitle(tr(Str::RenameTrack));
+    accountField.setTexts(tr(Str::AccountTitle), {});
+    accountRow.refreshTexts();
     soloRow.repaint();
+    sync();
 }
 
 void TrackEditor::Sheet::sync() {
     auto& p = ed.proc_;
+    if (p.isFriendInput()) {
+        const uint32_t fid = p.friendId();
+        FriendDirectory::Info fi;
+        const auto fn = (fid != 0 && FriendDirectory::find(fid, fi)) ? fi.name : tr(Str::FriendWord);
+        source.set(icons::Icon::Person, trf(Str::FriendItem, { fn }));
+        body.fields = { &sourceField, &nameField, &busField, &appearanceField, &accountField };
+    } else {
+        source.set(icons::Icon::Waveform, tr(Str::SourceThisTrack));
+        body.fields = { &sourceField, &nameField, &panField, &stemField, &soloField, &busField, &appearanceField, &accountField };
+    }
+    for (auto* f : { &sourceField, &nameField, &panField, &stemField, &soloField, &busField, &appearanceField, &accountField })
+        f->setVisible(false);
+    for (auto* f : body.fields)
+        f->setVisible(true);
+
     if (!name.hasKeyboardFocus(true)) {
         name.setText(p.displayNameOverride(), false);
         name.setPlaceholder(p.hostTrackName().isNotEmpty() ? p.hostTrackName() : p.displayName());
     }
     if (!bus.hasKeyboardFocus(true)) bus.setText(p.busName(), false);
     juce::StringArray stems { tr(Str::StemNone) };
-    auto* b = p.publisher().bus();
+    auto* b = p.bus();
     for (int i = 0; i < ssbus::kMaxStems; ++i) {
         juce::String n;
         if (b) n = juce::String::fromUTF8(b->streamHeader.names[1 + i], ssbus::kNameBytes).upToFirstOccurrenceOf(juce::String::charToString(0), false, false);
@@ -104,6 +313,7 @@ void TrackEditor::Sheet::sync() {
     if (!pan.slider().isMouseButtonDown()) pan.setPan(panNow);
     if (!panValue.isEditing()) panValue.setValue(panNow);
     solo.setOn(p.params().getRawParameterValue(trackparam::StrSolo)->load() > 0.5f, isShowing());
+    resized();
 }
 
 void TrackEditor::Sheet::SoloRow::paint(juce::Graphics& g) {
@@ -156,6 +366,8 @@ TrackEditor::TrackEditor(TrackProcessor& p)
     for (juce::Component* c : std::initializer_list<juce::Component*> { &chip_, &fineButton_, &banner_, &name_, &inputMeter_, &monRow_, &strRow_, &scroll_, &footer_ })
         content_.addAndMakeVisible(c);
     content_.addChildComponent(sheet_);
+    content_.addChildComponent(accountPanel_);
+    accountPanel_.onBack = [this] { openAccount(false); };
     scroll_.setContent(body_);
     body_.fields = { &headField_, &viewField_, &delayField_ };
     for (auto* f : body_.fields) body_.addAndMakeVisible(f);
@@ -175,7 +387,21 @@ TrackEditor::TrackEditor(TrackProcessor& p)
     viewValueLink_ = std::make_unique<ParamValueLink>(viewValue_, *pr.getParameter(trackparam::StrGain));
     delayValueLink_ = std::make_unique<ParamValueLink>(delayValue_, *pr.getParameter(trackparam::StrDelay));
 
-    procListener_.fn = [this] { refreshStatus(); sheet_.sync(); content_.repaint(); };
+    procListener_.fn = [this] {
+        const uint32_t rep = proc_.lastReply();
+        if (rep == ssbus::kReplyNotInRoom) {
+            overlay().toast(tr(Str::LinkOtherRoom));
+            proc_.clearReply();
+        } else if (rep == ssbus::kReplyRoomFull) {
+            overlay().toast(tr(Str::FriendFullToast));
+            proc_.clearReply();
+        } else if (rep > 0 && rep < 0xFFFF0000u) {
+            proc_.clearReply();
+        }
+        refreshStatus();
+        sheet_.sync();
+        content_.repaint();
+    };
     proc_.stateChanged.addChangeListener(&procListener_);
     refreshTexts();
     refreshStatus();
@@ -192,6 +418,7 @@ bool TrackEditor::paramOn(const char* id) const {
 }
 
 void TrackEditor::toggle(const char* id) {
+    if (proc_.isFriendInput()) return;
     auto* p = proc_.params().getParameter(id);
     p->beginChangeGesture();
     p->setValueNotifyingHost(p->getValue() > 0.5f ? 0.0f : 1.0f);
@@ -200,6 +427,7 @@ void TrackEditor::toggle(const char* id) {
 }
 
 void TrackEditor::openFineSettings(bool open) {
+    if (!open) accountPanel_.setVisible(false);
     if (open == sheet_.isVisible()) return;
     overlay().close();
     sheet_.sync();
@@ -209,11 +437,26 @@ void TrackEditor::openFineSettings(bool open) {
     (open ? static_cast<juce::Component&>(sheet_.back) : static_cast<juce::Component&>(fineButton_)).grabKeyboardFocus();
 }
 
+void TrackEditor::openAccount(bool open) {
+    if (open) {
+        sheet_.setVisible(false);
+        accountPanel_.setVisible(true);
+        accountPanel_.setBounds(card_.toNearestInt());
+        accountPanel_.toFront(true);
+    } else {
+        accountPanel_.setVisible(false);
+        sheet_.setVisible(true);
+        sheet_.toFront(true);
+    }
+    content_.repaint();
+}
+
 void TrackEditor::lookChanged() {
     backdrop_.invalidate();
     refreshTexts();
     refreshStatus();
     sheet_.refreshTexts();
+    accountPanel_.refreshTexts();
     layout();
     content_.repaint();
 }
@@ -237,9 +480,9 @@ void TrackEditor::refreshTexts() {
 
 void TrackEditor::refreshStatus() {
     const auto st = proc_.publisher().status();
-    auto* bus = proc_.publisher().bus();
+    auto* bus = proc_.bus();
     auto* slot = proc_.publisher().slot();
-    const bool hub = proc_.publisher().hubPresent();
+    const bool hub = proc_.publisher().hubPresent() || (bus && bus->header.hubFlags.load(std::memory_order_relaxed) != 0);
     const uint32_t hubFlags = bus ? bus->header.hubFlags.load(std::memory_order_relaxed) : 0u;
     const uint32_t hubStatus = slot ? slot->hubStatus.load(std::memory_order_relaxed) : 0u;
 
@@ -249,12 +492,37 @@ void TrackEditor::refreshStatus() {
     else chip_.set(tr(Str::HubMissingChip), Dot::Muted);
 
     bool show = true;
-    if (st == TrackPublisher::Status::SlotsFull) banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::SlotsFull));
+    if (proc_.isFriendInput()) {
+        const uint32_t fid = proc_.friendId();
+        FriendDirectory::Info fi;
+        const bool hasFriend = (fid != 0 && FriendDirectory::find(fid, fi));
+        const auto friendName = hasFriend ? fi.name : tr(Str::FriendWord);
+
+        if (!hub) {
+            banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::HubMissingBanner));
+        } else if (proc_.isBypassedNow()) {
+            banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::BypassWarning));
+        } else if (auto* f = proc_.feederRecord(); f != nullptr && lastFeederBlockCount_ > 0 && (juce::Time::getMillisecondCounter() - lastFeederBlockTime_ > 1000)) {
+            banner_.set(Banner::Style::Warning, icons::Icon::Warning, currentDaw() == Daw::Cubase ? tr(Str::FriendDawPausedCubase) : tr(Str::FriendDawPaused));
+        } else if (hasFriend && fi.outSlot >= 0 && bus != nullptr) {
+            const float fxMs = ssbus::bitsFloat(bus->slots[fi.outSlot].fxLatencyBits.load(std::memory_order_relaxed));
+            banner_.set(Banner::Style::Info, icons::Icon::Check, trf(Str::FriendPaired, { friendName, juce::String(juce::roundToInt(fxMs)) }));
+        } else {
+            banner_.set(Banner::Style::Warning, icons::Icon::Warning, trf(Str::FriendNotPaired, { friendName }));
+        }
+    }
+    else if (st == TrackPublisher::Status::SlotsFull) banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::SlotsFull));
     else if (st == TrackPublisher::Status::ShmError) banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::BusError));
     else if (proc_.isBypassedNow()) banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::BypassWarning));
     else if (hub && (hubStatus & ssbus::kHubStatusRateMismatch)) banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::RateMismatchTrack));
     else if (!hub) banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::HubMissingBanner));
+    else if (const uint32_t pairedId = proc_.pairedFriendId(); pairedId != 0) {
+        FriendDirectory::Info fi;
+        const auto friendName = FriendDirectory::find(pairedId, fi) ? fi.name : tr(Str::FriendWord);
+        banner_.set(Banner::Style::Info, icons::Icon::Check, trf(Str::FriendPaired, { friendName, juce::String(juce::roundToInt(proc_.fxLatencyMs())) }));
+    }
     else show = false;
+
     if (show != banner_.isVisible()) {
         banner_.setVisible(show);
         layout();
@@ -266,19 +534,39 @@ Str TrackEditor::summaryKey() const {
     return lastMon_ && lastStr_ ? Str::SumBoth : (!lastMon_ && lastStr_ ? Str::SumViewersOnly : (lastMon_ ? Str::SumYouOnly : Str::SumSilent));
 }
 
+juce::String TrackEditor::summaryText() const {
+    if (proc_.isFriendInput()) {
+        const uint32_t fid = proc_.friendId();
+        FriendDirectory::Info fi;
+        const auto fn = (fid != 0 && FriendDirectory::find(fid, fi)) ? fi.name : tr(Str::FriendWord);
+        return trf(Str::FriendHearSummary, { fn });
+    }
+    return tr(summaryKey());
+}
+
 void TrackEditor::timerCallback() {
-    const bool mon = paramOn(trackparam::Mon), str = paramOn(trackparam::Str);
+    const bool isFriend = proc_.isFriendInput();
+    if (isFriend) {
+        if (auto* f = proc_.feederRecord()) {
+            const uint64_t bc = f->blockCount.load(std::memory_order_relaxed);
+            if (bc != lastFeederBlockCount_) {
+                lastFeederBlockCount_ = bc;
+                lastFeederBlockTime_ = juce::Time::getMillisecondCounter();
+            }
+        }
+    }
+    const bool mon = !isFriend && paramOn(trackparam::Mon), str = !isFriend && paramOn(trackparam::Str);
     if (mon != lastMon_ || str != lastStr_ || slowTick_ == 0) {
         const bool animate = content_.isShowing();
         monRow_.setOn(mon, animate);
         strRow_.setOn(str, animate);
-        headphoneSlider_.setDim(!mon);
-        viewersSlider_.setDim(!str);
-        delaySlider_.getProperties().set(sliderlook::dim, !str);
+        headphoneSlider_.setDim(!mon || isFriend);
+        viewersSlider_.setDim(!str || isFriend);
+        delaySlider_.getProperties().set(sliderlook::dim, !str || isFriend);
         delaySlider_.repaint();
-        headValue_.setDim(!mon);
-        viewValue_.setDim(!str);
-        delayValue_.setDim(!str);
+        headValue_.setDim(!mon || isFriend);
+        viewValue_.setDim(!str || isFriend);
+        delayValue_.setDim(!str || isFriend);
         lastMon_ = mon;
         lastStr_ = str;
         layout();   // the summary sentence changes length
@@ -343,7 +631,7 @@ void TrackEditor::layout() {
     strRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
     c.removeFromTop(12.0f);
 
-    const float th = wrappedHeight(uiFont(12.5f), tr(summaryKey()), c.getWidth() - 24.0f, 6.0f);
+    const float th = wrappedHeight(uiFont(12.5f), summaryText(), c.getWidth() - 24.0f, 6.0f);
     summary_ = c.removeFromTop(th + 20.0f);
     c.removeFromTop(12.0f);
 
@@ -358,6 +646,7 @@ void TrackEditor::layout() {
     body_.setSize(w, bh);
 
     sheet_.setBounds(card_.toNearestInt());
+    accountPanel_.setBounds(card_.toNearestInt());
 }
 
 void TrackEditor::paintContent(juce::Graphics& g) {
@@ -381,7 +670,7 @@ void TrackEditor::paintContent(juce::Graphics& g) {
         juce::PathStrokeType(1.0f).createDashedStroke(dashed, box, dashes, 2);
         g.setColour(p.hairline3);
         g.fillPath(dashed);
-        drawWrapped(g, tr(summaryKey()), uiFont(12.5f), p.ink2, summary_.reduced(12.0f, 10.0f), 6.0f);
+        drawWrapped(g, summaryText(), uiFont(12.5f), p.ink2, summary_.reduced(12.0f, 10.0f), 6.0f);
     }
     g.setColour(p.hairline2);
     g.fillRect(footerLine_.withHeight(1.0f));

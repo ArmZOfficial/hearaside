@@ -88,6 +88,8 @@ AppAudioEditor::AppAudioEditor(AppAudioProcessor& p)
     : EditorShell(p, kWidth, kHeight, int(theme::layout::appMinW), int(theme::layout::appMinH), "app", 800, 1400), proc_(p) {
     for (juce::Component* c : std::initializer_list<juce::Component*> { &more_, &power_, &source_, &status_, &meter_, &scroll_ })
         content_.addAndMakeVisible(c);
+    content_.addChildComponent(accountPanel_);
+    accountPanel_.onBack = [this] { openAccount(false); };
     for (juce::Component* c : std::initializer_list<juce::Component*> { &levelField_, &delayField_, &only_, &steps_, &otherDaws_ })
         body_.addAndMakeVisible(c);
     scroll_.setContent(body_);
@@ -139,6 +141,7 @@ void AppAudioEditor::refreshTexts() {
     otherDaws_.setTitle(tr(Str::OtherDaws));
     steps_.setSteps(stepsFor(currentDaw()));
     steps_.setTitle(trf(Str::SetUpIn, { dawName(currentDaw()) }));
+    accountPanel_.refreshTexts();
 }
 
 void AppAudioEditor::lookChanged() {
@@ -214,11 +217,21 @@ void AppAudioEditor::showReceiveLink() {
 
 void AppAudioEditor::showMore() {
     Menu m(220);
+    m.item(tr(Str::AccountTitle) + "…", [this] { openAccount(true); });
     m.item(tr(Str::HowToSetUp), [this] {
         if (!allDaws_) { allDaws_ = false; }
         scroll_.scrollToShow(juce::Rectangle<float>(recordTitle_.getUnion(stepsBox_)).toNearestInt());
     });
     overlay().showMenu(std::move(m), more_);
+}
+
+void AppAudioEditor::openAccount(bool open) {
+    accountPanel_.setVisible(open);
+    if (open) {
+        accountPanel_.setBounds(card_.toNearestInt());
+        accountPanel_.toFront(true);
+    }
+    content_.repaint();
 }
 
 AppAudioEditor::Status AppAudioEditor::status() const {
@@ -306,6 +319,7 @@ void AppAudioEditor::layout() {
     scroll_.setFadeColour(lnf_.pal().paper.overlaidWith(lnf_.pal().glass));
     const int w = scroll_.contentWidth();
     body_.setSize(w, layoutBody(w));
+    accountPanel_.setBounds(card_.toNearestInt());
 }
 
 int AppAudioEditor::layoutBody(int width) {

@@ -43,7 +43,9 @@ set(hearaside_common_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Backdrop.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Components.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Icons.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/SettingsPanel.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/SettingsPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/AccountManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/AccountPanel.cpp)
 
 function(hearaside_add_plugin target)
     cmake_parse_arguments(P "" "PRODUCT_NAME;PLUGIN_CODE;DESCRIPTION" "SOURCES" ${ARGN})
@@ -118,7 +120,8 @@ target_link_libraries(HearasideHub PRIVATE hearaside_web)
 # (WASAPI process loopback, Windows 10 2004+), and prints it to WAV takes. Same plug-in code as
 # the earlier instrument version, so saved projects keep finding it.
 if(WIN32)
-    target_link_libraries(HearasideHub PRIVATE ole32 mmdevapi avrt)
+    target_link_libraries(HearasideHub PRIVATE ole32 mmdevapi avrt crypt32)
+    target_link_libraries(HearasideTrack PRIVATE crypt32)
     hearaside_add_plugin(HearasideAppAudio
         PRODUCT_NAME "HEARASIDE App Audio"
         PLUGIN_CODE  HrAp
@@ -129,7 +132,7 @@ if(WIN32)
             app/AppCapture.cpp
             app/LinkReceiver.cpp
             app/TakeRecorder.cpp)
-    target_link_libraries(HearasideAppAudio PRIVATE ssdsp ole32 mmdevapi avrt winhttp)
+    target_link_libraries(HearasideAppAudio PRIVATE ssdsp ole32 mmdevapi avrt winhttp crypt32)
 endif()
 # ui-snapshot: renders both editors to PNG (design QA without a DAW)
 if(HEARASIDE_BUILD_TOOLS)
@@ -148,7 +151,7 @@ if(HEARASIDE_BUILD_TOOLS)
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     if(WIN32)   # App Audio editor + --test-app-audio
         target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/AppAudioEditor.cpp app/LinkReceiver.cpp app/TakeRecorder.cpp)
-        target_link_libraries(hearaside_ui_snapshot PRIVATE ole32 mmdevapi avrt winhttp)
+        target_link_libraries(hearaside_ui_snapshot PRIVATE ole32 mmdevapi avrt winhttp crypt32)
     endif()
 endif()
 

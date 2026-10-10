@@ -19,3 +19,4 @@ err.txt
 /dist/
 /installer/windows/cache/
 tests/web-friend/friend-page.png
+/ui-snapshots/

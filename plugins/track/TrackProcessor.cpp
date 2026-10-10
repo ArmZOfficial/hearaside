@@ -1,5 +1,6 @@
 #include "TrackProcessor.h"
 #include "TrackEditor.h"
+#include "FriendDirectory.h"
 #include "Strings.h"
 #include "ValueText.h"
 
@@ -57,6 +58,7 @@ TrackProcessor::TrackProcessor()
 
 TrackProcessor::~TrackProcessor() {
     stopTimer();
+    disconnectFeeder();
     pub_.disconnect();
 }
 
@@ -74,6 +76,15 @@ void TrackProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     delayLine_.clear();
     delayWrite_ = 0;
     pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
+    reader_.prepare(sampleRate_, juce::jmax(2048, samplesPerBlock));
+    tapSum_ = 0.0f;
+    tapPhase_ = 0;
+    if (auto* f = feeder_.load(std::memory_order_relaxed))
+        f->sampleRate.store(uint32_t(sampleRate_ + 0.5), std::memory_order_relaxed);
+}
+
+void TrackProcessor::releaseResources() {
+    reader_.reset();
 }
 
 void TrackProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) { process(buffer, false); }
@@ -88,6 +99,108 @@ void TrackProcessor::process(juce::AudioBuffer<float>& buffer, bool bypassed) {
     bypassed_.store(bypassed, std::memory_order_relaxed);
     lastBlock_.store(n, std::memory_order_relaxed);
 
+    if (isFriendInput()) {
+        processFriend(buffer, bypassed, n, numCh);
+        return;
+    }
+    processTrack(buffer, bypassed, n, numCh);
+}
+
+void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypassed, int n, int numCh) {
+    juce::ignoreUnused(numCh);
+    auto* f = feeder_.load(std::memory_order_acquire);
+    auto* b = feederBus_.load(std::memory_order_acquire);
+    const bool offline = isNonRealtime();
+
+    if (f != nullptr) {
+        f->heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+        f->blockCount.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Silence on bypass or offline render
+    if (bypassed || offline) {
+        if (f != nullptr) {
+            f->status.store(offline ? ssbus::kFeederOffline : ssbus::kFeederBypassed, std::memory_order_relaxed);
+        }
+        reader_.reset();
+        buffer.clear();
+        for (int c = 0; c < 2; ++c) peak_[c].store(0.0f, std::memory_order_relaxed);
+        return;
+    }
+
+    const uint32_t fid = friendId_.load(std::memory_order_relaxed);
+    if (f == nullptr || b == nullptr || fid == 0) {
+        if (f != nullptr) f->status.store(ssbus::kFeederNoFriend, std::memory_order_relaxed);
+        reader_.reset();
+        buffer.clear();
+        for (int c = 0; c < 2; ++c) peak_[c].store(0.0f, std::memory_order_relaxed);
+        return;
+    }
+
+    int friendSlot = -1;
+    for (int s = 0; s < ssbus::kMaxFriends; ++s) {
+        if (b->friends[s].id.load(std::memory_order_acquire) == fid) {
+            friendSlot = s;
+            break;
+        }
+    }
+
+    if (friendSlot < 0 || b->friends[friendSlot].state.load(std::memory_order_acquire) != ssbus::kFriendLive) {
+        f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
+        reader_.reset();
+        buffer.clear();
+        for (int c = 0; c < 2; ++c) peak_[c].store(0.0f, std::memory_order_relaxed);
+        return;
+    }
+
+    auto& fh = b->friends[friendSlot];
+    const uint32_t frRate = fh.sampleRate.load(std::memory_order_relaxed);
+
+    float* out[2];
+    out[0] = buffer.getWritePointer(0);
+    if (buffer.getNumChannels() > 1) {
+        out[1] = buffer.getWritePointer(1);
+    } else {
+        if (int(monoScratch_.size()) < n) monoScratch_.resize(size_t(n));
+        out[1] = monoScratch_.data();
+    }
+
+    reader_.pull(b->friendAudio[friendSlot], fh.writePos, frRate, out, n);
+    f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
+
+    if (buffer.getNumChannels() == 1) {
+        const float* r = monoScratch_.data();
+        float* l = buffer.getWritePointer(0);
+        for (int i = 0; i < n; ++i) l[i] = (l[i] + r[i]) * 0.5f;
+    }
+    for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.clear(c, 0, n);
+
+    const float decay = std::exp(-float(n) / (0.3f * float(sampleRate_)));
+    for (int c = 0; c < 2; ++c) {
+        const float pk = buffer.getMagnitude(juce::jmin(c, buffer.getNumChannels() - 1), 0, n);
+        peak_[c].store(juce::jmax(pk, peak_[c].load(std::memory_order_relaxed) * decay), std::memory_order_relaxed);
+    }
+
+    const int fidx = feederIndex_.load(std::memory_order_relaxed);
+    if (fidx >= 0 && fidx < ssbus::kMaxFeeders) {
+        auto& tap = b->feederTap[fidx];
+        uint64_t tw = f->tapWrite.load(std::memory_order_relaxed);
+        const float* l = buffer.getReadPointer(0);
+        const float* r = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : l;
+        for (int i = 0; i < n; ++i) {
+            tapSum_ += (l[i] + r[i]) * 0.5f;
+            if (++tapPhase_ >= ssbus::kTapDecimation) {
+                tap.mono[tw % ssbus::kTapFrames] = tapSum_ * (1.0f / float(ssbus::kTapDecimation));
+                ++tw;
+                tapSum_ = 0.0f;
+                tapPhase_ = 0;
+            }
+        }
+        f->tapWrite.store(tw, std::memory_order_release);
+    }
+}
+
+void TrackProcessor::processTrack(juce::AudioBuffer<float>& buffer, bool bypassed, int n, int numCh) {
     int64_t time = ssengine::kNoTime;
     bool playing = false;
     if (auto* ph = getPlayHead()) {
@@ -144,6 +257,10 @@ void TrackProcessor::process(juce::AudioBuffer<float>& buffer, bool bypassed) {
     }
     if (len > n) delayWrite_ = (delayWrite_ + n) % len;
     for (int c = numCh; c < buffer.getNumChannels(); ++c) buffer.clear(c, 0, n);
+
+    if (auto* s = pub_.slot(); s && (s->flags.load(std::memory_order_relaxed) & ssbus::kFlagViewersViaHub)) {
+        buffer.clear();
+    }
 }
 
 juce::AudioProcessorEditor* TrackProcessor::createEditor() { return new TrackEditor(*this); }
@@ -152,6 +269,10 @@ juce::AudioProcessorEditor* TrackProcessor::createEditor() { return new TrackEdi
 // identity, bus connection, remote control
 
 void TrackProcessor::connect() {
+    if (isFriendInput()) {
+        connectFeeder();
+        return;
+    }
     lastConnectAttempt_ = juce::Time::getMillisecondCounter();
     const auto oldUuid = uuid_;
     pub_.connect(busName_.toStdString(), uuid_.toStdString(), uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
@@ -169,9 +290,140 @@ void TrackProcessor::connect() {
     stateChanged.sendChangeMessage();
 }
 
+void TrackProcessor::connectFeeder() {
+    lastConnectAttempt_ = juce::Time::getMillisecondCounter();
+    if (feeder_.load(std::memory_order_relaxed) != nullptr) return;
+    disconnectFeeder();
+    ssbus::SharedMemory::Status st{};
+    auto shm = ssbus::SharedMemory::open(busName_.toStdString(), st);
+    if (!shm) return;
+    const int idx = ssbus::claimFeeder(shm->layout());
+    if (idx < 0) {
+        retiredFeederShm_.push_back(std::move(shm));
+        return;
+    }
+    feederShm_ = std::move(shm);
+    feederBus_.store(&feederShm_->layout(), std::memory_order_release);
+    feederIndex_.store(idx, std::memory_order_release);
+    auto* f = &feederShm_->layout().feeders[idx];
+    const uint32_t fid = friendId_.load(std::memory_order_relaxed);
+    f->friendId.store(fid, std::memory_order_relaxed);
+    f->sampleRate.store(uint32_t(sampleRate_ + 0.5), std::memory_order_relaxed);
+    f->status.store(fid == 0 ? ssbus::kFeederNoFriend : ssbus::kFeederFlowing, std::memory_order_relaxed);
+    feeder_.store(f, std::memory_order_release);
+    pushFeederIdentity();
+    stateChanged.sendChangeMessage();
+}
+
+void TrackProcessor::disconnectFeeder() {
+    auto* f = feeder_.exchange(nullptr, std::memory_order_acq_rel);
+    auto* b = feederBus_.exchange(nullptr, std::memory_order_acq_rel);
+    const int idx = feederIndex_.exchange(-1, std::memory_order_acq_rel);
+    if (f && b && idx >= 0) {
+        ssbus::releaseFeeder(*b, idx);
+    }
+    if (feederShm_) retiredFeederShm_.push_back(std::move(feederShm_));
+    reader_.reset();
+}
+
+void TrackProcessor::pushFeederIdentity() {
+    auto* f = feeder_.load(std::memory_order_relaxed);
+    if (!f) return;
+    const auto name = displayName();
+    const juce::uint32 colour = hostColour_.isTransparent() ? 0u : hostColour_.getARGB();
+    ssbus::setFeederIdentity(*f, name.toStdString(), colour);
+}
+
+void TrackProcessor::setRole(Role r) {
+    if (role_.load(std::memory_order_relaxed) == r) return;
+    role_.store(r, std::memory_order_release);
+    if (r == Role::FriendInput) {
+        pub_.disconnect();
+        connectFeeder();
+    } else {
+        disconnectFeeder();
+        connect();
+    }
+    reader_.reset();
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    stateChanged.sendChangeMessage();
+}
+
+void TrackProcessor::setFriendId(uint32_t fid) {
+    if (friendId_.load(std::memory_order_relaxed) == fid) return;
+    friendId_.store(fid, std::memory_order_release);
+    if (auto* f = feeder_.load(std::memory_order_relaxed)) {
+        f->friendId.store(fid, std::memory_order_relaxed);
+        f->status.store(fid == 0 ? ssbus::kFeederNoFriend : ssbus::kFeederFlowing, std::memory_order_relaxed);
+    }
+    reader_.reset();
+    updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+    stateChanged.sendChangeMessage();
+}
+
+ssbus::BusLayout* TrackProcessor::bus() const noexcept {
+    if (isFriendInput()) return feederBus_.load(std::memory_order_acquire);
+    return pub_.bus();
+}
+
+void TrackProcessor::requestResolveToken(const juce::String& token) {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqResolveToken;
+        ssbus::postRequest(*b, idx, ssbus::kReqResolveToken, 0, token.toStdString());
+    }
+}
+
+void TrackProcessor::requestCreateFriend(const juce::String& name) {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqCreateFriend;
+        ssbus::postRequest(*b, idx, ssbus::kReqCreateFriend, 0, name.toStdString());
+    }
+}
+
+void TrackProcessor::requestReleaseFriend() {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    const uint32_t fid = friendId_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqRelease;
+        ssbus::postRequest(*b, idx, ssbus::kReqRelease, fid, {});
+    }
+}
+
+void TrackProcessor::requestCopyLink(uint32_t fid) {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqCopyLink;
+        ssbus::postRequest(*b, idx, ssbus::kReqCopyLink, fid, {});
+    }
+}
+
+uint32_t TrackProcessor::pairedFriendId() const noexcept {
+    if (auto* s = pub_.slot()) return s->fedBy.load(std::memory_order_relaxed);
+    return 0;
+}
+
+float TrackProcessor::fxLatencyMs() const noexcept {
+    if (auto* s = pub_.slot()) return ssbus::bitsFloat(s->fxLatencyBits.load(std::memory_order_relaxed));
+    return 0.0f;
+}
+
 juce::String TrackProcessor::displayName() const {
     if (nameOverride_.isNotEmpty()) return nameOverride_;
     if (hostName_.isNotEmpty()) return hostName_;
+    if (isFriendInput()) {
+        const uint32_t fid = friendId_.load(std::memory_order_relaxed);
+        if (fid != 0) {
+            const auto fn = FriendDirectory::nameOf(fid);
+            if (fn.isNotEmpty()) return fn;
+        }
+        return tr(Str::FriendWord);
+    }
     return tr(Str::TrackWord) + " " + juce::String(juce::jmax(0, pub_.slotIndex()) + 1);
 }
 
@@ -181,7 +433,8 @@ void TrackProcessor::setDisplayNameOverride(const juce::String& name) {
     const auto trimmed = valuetext::truncateUtf8(name.trim(), ssbus::kNameBytes - 1);   // whole code points, NUL fits
     if (trimmed == nameOverride_) return;
     nameOverride_ = trimmed;
-    pushIdentity();
+    if (isFriendInput()) pushFeederIdentity();
+    else pushIdentity();
     updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
     stateChanged.sendChangeMessage();
 }
@@ -192,7 +445,12 @@ void TrackProcessor::setBusName(const juce::String& name) {
     const auto b = name.trim().isEmpty() ? juce::String("Main") : name.trim();
     if (b == busName_) return;
     busName_ = b;
-    connect();
+    if (isFriendInput()) {
+        disconnectFeeder();
+        connectFeeder();
+    } else {
+        connect();
+    }
     updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
 }
 
@@ -245,6 +503,55 @@ void TrackProcessor::applyCommand(ssbus::ParamId id, float v) {
 }
 
 void TrackProcessor::timerCallback() {
+    if (isFriendInput()) {
+        auto* b = feederBus_.load(std::memory_order_acquire);
+        FriendDirectory::update(b);
+
+        if (feeder_.load(std::memory_order_relaxed) == nullptr
+            && juce::Time::getMillisecondCounter() - lastConnectAttempt_ > 2000)
+            connectFeeder();
+
+        {
+            juce::String name;
+            juce::Colour colour;
+            bool dirty = false;
+            {
+                const juce::ScopedLock sl(hostLock_);
+                if (hostDirty_) { name = pendingHostName_; colour = pendingHostColour_; hostDirty_ = false; dirty = true; }
+            }
+            if (dirty && (name != hostName_ || colour != hostColour_)) {
+                hostName_ = name;
+                hostColour_ = colour;
+                stateChanged.sendChangeMessage();
+            }
+        }
+        pushFeederIdentity();
+
+        if (auto* f = feeder_.load(std::memory_order_relaxed)) {
+            uint32_t reply = 0;
+            if (ssbus::pollReply(*f, replySeq_, reply)) {
+                lastReply_.store(reply, std::memory_order_relaxed);
+                if ((pendingRequest_ == ssbus::kReqResolveToken || pendingRequest_ == ssbus::kReqCreateFriend)
+                    && reply > 0 && reply < 0xFFFF0000u) {
+                    setFriendId(reply);
+                    pendingRequest_ = 0;
+                }
+                stateChanged.sendChangeMessage();
+            }
+            const uint32_t cmdSeq = f->hubCommandSeq.load(std::memory_order_acquire);
+            if (cmdSeq != feederCmdSeq_) {
+                feederCmdSeq_ = cmdSeq;
+                const uint32_t cmd = f->hubCommand.load(std::memory_order_relaxed);
+                if (cmd == 1) { // Bring back to the Hub
+                    setRole(Role::Track);
+                    return;
+                }
+            }
+        }
+        return;
+    }
+
+    FriendDirectory::update(pub_.bus());
     busSolo_.store(pub_.soloActive(), std::memory_order_relaxed);   // 64-slot scan 30x a second, not every block
     if (pub_.status() != TrackPublisher::Status::Connected
         && juce::Time::getMillisecondCounter() - lastConnectAttempt_ > 2000)
@@ -293,6 +600,8 @@ void TrackProcessor::getStateInformation(juce::MemoryBlock& dest) {
     state.setProperty("stem", stem_.load(), nullptr);
     if (auto* s = pub_.slot()) chainMs_ = ssbus::bitsFloat(s->chainLatencyBits.load(std::memory_order_relaxed));
     state.setProperty("chainMs", chainMs_, nullptr);
+    state.setProperty("role", isFriendInput() ? "friend" : "track", nullptr);
+    state.setProperty("friendId", int64_t(friendId_.load(std::memory_order_relaxed)), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -306,12 +615,19 @@ void TrackProcessor::setStateInformation(const void* data, int size) {
     stem_.store(juce::jlimit(-1, ssbus::kMaxStems - 1, int(state.getProperty("stem", -1))));
     chainMs_ = float(state.getProperty("chainMs", 0.0));
     if (auto* s = pub_.slot()) s->chainLatencyBits.store(ssbus::floatBits(chainMs_), std::memory_order_relaxed);
+
+    const juce::String roleStr = state.getProperty("role", "track").toString();
+    const uint32_t fid = uint32_t(int64_t(state.getProperty("friendId", 0)));
+    const Role r = (roleStr == "friend") ? Role::FriendInput : Role::Track;
+    friendId_.store(fid, std::memory_order_relaxed);
+
     apvts_.replaceState(state);
     if (uuid != uuid_ || bus != busName_) {
         uuid_ = uuid;
         busName_ = bus.isEmpty() ? defaultBusName() : bus;
-        connect();
+        setRole(r);
     } else {
+        setRole(r);
         pushedName_ = {};
         pushIdentity();
         stateChanged.sendChangeMessage();

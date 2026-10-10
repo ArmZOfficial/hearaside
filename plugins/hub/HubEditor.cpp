@@ -513,7 +513,7 @@ void ChannelRow::showMenu() {
 
 HubEditor::HubEditor(HubProcessor& p)
     : EditorShell(p, 1040, 790, int(theme::layout::hubMinW), int(theme::layout::hubMinH), "hub"), proc_(p) {
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &obs_, &share_, &settingsButton_, &compactMore_, &mute_, &back_, &manage_, &autoSync_,
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &obs_, &share_, &settingsButton_, &accountButton_, &compactMore_, &mute_, &back_, &manage_, &autoSync_,
                                                                         &levelMode_, &tabs_, &silentBanner_, &syncBanner_, &scroll_, &meterL_, &meterR_,
                                                                         &masterSlider_, &headphoneSlider_, &masterValue_, &headphoneValue_, &limiter_, &preview_ })
         content_.addChildComponent(c);
@@ -529,6 +529,7 @@ HubEditor::HubEditor(HubProcessor& p)
     limiter_.onClick = [this] { toggleParam(hubparam::LimiterOn); };
     share_.onClick = [this] { showPage(Page::Share); };
     settingsButton_.onClick = [this] { showPage(Page::Settings); };
+    accountButton_.onClick = [this] { showSettings(SettingsSection::Account); };
     compactMore_.onClick = [this] { showCompactMore(); };
     back_.onClick = [this] { showPage(Page::Main); };
     obs_.onClick = [this] { showObsPopover(); };
@@ -615,6 +616,8 @@ void HubEditor::refreshTexts() {
     share_.setTitle(tr(Str::ShareAudioTip));
     settingsButton_.setTooltip(tr(Str::SettingsTip));
     settingsButton_.setTitle(tr(Str::SettingsTip));
+    accountButton_.setTooltip(tr(Str::AccountTitle));
+    accountButton_.setTitle(tr(Str::AccountTitle));
     compactMore_.setTitle(tr(Str::MoreMenuAria));
     compactMore_.setTooltip(tr(Str::More));
     back_.setTitle(tr(Str::BackTip));
@@ -956,6 +959,7 @@ void HubEditor::showCompactMore() {
     m.item(tr(Str::TracksPageTitle), [this] { showPage(Page::Tracks); }, {}, true);
     m.item(tr(Str::ProgramsPageTitle), [this] { showPage(Page::Programs); }, {}, true);
     m.separator();
+    m.item(tr(Str::AccountTitle), [this] { showSettings(SettingsSection::Account); }, {}, true);
     m.item(tr(Str::SettingsTip), [this] { showPage(Page::Settings); }, {}, true);
     overlay().showMenu(std::move(m), compactMore_);
 }
@@ -976,7 +980,7 @@ void HubEditor::layoutHeader() {
     const bool compact = mode_ == Mode::Compact;
     const bool sub = page_ != Page::Main;
     auto h = header_.withTrimmedLeft(sub ? 12.0f : (compact ? 16.0f : 24.0f)).withTrimmedRight(compact ? 8.0f : 12.0f);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &obs_, &share_, &settingsButton_, &compactMore_, &back_ })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &obs_, &share_, &settingsButton_, &accountButton_, &compactMore_, &back_ })
         c->setVisible(false);
     mute_.setVisible(true);
     mute_.setIconOnly(compact);
@@ -1008,10 +1012,13 @@ void HubEditor::layoutHeader() {
     settingsButton_.setVisible(true);
     settingsButton_.setBounds(h.removeFromRight(40.0f).withSizeKeepingCentre(40.0f, 40.0f).toNearestInt());
     h.removeFromRight(8.0f);
+    accountButton_.setVisible(true);
+    accountButton_.setBounds(h.removeFromRight(40.0f).withSizeKeepingCentre(40.0f, 40.0f).toNearestInt());
+    h.removeFromRight(8.0f);
     share_.setVisible(true);
     share_.setBounds(h.removeFromRight(40.0f).withSizeKeepingCentre(40.0f, 40.0f).toNearestInt());
     h.removeFromRight(8.0f);
-    const float cw = juce::jmin(float(obs_.idealWidth()), h.getWidth() - 150.0f);
+    const float cw = juce::jmin(float(obs_.idealWidth()), h.getWidth() - 190.0f);
     obs_.setVisible(cw > 80.0f);
     obs_.setBounds(h.removeFromRight(cw).withSizeKeepingCentre(cw, 36.0f).toNearestInt());
     wordmark_ = h.withSizeKeepingCentre(h.getWidth(), 26.0f);

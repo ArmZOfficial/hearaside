@@ -156,3 +156,36 @@ Track: กว้าง 380–640, สูง 460–1400 ส่วนบน (ส�
 3. [12] ช่องค้นหา/กรองแทร็ก (ทั้งหมด · คุณได้ยิน · คนดูได้ยิน · มีคำเตือน) + header คอลัมน์ติดบน
 4. [4.5] shortcut ในหน้าต่างปลั๊กอิน (M, P, ↑/↓, H/V) — REST API + hotkey OBS ใช้แทนได้แล้วส่วนหนึ่ง
 5. [14–18] Large: ทบทวนเหตุผลที่ถอด Scene ก่อน (ไม่มีบันทึกใน git log — ถูกถอดใน working tree ที่ยังไม่ commit)
+
+---
+
+## 3. Redesign Phase: ดีไซน์ใหม่ + ห้องเพื่อน (8 คน) + มิกซ์เสียงเพื่อนใน DAW (10 ต.ค. 2026)
+
+ตามข้อกำหนดใน `HEARASIDE-Redesign-Prompt.md`:
+
+### สรุปสถานะงานระบบ (S1–S7) และงาน UI (U1–U11)
+
+| รหัส | งาน | ขนาด | สถานะ |
+|---|---|---|---|
+| **U1** | Component กลางตามดีไซน์ export (SourcePicker, SegmentedControl, Stepper, Popover) + Design tokens (`tokens.json` → `Theme.h`) + Focus ring / Accessible titles | M | ✅ |
+| **U2** | Hub หน้าหลักใหม่ (Header, OBS popover, Segmented level mode, Grid แถวใหม่, กลุ่ม Program audio และ Friends, เมนู ⋯, การ์ดขวา 2 ใบ, Toast) | L | ✅ |
+| **U3** | ระบบหน้าย่อยใน Hub (Sub-pages: Share, Settings, Sync, Setup, Manage tracks, Manage programs) | L | ✅ |
+| **U4** | Hub Compact layout (420×790 / breakpoint < 760) | M | ✅ |
+| **U5** | Track editor (380×640 / InlineName, SourcePicker, ToggleRow ใหญ่ 2 แถว, สรุปประโยคเส้นประ, Fine settings) | M | ✅ |
+| **U6** | App Audio editor (440×600 / SourcePicker ใหม่, รายการโปรแกรม + เพื่อน) | M | ✅ |
+| **U7** | ภาษาเริ่มต้น English + ภาษาไทยสมบูรณ์ (`Strings.cpp/.h`) | S | ✅ |
+| **U8** | หน้า Manage tracks (ตารางจัดการแทร็กแบบ bulk, filter, inline edit) | M | ✅ |
+| **U9** | หน้า Manage program audio (จัดการโปรแกรม + TakeRecorder WAV takes) | M | ✅ |
+| **U10** | ตรวจสอบระยะห่าง (3.0) และ focus ทุกหน้า (Layout audit 0 ข้อผิดพลาด บน 81 snapshot) | S | ✅ |
+| **U11** | UI ของ S7 (SourcePicker ใน Track editor: บทบาท Friend input, ป้ายสถานะ/เชื่อมต่อ, FriendPaired banner, FriendNotPaired banner, FriendDawPaused banner) | M | ✅ |
+| **S1** | แก้ชื่อแทร็กจาก Hub ให้ตามกันทุกปลั๊กอิน (`requestRename` / `slot.name`) | S | ✅ |
+| **S2** | ห้องเพื่อนรับได้สูงสุด 8 คนพร้อมกัน (Multi-sender rings, token 128-bit CSPRNG, `FriendSlot`, `FriendDirectory`) | L | ✅ |
+| **S3** | วัดความหน่วงของเพื่อนแต่ละคนอัตโนมัติ ($d_i$) ด้วย timeline timestamp tag | M | ✅ |
+| **S4** | หน่วงไลฟ์ให้ทุกคนตรงจังหวะสำหรับคนดู ($D = \max(d_i + L_i)$) พร้อม crossfade เมื่อ $D$ เปลี่ยน และ Mute/panic ตัดทันที | M | ✅ |
+| **S5** | App Audio รับเสียงเพื่อน + shift take ย้อนหลังให้ตรงจังหวะ | M | ✅ |
+| **S6** | ระบบสองภาษา EN/TH สลับได้ในหน้า Settings | S | ✅ |
+| **S7** | มิกซ์เสียงเพื่อนด้วยปลั๊กอินใน DAW (Track Feeder input role + FriendReader, วัด latency $L_i$, ป้องกันเสียงซ้ำ 2 ทาง, Cubase VST3 suspension safety) | L | ✅ |
+
+### ผลการทดสอบ
+- **Unit & Integration tests (`ss_unit_tests.exe`)**: ผ่าน 61/61 ชุด (รวม multi-sender ring, latency calculation, FriendReader, track pairing, feeder state/takeover/release, silence flags)
+- **UI Snapshot & Layout Checker (`hearaside_ui_snapshot.exe`)**: ผ่าน 81/81 ภาพ — ตรวจพบปัญหา layout 0 จุด

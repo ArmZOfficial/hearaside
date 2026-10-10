@@ -187,6 +187,8 @@ private:
     void pushStemNames();
     void run(juce::AudioBuffer<float>&, bool bypassed);
     void serviceRemote();                                   // OBS hotkeys -> Hub
+    void serviceRequests();                                 // Track requests -> Hub
+    void serviceFeeders();                                  // S7 feeder route & status
     void serviceAutoSync();
     void serviceShare();
     void finishAutoSync(Str error);
@@ -250,6 +252,8 @@ private:
     juce::String shareSecret_;   // saved: proves to the share web site that the permanent links are ours (never logged)
     uint32_t remoteCursor_ = 0;
     ssbus::BusLayout* remoteBus_ = nullptr;   // bus the cursor belongs to
+    uint32_t requestCursor_ = 0;
+    ssbus::BusLayout* requestBus_ = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HubProcessor)
 };

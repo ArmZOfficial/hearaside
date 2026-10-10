@@ -317,6 +317,8 @@ void HubProcessor::timerCallback() {
     }
     FriendDirectory::update(engine_.bus());
     serviceRemote();
+    serviceRequests();
+    serviceFeeders();
     serviceAutoSync();
     serviceShare();
     serviceControl();
@@ -536,6 +538,129 @@ void HubProcessor::applyRemote(int target, uint32_t pid, float v) {
             if (target < 0) startAutoSync();
             else startAutoSync(target, r <= -2 ? -r - 2 : r, r <= -2, 0);
             break;
+        }
+    }
+}
+
+void HubProcessor::serviceRequests() {
+    auto* bus = engine_.bus();
+    if (bus == nullptr || engine_.role() != HubEngine::Role::Owner) { requestBus_ = nullptr; return; }
+    if (bus != requestBus_) {
+        requestBus_ = bus;
+        requestCursor_ = bus->requestReserve.load(std::memory_order_acquire);
+    }
+    ssbus::pollRequests(*bus, requestCursor_, [this, bus](int feeder, ssbus::RequestKind kind, uint32_t arg, const std::string& text) {
+        if (feeder < 0 || feeder >= ssbus::kMaxFeeders) return;
+        auto& f = bus->feeders[feeder];
+        switch (kind) {
+            case ssbus::kReqResolveToken: {
+                juce::String tokenStr = juce::String::fromUTF8(text.c_str()).trim();
+                const int sIdx = tokenStr.lastIndexOf("/s/");
+                if (sIdx >= 0) tokenStr = tokenStr.substring(sIdx + 3);
+                const int qIdx = tokenStr.indexOfChar('?');
+                if (qIdx >= 0) tokenStr = tokenStr.substring(0, qIdx);
+                const int hIdx = tokenStr.indexOfChar('#');
+                if (hIdx >= 0) tokenStr = tokenStr.substring(0, hIdx);
+                tokenStr = tokenStr.trim();
+
+                uint32_t resolvedId = 0;
+                for (const auto& entry : friendRoom_.entries()) {
+                    if (entry.token == tokenStr) {
+                        resolvedId = entry.id;
+                        break;
+                    }
+                }
+                ssbus::postReply(f, resolvedId != 0 ? resolvedId : ssbus::kReplyNotInRoom);
+                break;
+            }
+            case ssbus::kReqCreateFriend: {
+                if (friendRoom_.full()) {
+                    ssbus::postReply(f, ssbus::kReplyRoomFull);
+                } else {
+                    juce::String name = juce::String::fromUTF8(text.c_str()).trim();
+                    const uint32_t newId = addFriend(name);
+                    ssbus::postReply(f, newId != 0 ? newId : ssbus::kReplyRoomFull);
+                }
+                break;
+            }
+            case ssbus::kReqRelease: {
+                const int slot = friendRoom_.slotOf(arg);
+                if (slot >= 0 && slot < ssbus::kMaxFriends) {
+                    auto& h = bus->friends[slot];
+                    if (h.feeder.load(std::memory_order_relaxed) == feeder) {
+                        h.route.store(ssbus::kRouteDirect, std::memory_order_relaxed);
+                        h.feeder.store(-1, std::memory_order_relaxed);
+                        const int outSlot = h.outSlot.load(std::memory_order_relaxed);
+                        if (outSlot >= 0 && outSlot < ssbus::kMaxSlots) {
+                            if (bus->slots[outSlot].fedBy.load(std::memory_order_relaxed) == arg) {
+                                bus->slots[outSlot].fedBy.store(0, std::memory_order_relaxed);
+                                bus->slots[outSlot].fxLatencyBits.store(0, std::memory_order_relaxed);
+                                bus->slots[outSlot].flags.fetch_and(~ssbus::kFlagViewersViaHub, std::memory_order_release);
+                            }
+                        }
+                        h.outSlot.store(-1, std::memory_order_relaxed);
+                    }
+                }
+                ssbus::postReply(f, 1);
+                break;
+            }
+            case ssbus::kReqCopyLink: {
+                const juce::String link = friendLink(arg);
+                if (link.isNotEmpty()) {
+                    juce::SystemClipboard::copyTextToClipboard(link);
+                    ssbus::postReply(f, 1);
+                } else {
+                    ssbus::postReply(f, ssbus::kReplyFailed);
+                }
+                break;
+            }
+        }
+    });
+}
+
+void HubProcessor::serviceFeeders() {
+    auto* bus = engine_.bus();
+    if (bus == nullptr || engine_.role() != HubEngine::Role::Owner) return;
+    const uint64_t now = ssbus::nowNs();
+
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) {
+        auto& fh = bus->friends[j];
+        const uint32_t fid = fh.id.load(std::memory_order_acquire);
+        if (fid == 0) continue;
+
+        int curFeeder = fh.feeder.load(std::memory_order_acquire);
+        if (curFeeder >= 0 && curFeeder < ssbus::kMaxFeeders) {
+            auto& f = bus->feeders[curFeeder];
+            if (f.state.load(std::memory_order_acquire) != ssbus::kSlotActive
+                || f.friendId.load(std::memory_order_relaxed) != fid
+                || now - f.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull) {
+                fh.feeder.store(-1, std::memory_order_release);
+                fh.route.store(ssbus::kRouteDirect, std::memory_order_release);
+                curFeeder = -1;
+            }
+        } else {
+            curFeeder = -1;
+        }
+
+        if (curFeeder < 0) {
+            for (int k = 0; k < ssbus::kMaxFeeders; ++k) {
+                auto& f = bus->feeders[k];
+                if (f.state.load(std::memory_order_acquire) == ssbus::kSlotActive
+                    && f.friendId.load(std::memory_order_relaxed) == fid
+                    && (now - f.heartbeatNs.load(std::memory_order_relaxed) < 800'000'000ull)) {
+                    fh.feeder.store(k, std::memory_order_release);
+                    curFeeder = k;
+                    break;
+                }
+            }
+        }
+
+        if (curFeeder >= 0) {
+            auto& f = bus->feeders[curFeeder];
+            const bool flowing = f.status.load(std::memory_order_relaxed) == ssbus::kFeederFlowing;
+            fh.route.store(flowing ? ssbus::kRouteDaw : ssbus::kRouteDirect, std::memory_order_release);
+        } else {
+            fh.route.store(ssbus::kRouteDirect, std::memory_order_release);
         }
     }
 }

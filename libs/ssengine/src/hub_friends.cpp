@@ -9,6 +9,7 @@
 // The headphones and the copy of the mix that friends hear (friendMixAudio) are never delayed.
 // SPDX-License-Identifier: MIT
 #include "ssengine/engine.h"
+#include "ssengine/friend_reader.h"
 
 #include <cmath>
 #include <cstring>
@@ -30,15 +31,12 @@ inline void readTap(const std::vector<float>& ring, uint32_t endPos, uint32_t n,
 } // namespace
 
 struct HubEngine::FriendPlayer {
-    std::unique_ptr<ssdsp::VarResampler> rsSame, rs48, rs441;
-    ssdsp::DriftController drift;
+    FriendReader reader;
     ssdsp::Smoother mon, str, panL, panR, direct;
-    std::vector<float> in[2], out[2], tap[2];
+    std::vector<float> out[2], tap[2];
     DelayLine dl;                                  // the viewers' side, delayed by D - own delay
-    uint64_t cursor = 0, lastWrite = 0, starvedAt = 0;
-    uint32_t key = 0, id = 0;
-    bool primed = false, live = false;
-    double target = 0, floorF = 0, fillAvg = 0, sinceWrite = 0, minMargin = 1.0e9, windowSec = 0, holdSec = 0;
+    uint32_t id = 0;
+    bool live = false;
     float peak = 0;
 };
 
@@ -47,7 +45,6 @@ HubEngine::HubEngine() { token_ = randomToken(); }
 HubEngine::~HubEngine() { disconnect(); }
 
 void HubEngine::friendsPrepare() {
-    const uint32_t r = uint32_t(sampleRate_ + 0.5);
     delayCap_ = uint32_t(1.5 * sampleRate_) + 4u * uint32_t(maxBlock_) + 64u;
     for (int c = 0; c < 2; ++c) {
         fmix_[c].assign(size_t(maxBlock_), 0.0f);
@@ -57,11 +54,8 @@ void HubEngine::friendsPrepare() {
     for (auto& d : outDelay_) d.assign(delayCap_);
     for (int j = 0; j < kMaxFriends; ++j) {
         auto p = std::make_unique<FriendPlayer>();
-        p->rsSame = std::make_unique<ssdsp::VarResampler>(r, r, 4);
-        p->rs48 = std::make_unique<ssdsp::VarResampler>(48000, r, 4);
-        p->rs441 = std::make_unique<ssdsp::VarResampler>(44100, r, 4);
+        p->reader.prepare(sampleRate_, maxBlock_);
         for (int c = 0; c < 2; ++c) {
-            p->in[c].assign(size_t(maxBlock_) * 4 + 128, 0.0f);
             p->out[c].assign(size_t(maxBlock_), 0.0f);
             p->tap[c].assign(size_t(maxBlock_), 0.0f);
         }
@@ -85,7 +79,7 @@ void HubEngine::friendsPrepare() {
 void HubEngine::friendsReset() noexcept {
     for (auto& p : friends_) {
         if (!p) continue;
-        p->primed = false;
+        p->reader.reset();
         p->live = false;
         p->mon.snap(0.0f);
         p->str.snap(0.0f);
@@ -129,101 +123,30 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         const uint32_t id = h.id.load(std::memory_order_acquire);
         const bool liveState = h.state.load(std::memory_order_acquire) == kFriendLive && id != 0
                             && now - h.heartbeatNs.load(std::memory_order_relaxed) < kFriendStaleNs;
-        if (id != f.id) { f.id = id; f.primed = false; f.mon.snap(0.0f); f.str.snap(0.0f); f.dl.assign(delayCap_); }
+        if (id != f.id) { f.id = id; f.reader.reset(); f.mon.snap(0.0f); f.str.snap(0.0f); f.dl.assign(delayCap_); }
         const uint32_t rate = h.sampleRate.load(std::memory_order_relaxed);
-        ssdsp::VarResampler* rs = rate == sr ? f.rsSame.get() : rate == 48000 ? f.rs48.get() : rate == 44100 ? f.rs441.get() : nullptr;
         f.live = false;
-        if (!liveState || rs == nullptr) {
-            f.primed = false;
+        if (!liveState) {
+            f.reader.reset();
             info.playing.store(0, std::memory_order_relaxed);
             for (int c = 0; c < 2; ++c) std::memset(f.out[c].data(), 0, size_t(n) * sizeof(float));
             f.peak *= std::exp(-float(n) / (0.3f * float(sr)));
             continue;
         }
-        const double fr = double(rate);
-        const uint64_t w = h.writePos.load(std::memory_order_acquire);
-        if (f.key != rate) {   // first block or the browser changed its rate: safe start with room for the network
-            f.key = rate;
-            const double block = double(maxBlock_) * fr / sampleRate_;
-            const double packet = fr * 0.03;
-            f.target = block + packet + fr * 0.04;
-            f.floorF = block + 32.0;
-            f.holdSec = 0.0;
-            f.primed = false;
-            f.starvedAt = f.lastWrite = w;
-        }
-        f.sinceWrite = w != f.lastWrite ? 0.0 : f.sinceWrite + dt;
-        f.lastWrite = w;
-        const bool arriving = f.sinceWrite < 0.09 + dt;
-        double fill = double(int64_t(w - f.cursor));
-        const double maxFill = double(kRingFrames - kGuardFrames);
-        bool ok = true;
-        if (!f.primed || fill < 0.0 || fill > std::min(maxFill, f.target * 2.0 + fr * 0.05)) {
-            if (double(w) < double(f.starvedAt) + f.target + double(n)) ok = false;
-            else {
-                f.cursor = w - uint64_t(f.target);
-                f.drift.reset(f.target);
-                rs->reset();
-                f.primed = true;
-                fill = f.target;
-                f.mon.snap(0.0f);
-                f.str.snap(0.0f);   // no click when the voice (re)starts
-                f.fillAvg = f.target;
-                f.minMargin = 1.0e9;
-                f.windowSec = 0.0;
-            }
-        }
-        const double need = ok ? double(rs->inputFor(uint32_t(n))) : 0.0;
-        if (ok && fill < need) {
-            if (arriving) {   // packets come but not fast enough: this line needs more headroom
-                f.target = std::min(f.target + fr * 0.002, double(maxBlock_) * fr / sampleRate_ + fr * 0.4);
-                f.floorF = f.target;
-                f.holdSec = 5.0;
-            }
-            f.primed = false;
-            f.starvedAt = w;
-            ok = false;
-        }
-        if (ok) {   // give back unused headroom every 3 s
-            f.fillAvg += (fill - f.fillAvg) * (1.0 - std::exp(-dt / 0.3));
-            f.minMargin = std::min(f.minMargin, fill - need);
-            f.windowSec += dt;
-            f.holdSec -= dt;
-            if (f.windowSec >= 3.0) {
-                const double spare = f.minMargin - fr * 0.002;
-                if (f.holdSec <= 0.0 && spare > fr * 0.0002 && std::abs(f.fillAvg - f.target) < fr * 0.0005) {
-                    f.target = std::max(std::max(f.floorF, double(n) * fr / sampleRate_ + 32.0), f.target - std::min(spare * 0.5, fr * 0.001));
-                    f.drift.setTarget(f.target);
-                }
-                f.windowSec = 0.0;
-                f.minMargin = 1.0e9;
-            }
-            const double c = f.drift.update(fill, dt);
-            rs->setCorrectionPpm(int(std::lround(c * 1.0e6)));
-            float* in[2] = { f.in[0].data(), f.in[1].data() };
-            uint32_t made = 0;
-            for (int pass = 0; pass < 3 && made < uint32_t(n); ++pass) {
-                const uint32_t want = std::min<uint32_t>(rs->inputFor(uint32_t(n) - made), uint32_t(f.in[0].size()));
-                uint32_t avail = 0;
-                if (ringReadAt(b->friendAudio[j], h.writePos, f.cursor, in, want, &avail) == ReadResult::Overrun) { f.primed = false; f.starvedAt = w; ok = false; break; }
-                if (avail == 0) break;
-                uint32_t usedIn = avail, got = uint32_t(n) - made;
-                float* o[2] = { f.out[0].data() + made, f.out[1].data() + made };
-                rs->process(in, usedIn, o, got);
-                f.cursor += usedIn;
-                made += got;
-                if (usedIn == 0 && got == 0) break;
-            }
-            if (ok) for (int c2 = 0; c2 < 2; ++c2) if (made < uint32_t(n)) std::memset(f.out[c2].data() + made, 0, (uint32_t(n) - made) * sizeof(float));
+        float* o[2] = { f.out[0].data(), f.out[1].data() };
+        const bool wasPrimed = f.reader.primed();
+        const bool ok = f.reader.pull(b->friendAudio[j], h.writePos, rate, o, n);
+        if (!wasPrimed && f.reader.primed()) {
+            f.mon.snap(0.0f);
+            f.str.snap(0.0f);   // no click when the voice (re)starts
         }
         if (!ok) {
-            for (int c = 0; c < 2; ++c) std::memset(f.out[c].data(), 0, size_t(n) * sizeof(float));
             info.playing.store(0, std::memory_order_relaxed);
             continue;
         }
         f.live = true;
         have[size_t(j)] = true;
-        const float bufMs = float(f.fillAvg * 1000.0 / fr);
+        const float bufMs = float(f.reader.bufferMs());
         info.bufferMsBits.store(floatBits(bufMs), std::memory_order_relaxed);
         info.playing.store(1, std::memory_order_relaxed);
     }

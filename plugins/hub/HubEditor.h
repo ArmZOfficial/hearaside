@@ -106,7 +106,7 @@ public:
     enum class Page { Main, Share, Settings, Track, Sync, Tracks, Programs, Setup };
     void showPage(Page, int slot = -1);
     Page page() const noexcept { return page_; }
-    enum class SettingsSection { Appearance, Audio, Connection, About };
+    enum class SettingsSection { Appearance, Audio, Connection, Account, About };
     void showSettings(SettingsSection);
 
     HubProcessor& proc() noexcept { return proc_; }
@@ -185,7 +185,7 @@ private:
 
     // header
     StatusChip obs_ { 36.0f };
-    IconButton share_ { icons::Icon::Link }, settingsButton_ { icons::Icon::Sliders }, compactMore_ { icons::Icon::More };
+    IconButton share_ { icons::Icon::Link }, settingsButton_ { icons::Icon::Sliders }, accountButton_ { icons::Icon::Person }, compactMore_ { icons::Icon::More };
     MuteButton mute_;
     BackButton back_ { true };
     // tracks card

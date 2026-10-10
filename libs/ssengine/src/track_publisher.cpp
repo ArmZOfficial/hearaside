@@ -89,7 +89,7 @@ void TrackPublisher::mirror(const Mirror& m) noexcept {
     lastMirror_ = m;
     SlotHeader* s = slot();
     if (!s) return;
-    uint32_t keep = s->flags.load(std::memory_order_relaxed) & (kFlagBypassed | kFlagOffline | kFlagMono);
+    uint32_t keep = s->flags.load(std::memory_order_relaxed) & (kFlagBypassed | kFlagOffline | kFlagMono | kFlagViewersViaHub);
     uint32_t f = keep | (m.mon ? kFlagMon : 0u) | (m.str ? kFlagStr : 0u) | (m.solo ? kFlagSolo : 0u) | (m.app ? kFlagApp : 0u);
     s->strGainBits.store(floatBits(m.gainDb), std::memory_order_relaxed);
     s->strPanBits.store(floatBits(m.pan), std::memory_order_relaxed);

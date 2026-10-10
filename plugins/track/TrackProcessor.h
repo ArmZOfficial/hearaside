@@ -5,6 +5,7 @@
 
 #include "Settings.h"
 #include "ssengine/engine.h"
+#include "ssengine/friend_reader.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -27,7 +28,7 @@ public:
 
     // ---- AudioProcessor -----------------------------------------------------------------
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override;
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -37,7 +38,7 @@ public:
     const juce::String getName() const override { return "HEARASIDE Track"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    double getTailLengthSeconds() const override { return isFriendInput() ? std::numeric_limits<double>::infinity() : 0.0; }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
@@ -64,6 +65,31 @@ public:
     int lastBlockSize() const noexcept { return lastBlock_.load(std::memory_order_relaxed); }
     double currentSampleRate() const noexcept { return sampleRate_; }
 
+    // ---- Role & friend input (S7) --------------------------------------------------------
+    enum class Role { Track, FriendInput };
+    Role role() const noexcept { return role_.load(std::memory_order_relaxed); }
+    bool isFriendInput() const noexcept { return role() == Role::FriendInput; }
+    void setRole(Role);
+
+    uint32_t friendId() const noexcept { return friendId_.load(std::memory_order_relaxed); }
+    void setFriendId(uint32_t);
+
+    int feederIndex() const noexcept { return feederIndex_.load(std::memory_order_relaxed); }
+    const ssbus::FeederRecord* feederRecord() const noexcept { return feeder_.load(std::memory_order_relaxed); }
+    ssbus::BusLayout* bus() const noexcept;
+
+    // Requests (plug-in -> Hub)
+    void requestResolveToken(const juce::String& token);
+    void requestCreateFriend(const juce::String& name);
+    void requestReleaseFriend();
+    void requestCopyLink(uint32_t friendId);
+    uint32_t lastReply() const noexcept { return lastReply_.load(std::memory_order_relaxed); }
+    void clearReply() noexcept { lastReply_.store(0, std::memory_order_relaxed); }
+
+    // Paired friend (when role is normal Track at the end of the channel)
+    uint32_t pairedFriendId() const noexcept;
+    float fxLatencyMs() const noexcept;
+
     // Notifies the editor (message thread) that identity / connection changed.
     juce::ChangeBroadcaster stateChanged;
 
@@ -71,10 +97,15 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void timerCallback() override;
     void connect();
+    void connectFeeder();
+    void disconnectFeeder();
+    void pushFeederIdentity();
     void applyCommand(ssbus::ParamId id, float value);
     void setParamPlain(const char* id, float plain);
     void pushIdentity();
     void process(juce::AudioBuffer<float>&, bool bypassed);
+    void processTrack(juce::AudioBuffer<float>&, bool bypassed, int n, int numCh);
+    void processFriend(juce::AudioBuffer<float>&, bool bypassed, int n, int numCh);
 
     juce::AudioProcessorValueTreeState apvts_;
     ssengine::TrackPublisher pub_;
@@ -112,6 +143,23 @@ private:
     juce::uint32 lastConnectAttempt_ = 0;
     ssengine::TrackPublisher::Status lastStatus_ = ssengine::TrackPublisher::Status::Disconnected;
     bool lastHub_ = false;
+
+    // friend input state
+    std::atomic<Role> role_{ Role::Track };
+    std::atomic<uint32_t> friendId_{ 0 };
+    std::atomic<int> feederIndex_{ -1 };
+    std::atomic<ssbus::FeederRecord*> feeder_{ nullptr };
+    std::atomic<ssbus::BusLayout*> feederBus_{ nullptr };
+    std::unique_ptr<ssbus::SharedMemory> feederShm_;
+    std::vector<std::unique_ptr<ssbus::SharedMemory>> retiredFeederShm_;
+    ssengine::FriendReader reader_;
+    std::vector<float> monoScratch_;
+    float tapSum_ = 0.0f;
+    int tapPhase_ = 0;
+    uint32_t replySeq_ = 0;
+    std::atomic<uint32_t> lastReply_{ 0 };
+    uint32_t feederCmdSeq_ = 0;
+    uint32_t pendingRequest_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackProcessor)
 };

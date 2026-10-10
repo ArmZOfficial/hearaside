@@ -312,3 +312,57 @@ TEST_CASE("friends: eight friends at once (the worst case) stay under the stream
     CHECK_LT(peak, ssdsp::dbToGain(-3.0f) + 1e-3f);   // the limiter sees the final sum, friends included
     for (int j = 0; j < kMaxFriends; ++j) CHECK(r.hub.friendInfo(j).playing.load() == 1);
 }
+
+TEST_CASE("friends: S7 feeder pairing by track identity, Li measurement, and Line up route") {
+    Room r("s7_pair");
+    BusLayout* b = r.hub.bus();
+    REQUIRE(b != nullptr);
+
+    // Friend 0 with id = 101
+    b->friends[0].id.store(101);
+    b->friends[0].state.store(kFriendLive);
+
+    // Claim a feeder
+    int fidx = claimFeeder(*b);
+    REQUIRE(fidx >= 0);
+    setFeederIdentity(b->feeders[fidx], "Lead Vocal", 0);
+    b->feeders[fidx].friendId.store(101);
+    b->feeders[fidx].status.store(kFeederFlowing);
+    b->feeders[fidx].heartbeatNs.store(nowNs());
+    b->friends[0].feeder.store(fidx);
+
+    // Claim an end-of-track slot with the same track name
+    bool dup = false;
+    int sidx = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    REQUIRE(sidx >= 0);
+    setSlotIdentity(b->slots[sidx], "Lead Vocal", 0);
+    b->slots[sidx].chainLatencyBits.store(floatBits(12.5f));
+
+    // Run latency measurement in HubEngine
+    r.hub.measureLatencies();
+
+    // Verify pairing
+    CHECK(b->slots[sidx].fedBy.load() == 101);
+    CHECK(b->friends[0].outSlot.load() == sidx);
+    CHECK_NEAR(bitsFloat(b->slots[sidx].fxLatencyBits.load()), 12.5f, 0.1f);
+
+    // With Line up enabled, kFlagViewersViaHub should be set on the paired slot
+    r.hub.setLineUp(true, 400.0f);
+    r.hub.measureLatencies();
+    CHECK((b->slots[sidx].flags.load() & kFlagViewersViaHub) != 0);
+
+    // With Line up disabled, kFlagViewersViaHub should be cleared
+    r.hub.setLineUp(false, 400.0f);
+    r.hub.measureLatencies();
+    CHECK((b->slots[sidx].flags.load() & kFlagViewersViaHub) == 0);
+
+    // Release feeder: slot should be unpaired and fedBy cleared
+    b->friends[0].feeder.store(-1);
+    r.hub.measureLatencies();
+    CHECK(b->slots[sidx].fedBy.load() == 0);
+    CHECK(b->friends[0].outSlot.load() == -1);
+
+    releaseSlot(*b, sidx);
+    releaseFeeder(*b, fidx);
+}
+

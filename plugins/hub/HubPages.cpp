@@ -2,6 +2,7 @@
 #include "HubPages.h"
 #include "HubPagesShared.h"
 #include "Host.h"
+#include "ui/AccountPanel.h"
 
 namespace hearaside {
 
@@ -29,7 +30,7 @@ namespace {
 class SectionBody : public juce::Component, private juce::Timer {
 public:
     SectionBody(HubEditor& ed, int section) : ed_(ed), section_(section) {
-        if (section != 0) addAndMakeVisible(list_);
+        if (section != 0 && section != 3) addAndMakeVisible(list_);
         auto& proc = ed_.proc();
         auto& st = ed_.settings();
         if (section == 0) {
@@ -88,6 +89,10 @@ public:
             list_.add(std::make_unique<SettingRow>(tr(Str::RestApi), tr(Str::RestApiCapShort), &rest_, 280, 34));
             refreshRest();
         } else if (section == 3) {
+            accountPanel_ = std::make_unique<AccountPanel>(AccountPanel::Mode::Full);
+            accountPanel_->onToast = [this](const juce::String& msg) { ed_.toast(msg); };
+            addAndMakeVisible(*accountPanel_);
+        } else if (section == 4) {
             version_.setText(trf(Str::VersionN, { juce::String(HEARASIDE_VERSION) }));
             version_.setJustification(juce::Justification::centredRight);
             list_.add(std::make_unique<SettingRow>("HEARASIDE", tr(Str::AppTagline), &version_, 280, 26));
@@ -116,10 +121,15 @@ public:
         timerCallback();
     }
 
-    int idealHeight(int width) const { return appearance_ ? appearance_->idealHeight(width) : list_.idealHeight(width); }
+    int idealHeight(int width) const {
+        if (appearance_) return appearance_->idealHeight(width);
+        if (accountPanel_) return accountPanel_->idealHeight(width);
+        return list_.idealHeight(width);
+    }
     void resized() override {
         list_.setBounds(getLocalBounds());
         if (appearance_) appearance_->setBounds(getLocalBounds());
+        if (accountPanel_) accountPanel_->setBounds(getLocalBounds());
     }
 
 private:
@@ -197,6 +207,7 @@ private:
     int section_;
     SettingList list_;
     std::unique_ptr<AppearanceSettings> appearance_;
+    std::unique_ptr<AccountPanel> accountPanel_;
     SliderValue ceiling_;
     std::unique_ptr<DbSliderLink> ceilingLink_;
     std::unique_ptr<ParamValueLink> ceilingValueLink_;
@@ -212,10 +223,10 @@ private:
     RightButton showAgainBox_, setupBox_, resetBox_;
 };
 
-constexpr int kSections = 4;
-const Str kSectionTitles[kSections] = { Str::SecAppearance, Str::SecAudio, Str::SecConnection, Str::SecAbout };
-const Str kSectionCaps[kSections] = { Str::SecAppearanceCap, Str::SecAudioCap, Str::SecConnectionCap, Str::SecAboutCap };
-const icons::Icon kSectionIcons[kSections] = { icons::Icon::Appearance, icons::Icon::AudioBars, icons::Icon::Connection, icons::Icon::Info };
+constexpr int kSections = 5;
+const Str kSectionTitles[kSections] = { Str::SecAppearance, Str::SecAudio, Str::SecConnection, Str::AccountTitle, Str::SecAbout };
+const Str kSectionCaps[kSections] = { Str::SecAppearanceCap, Str::SecAudioCap, Str::SecConnectionCap, Str::SecAccountCap, Str::SecAboutCap };
+const icons::Icon kSectionIcons[kSections] = { icons::Icon::Appearance, icons::Icon::AudioBars, icons::Icon::Connection, icons::Icon::Person, icons::Icon::Info };
 
 } // namespace
 

@@ -9,6 +9,7 @@
 #include "ui/EditorShell.h"
 #include "ui/ScrollArea.h"
 #include "ui/SettingsPanel.h"
+#include "ui/AccountPanel.h"
 
 namespace hearaside {
 
@@ -21,6 +22,8 @@ public:
 
     void openFineSettings(bool open);   // also used by ui-snapshot
     bool fineSettingsOpen() const { return sheet_.isVisible(); }
+    void openAccount(bool open);
+    bool accountOpen() const { return accountPanel_.isVisible(); }
 
 private:
     struct Content : juce::Component {
@@ -44,6 +47,8 @@ private:
         BackButton back;
         ScrollArea scroll;
         Body body;
+        SourcePicker source;
+        Field sourceField;
         TextField name, bus;
         PanSlider pan { true };
         EditableValue panValue { EditableValue::Kind::Pan, -100.0f, 100.0f };
@@ -59,6 +64,20 @@ private:
         Field soloField;
         AppearanceSettings appearance;
         Field appearanceField;
+        struct AccountRow : public juce::Component, public AccountManager::Listener {
+            explicit AccountRow(TrackEditor& e);
+            ~AccountRow() override;
+            void paint(juce::Graphics&) override;
+            void resized() override;
+            void refreshTexts();
+            void accountStateChanged(AccountManager::State) override;
+            void accountProfileChanged(const AccountManager::Profile&) override;
+            TrackEditor& ed;
+            GhostButton actionBtn;
+        } accountRow;
+        Field accountField;
+    private:
+        Menu buildSourceMenu();
     };
 
     void paintContent(juce::Graphics&);
@@ -71,6 +90,7 @@ private:
     void toggle(const char* paramId);
     bool paramOn(const char* id) const;
     Str summaryKey() const;
+    juce::String summaryText() const;
 
     TrackProcessor& proc_;
     Content content_ { *this };
@@ -96,11 +116,14 @@ private:
     std::unique_ptr<DbSliderLink> headphoneLink_, viewersLink_, delayLink_;
     std::unique_ptr<ParamValueLink> headValueLink_, viewValueLink_, delayValueLink_;
     Sheet sheet_ { *this };
+    AccountPanel accountPanel_ { AccountPanel::Mode::Compact };
 
     // painted areas
     juce::Rectangle<float> header_, card_, wordmark_, dot_, inputLabel_, summary_, footerLine_;
     bool lastMon_ = false, lastStr_ = false;
     int slowTick_ = 0;
+    uint64_t lastFeederBlockCount_ = 0;
+    juce::uint32 lastFeederBlockTime_ = 0;
 };
 
 } // namespace hearaside

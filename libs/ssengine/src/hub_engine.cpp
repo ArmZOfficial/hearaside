@@ -152,6 +152,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
     BusLayout* b = bus();
     if (b == nullptr || capLen_ == 0) return out;
     const double rate = sampleRate_ / 4.0;
+    const double msPerLag = 4000.0 / sampleRate_;
     // the Hub reads the Tracks' signals behind the master bus by the sync-safety blocks
     const int lead = int(std::lround(double(syncSafety_) * lastBlock_ / 4.0));
     const int N = int(rate * 0.25);                 // 250 ms window
@@ -159,54 +160,201 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
     const int Kneg = lead + 8;
     const int M = N + K + Kneg;
     const uint32_t w = capWrite_.load(std::memory_order_acquire);
-    if (w < uint32_t(M) || uint32_t(M) + 4096u > capLen_) return out;
     std::vector<float> x;
     auto copyLast = [&](const float* ring, std::vector<float>& dst) {
         dst.resize(size_t(M));
         for (int i = 0; i < M; ++i) dst[size_t(i)] = ring[(w - uint32_t(M) + uint32_t(i)) % capLen_];
     };
-    std::vector<float> y;
-    copyLast(capIn_.data(), y);
-    const int yStart = M - Kneg - N;
-    double ey = 0;
-    for (int i = yStart; i < yStart + N; ++i) ey += double(y[size_t(i)]) * y[size_t(i)];
-    const bool sound = ey > double(N) * 1e-6;       // about -60 dBFS
 
-    const double msPerLag = 4000.0 / sampleRate_;
-    std::array<double, kMaxSlots> lagMs;          // how late each track reaches the master now, -1 = unknown
-    lagMs.fill(-1.0);
-    std::vector<double> cum(size_t(M) + 1);
-    int measured = 0;
-    for (int i = 0; i < kMaxSlots && sound; ++i) {
-        if (b->slots[i].state.load(std::memory_order_acquire) != kSlotActive) continue;
-        copyLast(capSlots_.data() + size_t(i) * capLen_, x);
-        for (int j = 0; j < M; ++j) cum[size_t(j) + 1] = cum[size_t(j)] + double(x[size_t(j)]) * x[size_t(j)];
-        if (cum[size_t(M)] < double(M) * 1e-7) continue;   // this track is silent for the viewers right now
-        double lag = 0;
-        // a single track inside a whole mix correlates less than the mix itself
-        if (bestLag(y.data(), x.data(), N, yStart, -Kneg, K, cum, ey, 0.3, lag)) { lagMs[size_t(i)] = std::max(0.0, (lag + lead) * msPerLag); ++measured; }
-    }
+    if (w >= uint32_t(M) && uint32_t(M) + 4096u <= capLen_) {
+        std::vector<float> y;
+        copyLast(capIn_.data(), y);
+        const int yStart = M - Kneg - N;
+        double ey = 0;
+        for (int i = yStart; i < yStart + N; ++i) ey += double(y[size_t(i)]) * y[size_t(i)];
+        const bool sound = ey > double(N) * 1e-6;       // about -60 dBFS
 
-    // two or more tracks: the latest one has no plug-in latency, the others are that much earlier
-    if (measured >= 2) {
-        double latest = 0;
-        for (double v : lagMs) latest = std::max(latest, v);
+        std::array<double, kMaxSlots> lagMs;          // how late each track reaches the master now, -1 = unknown
+        lagMs.fill(-1.0);
+        std::vector<double> cum(size_t(M) + 1);
+        int measured = 0;
+        for (int i = 0; i < kMaxSlots && sound; ++i) {
+            if (b->slots[i].state.load(std::memory_order_acquire) != kSlotActive) continue;
+            copyLast(capSlots_.data() + size_t(i) * capLen_, x);
+            for (int j = 0; j < M; ++j) cum[size_t(j) + 1] = cum[size_t(j)] + double(x[size_t(j)]) * x[size_t(j)];
+            if (cum[size_t(M)] < double(M) * 1e-7) continue;   // this track is silent for the viewers right now
+            double lag = 0;
+            // a single track inside a whole mix correlates less than the mix itself
+            if (bestLag(y.data(), x.data(), N, yStart, -Kneg, K, cum, ey, 0.3, lag)) { lagMs[size_t(i)] = std::max(0.0, (lag + lead) * msPerLag); ++measured; }
+        }
+
+        // two or more tracks: the latest one has no plug-in latency, the others are that much earlier
+        if (measured >= 2) {
+            double latest = 0;
+            for (double v : lagMs) latest = std::max(latest, v);
+            for (int i = 0; i < kMaxSlots; ++i)
+                if (lagMs[size_t(i)] >= 0.0) b->slots[i].chainLatencyBits.store(floatBits(float(latest - lagMs[size_t(i)])), std::memory_order_relaxed);
+        }
+        // every active track's remembered chain latency (live: a lone vocal keeps its measured value)
+        double slowest = 0;
         for (int i = 0; i < kMaxSlots; ++i)
-            if (lagMs[size_t(i)] >= 0.0) b->slots[i].chainLatencyBits.store(floatBits(float(latest - lagMs[size_t(i)])), std::memory_order_relaxed);
+            if (b->slots[i].state.load(std::memory_order_acquire) == kSlotActive)
+                slowest = std::max(slowest, double(bitsFloat(b->slots[i].chainLatencyBits.load(std::memory_order_relaxed))));
+        out.tracksMs = slowest;
+        // master plug-ins = how late a track arrives minus the line-up delay the DAW gave it
+        for (int i = 0; i < kMaxSlots; ++i) {
+            if (lagMs[size_t(i)] < 0.0) continue;
+            const double lineUp = slowest - double(bitsFloat(b->slots[i].chainLatencyBits.load(std::memory_order_relaxed)));
+            const double m = std::max(0.0, lagMs[size_t(i)] - lineUp);
+            out.masterMs = out.masterMs < 0.0 ? m : std::min(out.masterMs, m);
+        }
     }
-    // every active track's remembered chain latency (live: a lone vocal keeps its measured value)
-    double slowest = 0;
-    for (int i = 0; i < kMaxSlots; ++i)
-        if (b->slots[i].state.load(std::memory_order_acquire) == kSlotActive)
-            slowest = std::max(slowest, double(bitsFloat(b->slots[i].chainLatencyBits.load(std::memory_order_relaxed))));
-    out.tracksMs = slowest;
-    // master plug-ins = how late a track arrives minus the line-up delay the DAW gave it
-    for (int i = 0; i < kMaxSlots; ++i) {
-        if (lagMs[size_t(i)] < 0.0) continue;
-        const double lineUp = slowest - double(bitsFloat(b->slots[i].chainLatencyBits.load(std::memory_order_relaxed)));
-        const double m = std::max(0.0, lagMs[size_t(i)] - lineUp);
-        out.masterMs = out.masterMs < 0.0 ? m : std::min(out.masterMs, m);
+
+    // ---- S7: Match active feeders with end-of-track slots & measure Li ---------
+    const uint64_t now = nowNs();
+    for (int j = 0; j < kMaxFriends; ++j) {
+        FriendHeader& fh = b->friends[j];
+        const uint32_t fid = fh.id.load(std::memory_order_acquire);
+        if (fid == 0) continue;
+
+        const int fidx = fh.feeder.load(std::memory_order_acquire);
+        if (fidx < 0 || fidx >= kMaxFeeders) {
+            const int outS = fh.outSlot.load(std::memory_order_relaxed);
+            if (outS >= 0 && outS < kMaxSlots) {
+                if (b->slots[outS].fedBy.load(std::memory_order_relaxed) == fid) {
+                    b->slots[outS].fedBy.store(0, std::memory_order_release);
+                    b->slots[outS].fxLatencyBits.store(0, std::memory_order_relaxed);
+                    b->slots[outS].flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+                }
+                fh.outSlot.store(-1, std::memory_order_release);
+            }
+            continue;
+        }
+
+        FeederRecord& feeder = b->feeders[fidx];
+        if (feeder.state.load(std::memory_order_acquire) != kSlotActive
+            || feeder.friendId.load(std::memory_order_relaxed) != fid
+            || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull) {
+            const int outS = fh.outSlot.load(std::memory_order_relaxed);
+            if (outS >= 0 && outS < kMaxSlots) {
+                if (b->slots[outS].fedBy.load(std::memory_order_relaxed) == fid) {
+                    b->slots[outS].fedBy.store(0, std::memory_order_release);
+                    b->slots[outS].fxLatencyBits.store(0, std::memory_order_relaxed);
+                    b->slots[outS].flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+                }
+                fh.outSlot.store(-1, std::memory_order_release);
+            }
+            continue;
+        }
+
+        int matchedSlot = -1;
+        std::string feederName;
+        uint32_t feederColor = 0;
+        readFeederIdentity(feeder, feederName, feederColor);
+
+        // 1. Fast match by track name
+        if (!feederName.empty()) {
+            for (int s = 0; s < kMaxSlots; ++s) {
+                if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
+                if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
+                std::string sName, sUuid;
+                uint32_t sColor = 0;
+                if (readSlotIdentity(b->slots[s], sName, sUuid, sColor) && sName == feederName) {
+                    matchedSlot = s;
+                    break;
+                }
+            }
+        }
+
+        // 2. Correlation match if not matched by name
+        const uint64_t tapW = feeder.tapWrite.load(std::memory_order_acquire);
+        const int tapN = N;
+        const int Ktap = std::min(K, int(rate * 0.2));
+        const int fStart = M - Ktap - tapN;
+        bool hasTapSound = false;
+        std::vector<float> fTap;
+        std::vector<double> cumTap;
+
+        if (tapW >= uint64_t(M)) {
+            const auto& tap = b->feederTap[fidx];
+            fTap.resize(size_t(M));
+            for (int k = 0; k < M; ++k)
+                fTap[size_t(k)] = tap.mono[(tapW - uint64_t(M) + uint64_t(k)) % kTapFrames];
+            cumTap.assign(size_t(M) + 1, 0.0);
+            for (int k = 0; k < M; ++k)
+                cumTap[size_t(k) + 1] = cumTap[size_t(k)] + double(fTap[size_t(k)]) * fTap[size_t(k)];
+
+            double eTap = cumTap[size_t(fStart + tapN)] - cumTap[size_t(fStart)];
+            hasTapSound = eTap > double(tapN) * 1e-5;
+
+            if (matchedSlot < 0 && hasTapSound && fStart > 0) {
+                int tried = 0;
+                for (int s = 0; s < kMaxSlots && tried < 8; ++s) {
+                    if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
+                    if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
+                    ++tried;
+
+                    copyLast(capSlots_.data() + size_t(s) * capLen_, x);
+                    double eySlot = 0.0;
+                    for (int k = fStart; k < fStart + tapN; ++k) eySlot += double(x[size_t(k)]) * x[size_t(k)];
+                    if (eySlot < double(tapN) * 1e-6) continue;
+
+                    double lag = 0, score = 0;
+                    if (bestLag(x.data(), fTap.data(), tapN, fStart, 0, Ktap, cumTap, eySlot, 0.6, lag, false, &score)) {
+                        matchedSlot = s;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Measure Li and publish pairing
+        if (matchedSlot >= 0) {
+            SlotHeader& slot = b->slots[matchedSlot];
+            double li = 0.0;
+            if (hasTapSound && fStart > 0 && !fTap.empty()) {
+                copyLast(capSlots_.data() + size_t(matchedSlot) * capLen_, x);
+                double eySlot = 0.0;
+                for (int k = fStart; k < fStart + tapN; ++k) eySlot += double(x[size_t(k)]) * x[size_t(k)];
+                double lag = 0, score = 0;
+                if (bestLag(x.data(), fTap.data(), tapN, fStart, 0, Ktap, cumTap, eySlot, 0.5, lag, false, &score)) {
+                    li = std::max(0.0, lag * msPerLag);
+                } else {
+                    li = double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
+                }
+            } else {
+                li = double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
+            }
+
+            const int oldS = fh.outSlot.load(std::memory_order_relaxed);
+            if (oldS >= 0 && oldS < kMaxSlots && oldS != matchedSlot) {
+                if (b->slots[oldS].fedBy.load(std::memory_order_relaxed) == fid) {
+                    b->slots[oldS].fedBy.store(0, std::memory_order_release);
+                    b->slots[oldS].fxLatencyBits.store(0, std::memory_order_relaxed);
+                    b->slots[oldS].flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+                }
+            }
+
+            fh.outSlot.store(matchedSlot, std::memory_order_release);
+            slot.fedBy.store(fid, std::memory_order_release);
+            slot.fxLatencyBits.store(floatBits(float(li)), std::memory_order_relaxed);
+            if (lineUpOn_.load(std::memory_order_relaxed))
+                slot.flags.fetch_or(kFlagViewersViaHub, std::memory_order_release);
+            else
+                slot.flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+        } else {
+            const int oldS = fh.outSlot.load(std::memory_order_relaxed);
+            if (oldS >= 0 && oldS < kMaxSlots) {
+                if (b->slots[oldS].fedBy.load(std::memory_order_relaxed) == fid) {
+                    b->slots[oldS].fedBy.store(0, std::memory_order_release);
+                    b->slots[oldS].fxLatencyBits.store(0, std::memory_order_relaxed);
+                    b->slots[oldS].flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+                }
+                fh.outSlot.store(-1, std::memory_order_release);
+            }
+        }
     }
+
     return out;
 }
 
@@ -410,9 +558,22 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             s.timelineLocked = false;
         }
 
-        // ---- headphones read "now"; the viewers delay only shifts the stems ----------------
         const float delayMs = bitsFloat(sh.strDelayBits.load(std::memory_order_relaxed));
         s.delay = std::min<uint32_t>(maxDelay, uint32_t(std::max(0.0f, delayMs) * float(sampleRate_) * 0.001f + 0.5f));
+        if (f & kFlagViewersViaHub) {
+            const uint32_t fid = sh.fedBy.load(std::memory_order_relaxed);
+            int friendSlot = -1;
+            for (int j = 0; j < kMaxFriends; ++j) {
+                if (b->friends[j].id.load(std::memory_order_relaxed) == fid) { friendSlot = j; break; }
+            }
+            if (friendSlot >= 0) {
+                const float liMs = bitsFloat(sh.fxLatencyBits.load(std::memory_order_relaxed));
+                const uint32_t liFrames = uint32_t(std::max(0.0f, liMs) * float(sampleRate_) * 0.001f + 0.5f);
+                const uint32_t friendTot = usedTot_[size_t(friendSlot)] + liFrames;
+                const uint32_t lineDelay = lineD_ > friendTot ? lineD_ - friendTot : 0u;
+                s.delay = std::min<uint32_t>(maxDelay, lineDelay);
+            }
+        }
 
         const ReadResult res = ringReadAt(b->slotAudio[i], sh.writePos, s.cursor, A, uint32_t(n));
         if (s.xfActive) {
@@ -494,6 +655,10 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
                 const float l = V[0][j] * gg * s.panL.next();
                 const float r = V[1][j] * gg * s.panR.next();
                 if (s0) { s0[j] += l; s1[j] += r; }
+                if ((f & kFlagViewersViaHub) && !p.panic) {
+                    outs_[0][0][j] += l;
+                    outs_[0][1][j] += r;
+                }
                 mono[j] = l + r;
                 pk0 = std::max(pk0, std::abs(l));
                 pk1 = std::max(pk1, std::abs(r));

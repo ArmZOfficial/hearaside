@@ -1289,3 +1289,45 @@ hearaside/
 - Anuphan (Google Fonts) — https://fonts.google.com/specimen/Anuphan
 - แบบร่าง UI บน canvas — https://claude.ai/artifact/XBmnEHccnFeKwSsGLtkbTd
 - เครื่องมือที่ควรศึกษาแนวคิด: ReaStream (Reaper), VB-Audio Voicemeeter / VB-CABLE, BlackHole, Rogue Amoeba Loopback, obs-asio, DistroAV (NDI)
+
+---
+
+## 17. เว็บไซต์และระบบบัญชีผู้ใช้ (Web & Account System Architecture — ส่วน B)
+
+เพิ่มในสเปกฉบับแก้ไข 9–10 ต.ค. 2026 เพื่อรองรับเว็บไซต์ทางการ แนะนำโปรแกรม ดาวน์โหลด ตัวติดตั้ง และระบบบัญชีสำหรับเชื่อมโยงการตั้งค่าและอุปกรณ์
+
+### 17.1 สถาปัตยกรรมและสแตกเทคโนโลยี (5C Decisions)
+
+```
+เบราว์เซอร์ / ปลั๊กอิน ──HTTPS──► Vercel (sin1 Singapore): web/site = Vite + React 19 + Express 5 (Vercel Function)
+                                       ├─► Supabase (Singapore): PostgreSQL + Auth + Storage (avatars bucket)
+                                       ├─► Upstash Redis: directory ลิงก์ถาวร + rate limiting
+                                       └─► Resend (SMTP สำหรับอีเมลยืนยัน/รีเซ็ตรหัสผ่าน)
+* ทางเดินเสียงไม่ผ่านระบบเว็บใด ๆ ทั้งสิ้น: Hub ──(cloudflared tunnel / LAN)──► ผู้ฟัง / เพื่อน
+```
+
+1. **เว็บส่วนหน้า (Frontend):** React 19 + Vite + Tailwind CSS v4 (@theme tokens จาก `tokens.json`) + React Router + Lucide Icons + Font Anuphan self-hosted
+2. **เว็บส่วนหลัง (Backend API):** Node.js 20+ / Express 5 รวมอยู่ใน `web/site/server/` (export เข้า Vercel Function ที่ `web/site/api/index.ts`) ตรวจสอบ input ด้วย Zod
+3. **ฐานข้อมูลและ Auth:** Supabase PostgreSQL พร้อม Row Level Security (RLS) + Google Identity Services (`signInWithIdToken`) + Discord OAuth
+4. **Prerender & SEO:** หน้าสาธารณะ 20 หน้า (`/`, `/download`, `/guides/*`, `/privacy`, `/terms`) ถูก prerender เป็น static HTML ตอน build
+
+### 17.2 การเข้าสู่ระบบในปลั๊กอิน (RFC 8628 Device Authorization Flow)
+
+- **ห้ามรับรหัสผ่านในปลั๊กอินเด็ดขาด:** ปลั๊กอินขอรหัสยืนยันจาก `/api/v1/device/start` ได้ User Code 8 หลัก (รูปแบบ `XXXX-XXXX` สุ่มไม่ซ้ำ ไม่มีตัวสับสน 0/O/1/I)
+- ผู้ใช้กดปุ่ม **"Open the page"** เพื่อเปิดเบราว์เซอร์ไปยัง `/link?code=...` และกดยืนยัน (Allow) หลังเข้าสู่ระบบบนเว็บ
+- ปลั๊กอิน poll `/api/v1/device/token` ทุก 5 วินาทีใน background thread เมื่อสำเร็จจะได้รับ Refresh Token (256-bit CSPRNG) และ Access Token (JWT อายุ 15 นาที)
+- **การจัดเก็บข้อมูลในเครื่อง:** บันทึกใน `%APPDATA%\HEARASIDE\account.dat` เข้ารหัสผ่าน Windows DPAPI (`CryptProtectData`) สำหรับผู้ใช้ปัจจุบันเท่านั้น ห้ามบันทึกลงใน DAW project file หรือ console logs
+- **การแชร์สถานะระหว่างปลั๊กอิน:** `AccountManager` เป็น Singleton และเฝ้าดูการเปลี่ยนแปลงของไฟล์ `account.dat` ทำให้ Hub, Track และ App Audio ในทุก DAW บนเครื่องเดียวกันซิงก์สถานะ เข้าสู่ระบบ หรือออกจากระบบพร้อมกันทันที
+
+### 17.3 กฎความปลอดภัยทางเสียง (Audio Safety & Zero-Degradation)
+
+- **เสียงไม่ขึ้นกับเน็ตหรือบัญชีเด็ดขาด:** แม้ไม่ได้ล็อกอิน, ออฟไลน์, เซิร์ฟเวอร์ล่ม หรือเน็ตหลุด ปลั๊กอินด้านเสียงทั้งหมด (Hub, Track, App Audio, ห้องเพื่อน 8 คน, การมิกซ์เสียงเพื่อนใน DAW) ยังทำงานได้เต็ม 100%
+- เครือข่ายทำงานบน Background Thread แยกขาดจาก Message Thread และ **ห้ามแตะ Audio Thread โดยเด็ดขาด** (Zero allocation, Zero lock, Zero I/O)
+- **สิ่งที่ซิงก์ข้ามเครื่อง:** เฉพาะ Appearance (Language, Theme, UI Size, Glass Opacity, Track Colours, Reduce Motion) และ Stem Names เท่านั้น
+- **สิ่งที่ห้ามซิงก์เด็ดขาด:** ค่าที่ส่งผลต่อเสียง เช่น Peak Ceiling, Sync Safety, Line-up Limit, Bus Name
+
+### 17.4 ตัวติดตั้งรวมชิ้นเดียว (All-in-One Windows Installer - I1)
+
+- สร้างด้วย Inno Setup 6 ผ่าน `installer/windows/build-installer.ps1` เป็นไฟล์เดียว `dist\HEARASIDE-Setup-<version>.exe`
+- รวม VST3, VST2 (เมื่อ build รองรับ), OBS Source Plugin (`hearaside-obs.dll`), และ `cloudflared.exe` สำหรับสร้าง quick tunnel โดยอัตโนมัติ
+- ปลั๊กอิน Hub ตรวจหา cloudflared ในโฟลเดอร์โปรแกรม (`%ProgramFiles%\HEARASIDE\cloudflared\cloudflared.exe`) เป็นลำดับแรก ทำให้แชร์ลิงก์ข้ามอินเทอร์เน็ตได้ทันทีหลังติดตั้งโดยไม่ต้องรันคำสั่งใด ๆ

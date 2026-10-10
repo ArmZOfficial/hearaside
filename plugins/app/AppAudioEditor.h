@@ -8,6 +8,7 @@
 #include "ui/EditorShell.h"
 #include "ui/ScrollArea.h"
 #include "ui/SettingsPanel.h"
+#include "ui/AccountPanel.h"
 
 namespace hearaside {
 
@@ -18,6 +19,8 @@ public:
     static constexpr int kWidth = 440, kHeight = 600;
 
     void showReceiveLink();   // "Receive someone's link…" (also used by ui-snapshot)
+    void openAccount(bool open);
+    bool accountOpen() const { return accountPanel_.isVisible(); }
 
 private:
     struct Content : juce::Component {
@@ -49,6 +52,7 @@ private:
     Body body_ { *this };
     Backdrop backdrop_;
     ScrollArea scroll_;
+    AccountPanel accountPanel_ { AccountPanel::Mode::Compact };
 
     IconButton more_ { icons::Icon::More };
     LabelledSwitch power_;

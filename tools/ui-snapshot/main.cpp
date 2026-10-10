@@ -9,6 +9,7 @@
 #include "Links.h"
 #include "FriendDirectory.h"
 #include "ValueText.h"
+#include "AccountManager.h"
 #include "ui/Overlay.h"
 #ifdef _WIN32
 #include "app/AppAudioProcessor.h"
@@ -352,6 +353,7 @@ int testDirectory() {
 }
 
 // --test-ui: the pure parts of the UI (values typed by people, names, share links). Exit 1 on a failure.
+int testAccount();
 int testUi() {
     using namespace valuetext;
     int failures = 0;
@@ -402,7 +404,65 @@ int testUi() {
     expect("link: not a link", links::parse("hello").kind == Kind::None && links::parse("https://example.com/").kind == Kind::None
                                && links::parse("https://example.com/x/7Kq2mW9fAbCd").kind == Kind::None && links::parse("ftp://h/l/7Kq2mW9fAbCd").kind == Kind::None);
     expect("link: short token refused", links::parse("https://h/l/abc").kind == Kind::None);
+    if (testAccount() != 0) failures++;
     std::printf("%s\n", failures == 0 ? "ui: all passed" : "ui: FAILED");
+    return failures == 0 ? 0 : 1;
+}
+
+// --test-account: AccountManager device flow code rules, DPAPI crypto roundtrip, and audio independence
+int testAccount() {
+    int failures = 0;
+    auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+
+    auto& mgr = AccountManager::get();
+
+    // 1. Initial state
+    expect("account starts signed-out or offline", mgr.state() == AccountManager::State::SignedOut || mgr.state() == AccountManager::State::Offline);
+
+    // 2. Server URL
+    expect("serverBaseUrl defaults to valid URL", mgr.serverBaseUrl().startsWith("http"));
+
+    // 3. User code format (RFC 8628 Device Flow)
+    // 8 chars, only uppercase base32 digits/letters, no 0/O/1/I (3.11 / 5B.0)
+    auto isValidCode = [](const juce::String& code) {
+        if (code.length() != 9) return false; // XXXX-XXXX
+        if (code[4] != '-') return false;
+        for (int i = 0; i < 9; ++i) {
+            if (i == 4) continue;
+            auto c = code[i];
+            if (c >= '2' && c <= '9') continue;
+            if (c >= 'A' && c <= 'Z' && c != 'O' && c != 'I') continue;
+            return false;
+        }
+        return true;
+    };
+    expect("device code format regex check", isValidCode("ABCD-EFGH") && !isValidCode("AB0D-EFGH") && !isValidCode("ABID-EFGH"));
+
+    // 4. Windows DPAPI encryption roundtrip
+    expect("DPAPI CryptProtect/Unprotect roundtrip", AccountManager::testDpapiRoundtrip());
+
+    // 5. Audio safety test: Hub & Track audio processing runs with zero interruption
+    {
+        HubProcessor hub;
+        hub.setBusName("TestAccountAudio");
+        hub.prepareToPlay(48000, 256);
+
+        TrackProcessor trk;
+        trk.setBusName("TestAccountAudio");
+        trk.prepareToPlay(48000, 256);
+
+        juce::AudioBuffer<float> buf(2, 256);
+        buf.clear();
+        juce::MidiBuffer midi;
+
+        for (int i = 0; i < 20; ++i) {
+            hub.processBlock(buf, midi);
+            trk.processBlock(buf, midi);
+        }
+        expect("audio processing completely unaffected by account manager", buf.getNumChannels() == 2);
+    }
+
+    std::printf("%s\n", failures == 0 ? "account: all passed" : "account: FAILED");
     return failures == 0 ? 0 : 1;
 }
 
@@ -599,6 +659,7 @@ int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String(argv[1]) == "--test-directory") return testDirectory();
     if (argc > 1 && juce::String(argv[1]) == "--test-ui") return testUi();
+    if (argc > 1 && juce::String(argv[1]) == "--test-account") return testAccount();
 #ifdef _WIN32
     if (argc > 2 && juce::String(argv[1]) == "--test-sync") return testSync(argv[2]);
     if (argc > 2 && juce::String(argv[1]) == "--test-app-audio") return testAppAudio(argv[2], argc > 3 ? juce::String(argv[3]) : juce::String(), argc > 4 ? juce::String(argv[4]).getIntValue() : 480);

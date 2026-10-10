@@ -795,6 +795,13 @@ Str HubProcessor::steadyLag(double& ms, Str notFound) {
         if (r.ms) found.push_back(*r.ms);
     }
     syncLog_ << (autoSync_.phase == SyncPhase::Reference ? "music  ms (score): " : "mic    ms (score): ") << line;
+    if (autoSync_.refSource) {   // App Audio: how steadily the Hub could follow it (a jumpy read smears the music)
+        const auto rs = engine_.takeSourceReadStats(autoSync_.ref);
+        if (rs.blocks > 0)
+            syncLog_ << " [App Audio read: lead " << juce::String(rs.leadMin) << ".." << juce::String(rs.leadMax)
+                     << " frames, " << juce::String(rs.jumps) << " jumps in " << juce::String(rs.blocks) << " blocks of "
+                     << juce::String(engine_.lastBlockSize()) << "] ";
+    }
     syncReads_.clear();
     if (found.size() < 3) {
         syncLog_ << "\n";
@@ -826,6 +833,7 @@ void HubProcessor::serviceAutoSync() {
         muteAllBut(st.refSource ? -2 : st.ref, st.refSource ? st.ref : -2);
         syncFrom_ = engine_.historyFrames();
         syncWall_ = now;
+        if (st.refSource) engine_.takeSourceReadStats(st.ref);   // count from here
         st.phase = SyncPhase::Reference;
         stateChanged.sendChangeMessage();
         return;

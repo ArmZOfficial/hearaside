@@ -10,6 +10,7 @@
 #include <optional>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -126,6 +127,11 @@ public:
                                      std::optional<double> removeMs = std::nullopt);
     // Analysed history so far, in frames at the sample rate (moves with the audio, not the clock).
     uint64_t historyFrames() const noexcept { return uint64_t(capWrite_.load(std::memory_order_acquire)) * 4u; }
+    // How the Hub has been reading an App Audio's signal since the last call (auto sync log): how far
+    // App Audio's writing was ahead of the Hub's reading, and how often the Hub had to jump to catch up.
+    struct SourceReadStats { int64_t leadMin = 0, leadMax = 0; uint32_t jumps = 0, blocks = 0; };
+    SourceReadStats takeSourceReadStats(int index) noexcept;
+    int lastBlockSize() const noexcept { return lastBlock_.load(std::memory_order_relaxed); }
 
     // ---- friends room (S2 / S4) ---------------------------------------------------------
     // What the Hub does with each friend (set from the message thread, read on the audio thread).
@@ -221,6 +227,8 @@ private:
     std::array<bool, ssbus::kMaxSources> srcKnown_{};
     std::array<float, ssbus::kMaxSources> decSrc_{};
     std::array<uint32_t, ssbus::kMaxSources> srcQuiet_{};
+    struct SrcStats { std::atomic<int64_t> leadMin { INT64_MAX }, leadMax { INT64_MIN }; std::atomic<uint32_t> jumps { 0 }, blocks { 0 }; };
+    std::array<SrcStats, ssbus::kMaxSources> srcStats_{};
     uint32_t capLen_ = 0;
     std::atomic<uint32_t> capWrite_{ 0 };
     float decIn_ = 0;

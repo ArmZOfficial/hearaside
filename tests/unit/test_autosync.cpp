@@ -4,6 +4,7 @@
 // asks (five readings 0.4 s apart, within 4 ms of each other).
 #include "testing.h"
 
+#include "ssbus/bus.h"
 #include "ssengine/engine.h"
 
 #include <algorithm>
@@ -172,4 +173,61 @@ TEST_CASE("auto sync: room echo, and a mic that hears nothing gives no number ra
         REQUIRE(ref.has_value());
         CHECK(!steady(r.readings(false, musicSlot(r), ref)).has_value());
     }
+}
+
+// App Audio written in small blocks on its own schedule (Studio One runs a monitored input channel
+// on the low-latency path, the master in 2048-sample blocks): when the Hub reads, App Audio has
+// written a varying amount more than the master block needs. The Hub's copy of the App signal must
+// still line up with the master at one fixed lag, or the music step of auto sync would wander.
+TEST_CASE("auto sync: App Audio running on another thread than the Hub (Studio One input channel)") {
+    const std::string bus = "autosync_app_async_" + std::to_string(currentPid());
+    HubEngine hub;
+    hub.connect(bus);
+    hub.prepare(kRate, 2048);
+    hub.maintain();
+    BusLayout& L = *hub.bus();
+    const int idx = claimSource(L);
+    REQUIRE(idx >= 0);
+    auto& src = L.sources[idx];
+    setSourceIdentity(src, "music", "brave.exe", 0);
+    src.flags.store(kSrcOn);
+    const int n = 2048;
+    const int64_t D = 4800;   // the App Audio output reaches the master 100 ms after App Audio wrote it
+    uint32_t rng = 99;
+    int64_t written = 0;      // App Audio's ring position = its own timeline
+    std::vector<float> chunk(16, 0.0f), l(static_cast<size_t>(n), 0.0f), r(static_cast<size_t>(n), 0.0f);
+    auto readings = [&](int count, double settle) {
+        std::vector<std::optional<double>> out;
+        int64_t h = 200000;   // the master timeline
+        auto cycle = [&] {
+            // App Audio has written what this master block needs, plus 0..2500 frames more
+            rng = rng * 1664525u + 1013904223u;
+            const int64_t want = h + n - D + int64_t((rng >> 8) % 2500);
+            if (written == 0) written = want - 4096;
+            while (written < want) {
+                for (int i = 0; i < 16; ++i) chunk[size_t(i)] = music(written + i);
+                const float* c[1] = { chunk.data() };
+                ringWrite(L.sourceAudio[idx], src.writePos, c, 1, 16);
+                written += 16;
+            }
+            src.heartbeatNs.store(nowNs());
+            for (int i = 0; i < n; ++i) l[size_t(i)] = r[size_t(i)] = music(h + i - D);
+            float* io[2] = { l.data(), r.data() };
+            HubParams p;
+            hub.process(io, 2, n, p, h, true, false);
+            h += n;
+        };
+        for (int64_t f = 0; f < int64_t(settle * kRate); f += n) cycle();
+        for (int k = 0; k < count; ++k) {
+            if (k > 0) for (int64_t f = 0; f < int64_t(0.4 * kRate); f += n) cycle();
+            double score = 0.0;
+            out.push_back(hub.measureLag(idx, 0.3, false, true, &score, false));
+            std::printf("    App Audio reading %d: %s (score %.2f)\n", k, out.back() ? std::to_string(*out.back()).c_str() : "--", score);
+            CHECK(score > 0.9);
+        }
+        return out;
+    };
+    const auto rs = readings(5, 1.5);
+    REQUIRE(steady(rs).has_value());
+    for (const auto& v : rs) if (v && rs[0]) CHECK_NEAR(*v, *rs[0], 0.5);
 }

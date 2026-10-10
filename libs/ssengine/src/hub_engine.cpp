@@ -410,6 +410,17 @@ std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyP
     return faint ? ms : std::max(0.0, ms);
 }
 
+HubEngine::SourceReadStats HubEngine::takeSourceReadStats(int index) noexcept {
+    SourceReadStats out;
+    if (index < 0 || index >= kMaxSources) return out;
+    auto& s = srcStats_[size_t(index)];
+    out.leadMin = s.leadMin.exchange(INT64_MAX, std::memory_order_relaxed);
+    out.leadMax = s.leadMax.exchange(INT64_MIN, std::memory_order_relaxed);
+    out.jumps = s.jumps.exchange(0, std::memory_order_relaxed);
+    out.blocks = s.blocks.exchange(0, std::memory_order_relaxed);
+    return out;
+}
+
 void HubEngine::startCrossfade(SlotState& s, uint64_t oldReadPos) noexcept {
     s.xfFrom = oldReadPos;
     s.xfRemain = xfLen_;
@@ -745,7 +756,14 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             const uint64_t sw = src.writePos.load(std::memory_order_acquire);
             uint64_t& cur = srcCursor_[size_t(i)];
             const int64_t lead = int64_t(sw - cur);
+            auto& stats = srcStats_[size_t(i)];
+            if (srcKnown_[size_t(i)]) {
+                if (lead < stats.leadMin.load(std::memory_order_relaxed)) stats.leadMin.store(lead, std::memory_order_relaxed);
+                if (lead > stats.leadMax.load(std::memory_order_relaxed)) stats.leadMax.store(lead, std::memory_order_relaxed);
+                stats.blocks.fetch_add(1, std::memory_order_relaxed);
+            }
             if (!srcKnown_[size_t(i)] || lead < n || lead > std::max<int64_t>(8 * n, int64_t(sampleRate_ * 0.2))) {
+                if (srcKnown_[size_t(i)]) stats.jumps.fetch_add(1, std::memory_order_relaxed);
                 cur = sw >= uint64_t(n) ? sw - uint64_t(n) : 0;
                 srcKnown_[size_t(i)] = true;
             }

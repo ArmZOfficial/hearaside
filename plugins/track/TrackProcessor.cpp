@@ -601,7 +601,7 @@ void TrackProcessor::getStateInformation(juce::MemoryBlock& dest) {
     if (auto* s = pub_.slot()) chainMs_ = ssbus::bitsFloat(s->chainLatencyBits.load(std::memory_order_relaxed));
     state.setProperty("chainMs", chainMs_, nullptr);
     state.setProperty("role", isFriendInput() ? "friend" : "track", nullptr);
-    state.setProperty("friendId", int64_t(friendId_.load(std::memory_order_relaxed)), nullptr);
+    state.setProperty("friendId", juce::int64(friendId_.load(std::memory_order_relaxed)), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -617,7 +617,7 @@ void TrackProcessor::setStateInformation(const void* data, int size) {
     if (auto* s = pub_.slot()) s->chainLatencyBits.store(ssbus::floatBits(chainMs_), std::memory_order_relaxed);
 
     const juce::String roleStr = state.getProperty("role", "track").toString();
-    const uint32_t fid = uint32_t(int64_t(state.getProperty("friendId", 0)));
+    const uint32_t fid = uint32_t(juce::int64(state.getProperty("friendId", 0)));
     const Role r = (roleStr == "friend") ? Role::FriendInput : Role::Track;
     friendId_.store(fid, std::memory_order_relaxed);
 

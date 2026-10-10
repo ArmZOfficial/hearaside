@@ -380,6 +380,21 @@ TEST_CASE("sim: measures track and master plug-in latency") {
         CHECK_NEAR(live.masterMs, double(master) / 48.0, 0.3);
         CHECK_NEAR(live.tracksMs, 30.0, 0.3);
     }
+    {   // a Viewers Delay (sync offset) on the backing is not plug-in latency of the other tracks
+        Sim s("latdelay", 600);
+        SimTrack& backing = s.addTrack(+1);
+        backing.seed = 11;
+        backing.pub.mirror({ true, true, false, 0, 0, 40.0f, 0, -1 });
+        SimTrack& vocal = s.addTrack(+1);
+        vocal.seed = 22;
+        vocal.chain = 1440;                   // vocal plug-ins: 30 ms
+        s.run(0, 400);
+        const auto r = s.hub.measureLatencies();
+        CHECK_NEAR(r.masterMs, 0.0, 0.3);
+        CHECK_NEAR(r.tracksMs, 30.0, 0.3);
+        CHECK_NEAR(bitsFloat(vocal.pub.slot()->chainLatencyBits.load()), 30.0, 0.3);
+        CHECK_NEAR(bitsFloat(backing.pub.slot()->chainLatencyBits.load()), 0.0, 0.3);
+    }
     {   // one track, plug-ins on the master only
         Sim s("latone", 400);
         s.addTrack(+1).seed = 5;

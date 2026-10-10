@@ -82,6 +82,7 @@ juce::String ControlServer::newKey() {
 bool ControlServer::start(const juce::String& key) {
     stop();
     if (key.length() < 16) return false;
+    ShareServer::ignoreBrokenPipes();
     key_ = key;
     listener_ = std::make_unique<juce::StreamingSocket>();
     port_ = 0;

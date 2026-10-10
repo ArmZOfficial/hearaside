@@ -225,7 +225,7 @@ private:
 
 constexpr int kSections = 5;
 const Str kSectionTitles[kSections] = { Str::SecAppearance, Str::SecAudio, Str::SecConnection, Str::AccountTitle, Str::SecAbout };
-const Str kSectionCaps[kSections] = { Str::SecAppearanceCap, Str::SecAudioCap, Str::SecConnectionCap, Str::SecAccountCap, Str::SecAboutCap };
+const Str kSectionCaps[kSections] = { Str::SecAppearanceCap, Str::SecAudioCap, Str::SecConnectionCap, Str::AccountOptional, Str::SecAboutCap };
 const icons::Icon kSectionIcons[kSections] = { icons::Icon::Appearance, icons::Icon::AudioBars, icons::Icon::Connection, icons::Icon::Person, icons::Icon::Info };
 
 } // namespace
@@ -571,12 +571,18 @@ public:
         again_.setVisible(phase_ == P::Done || phase_ == P::Failed);
         check_.setVisible(phase_ == P::Done);
         auto m = measure_;
+        // the two hint lines go beside the button when they fit, else under it
+        const auto hintFont = uiFont(12.5f);
+        const float hintW = juce::jmax(textWidth(hintFont, tr(Str::SyncTakes)), textWidth(hintFont, tr(Str::SyncViewersNothing)));
+        hintBelow_ = m.getWidth() - 208.0f < hintW + 4.0f;
         if (!busy && phase_ != P::Done && phase_ != P::Failed) {
-            start_.setBounds(m.removeFromTop(50.0f).withWidth(190.0f).toNearestInt());
+            start_.setBounds(m.removeFromTop(50.0f).withWidth(juce::jmin(190.0f, m.getWidth())).toNearestInt());
         } else if (busy) {
             cancel_.setBounds(m.withTrimmedTop(60.0f).removeFromTop(36.0f).withWidth(float(cancel_.idealWidth())).toNearestInt());
         } else {
-            auto row = m.withTrimmedTop(phase_ == P::Done ? 110.0f : 60.0f).removeFromTop(36.0f);
+            // a failure message can wrap to several lines (Thai, narrow window): the buttons go under it
+            const float errorH = juce::jmax(36.0f, wrappedHeight(hintFont, tr(ed.proc().autoSync().error), m.getWidth(), 4.0f));
+            auto row = m.withTrimmedTop(phase_ == P::Done ? 110.0f : 22.0f + errorH + 6.0f).removeFromTop(36.0f);
             again_.setBounds(row.removeFromLeft(float(again_.idealWidth())).toNearestInt());
             row.removeFromLeft(16.0f);
             check_.setBounds(row.removeFromLeft(float(check_.idealWidth())).withSizeKeepingCentre(float(check_.idealWidth()), 20.0f).toNearestInt());
@@ -613,7 +619,8 @@ public:
         const auto st = ed.proc().autoSync();
         auto m = measure_;
         if (phase_ == P::Idle) {
-            auto t = m.withTrimmedLeft(208.0f).removeFromTop(50.0f).withSizeKeepingCentre(m.getWidth() - 208.0f, 40.0f);
+            auto t = hintBelow_ ? m.withTrimmedTop(62.0f).removeFromTop(40.0f)
+                                : m.withTrimmedLeft(208.0f).removeFromTop(50.0f).withSizeKeepingCentre(m.getWidth() - 208.0f, 40.0f);
             g.setColour(p.ink2);
             g.setFont(uiFont(12.5f));
             g.drawText(tr(Str::SyncTakes), t.removeFromTop(20.0f), juce::Justification::centredLeft, true);
@@ -653,7 +660,7 @@ public:
             g.setColour(p.danger);
             g.setFont(uiFont(14.0f, Weight::SemiBold));
             g.drawText(tr(Str::SyncFailedTitle), m.removeFromTop(22.0f), juce::Justification::centredLeft, true);
-            drawWrapped(g, tr(st.error), uiFont(12.5f), p.ink2, m.removeFromTop(36.0f), 4.0f);
+            drawWrapped(g, tr(st.error), uiFont(12.5f), p.ink2, m.removeFromTop(juce::jmax(36.0f, wrappedHeight(uiFont(12.5f), tr(st.error), m.getWidth(), 4.0f))), 4.0f);
         }
 
         // right: current delays, tips
@@ -764,6 +771,7 @@ private:
     std::vector<std::pair<int, bool>> refIds_;
     HubProcessor::SyncPhase phase_ = HubProcessor::SyncPhase::Idle;
     juce::uint32 phaseStart_ = 0;
+    bool hintBelow_ = false;
     juce::Rectangle<float> card_, delaysCard_, tipsCard_, step1_, step2_, step3_, labels_, sep1_, sep2_, measure_;
 };
 
@@ -781,7 +789,6 @@ std::unique_ptr<HubPage> makeHubPage(HubEditor& ed, HubEditor::Page page, int sl
         case HubEditor::Page::Programs: p = makeProgramsPage(ed); break;
         case HubEditor::Page::Main:     break;
     }
-    if (p) recolourTextEditors(*p);
     return p;
 }
 

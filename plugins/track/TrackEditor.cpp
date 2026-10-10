@@ -434,7 +434,8 @@ void TrackEditor::openFineSettings(bool open) {
     sheet_.setVisible(open);
     if (open) sheet_.toFront(false);
     fineButton_.setOn(open);
-    (open ? static_cast<juce::Component&>(sheet_.back) : static_cast<juce::Component&>(fineButton_)).grabKeyboardFocus();
+    if (isShowing())
+        (open ? static_cast<juce::Component&>(sheet_.back) : static_cast<juce::Component&>(fineButton_)).grabKeyboardFocus();
 }
 
 void TrackEditor::openAccount(bool open) {

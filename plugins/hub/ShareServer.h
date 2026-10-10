@@ -70,6 +70,8 @@ public:
     static juce::String newSecret();   // 64 hex characters (256 bits), proves who owns the permanent links
     static bool secureRandom(void* dst, size_t n);
     static juce::File findCloudflared();
+    // macOS / Linux: writing to a socket the browser already closed raises SIGPIPE, which would end the DAW
+    static void ignoreBrokenPipes();
 
 private:
     struct Conn;

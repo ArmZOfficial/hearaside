@@ -19,7 +19,10 @@ namespace hearaside {
 // before getting the editor's LookAndFeel would show them in the default (white) colour.
 inline void recolourTextEditors(juce::Component& root) {
     for (auto* c : root.getChildren()) {
-        if (auto* e = dynamic_cast<juce::TextEditor*>(c)) e->applyColourToAllText(e->findColour(juce::TextEditor::textColourId));
+        if (auto* e = dynamic_cast<juce::TextEditor*>(c)) {
+            e->removeColour(juce::TextEditor::textColourId);   // never pin a colour (see TextField::recolour)
+            e->applyColourToAllText(e->findColour(juce::TextEditor::textColourId), false);
+        }
         recolourTextEditors(*c);
     }
 }
@@ -149,6 +152,7 @@ private:
         lnf_.setDark(settings_->isDark());
         lookChanged();
         sendLookAndFeelChange();
+        recolourTextEditors(*this);   // typed text keeps its old colour otherwise (white on white after Dark -> Light)
         repaint();
     }
 

@@ -247,8 +247,10 @@ void Overlay::showMenu(Menu m, juce::Component& anchor, bool alignLeft, std::fun
     toFront(false);
     card_->setAlpha(reduceMotion() ? 1.0f : 0.0f);
     startTimerHz(60);
-    if (auto* vp = dynamic_cast<juce::Viewport*>(card_.get())) vp->getViewedComponent()->grabKeyboardFocus();
-    else card_->grabKeyboardFocus();
+    if (card_->isShowing()) {   // focus can only move once the window is on screen
+        if (auto* vp = dynamic_cast<juce::Viewport*>(card_.get())) vp->getViewedComponent()->grabKeyboardFocus();
+        else card_->grabKeyboardFocus();
+    }
     repaint();
 }
 

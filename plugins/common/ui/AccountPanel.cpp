@@ -243,7 +243,7 @@ int AccountPanel::idealHeight(int width) const {
     const auto s = mgr_.state();
     if (s == AccountManager::State::SignedOut) {
         if (mode_ == Mode::Full) {
-            return 380;
+            return 326;
         } else {
             return 440;
         }
@@ -336,14 +336,7 @@ void AccountPanel::paint(juce::Graphics& g) {
 
     if (s == AccountManager::State::SignedOut) {
         if (mode_ == Mode::Full) {
-            // Header: Account / Optional. Everything in HEARASIDE works without an account.
-            auto headArea = r.removeFromTop(60.0f);
-            g.setFont(uiFont(22.0f, Weight::SemiBold));
-            g.setColour(p.ink);
-            g.drawText(tr(Str::AccountTitle), headArea.removeFromTop(28.0f), juce::Justification::left, true);
-            g.setFont(uiFont(13.5f, Weight::Regular));
-            g.setColour(p.ink2);
-            g.drawText(tr(Str::AccountOptional), headArea, juce::Justification::left, true);
+            // the Settings page above already shows "Account / Optional. Everything ... without an account."
         } else {
             // Compact subtitle
             auto subArea = r.removeFromTop(44.0f);
@@ -452,7 +445,7 @@ void AccountPanel::resized() {
 void AccountPanel::layoutFull(juce::Rectangle<int> r) {
     const auto s = mgr_.state();
     if (s == AccountManager::State::SignedOut) {
-        r.removeFromTop(68); // Title & Subtitle painted area
+        r.removeFromTop(14);   // below the Settings page's own title and caption
         auto tilesR = r.removeFromTop(120);
         const int gap = 12;
         const int tileW = (tilesR.getWidth() - 2 * gap) / 3;

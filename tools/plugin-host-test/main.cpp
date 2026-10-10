@@ -26,10 +26,11 @@ void pump(int ms) {
 }
 
 juce::String bundlePath(const juce::String& file) {
-    // VST3 on Windows: <name>.vst3/Contents/x86_64-win/<name>.vst3 -> load the bundle folder
+    // VST3: <name>.vst3/Contents/<arch>/<name>.vst3|.so -> load the bundle folder
     juce::File f(file);
-    if (f.getFileExtension() == ".vst3" && f.getParentDirectory().getFileName() == "x86_64-win")
-        return f.getParentDirectory().getParentDirectory().getParentDirectory().getFullPathName();
+    const auto bundle = f.getParentDirectory().getParentDirectory().getParentDirectory();
+    if (f.getParentDirectory().getParentDirectory().getFileName() == "Contents" && bundle.getFileExtension() == ".vst3")
+        return bundle.getFullPathName();
     return f.getFullPathName();
 }
 

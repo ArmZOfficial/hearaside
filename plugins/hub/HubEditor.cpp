@@ -895,11 +895,14 @@ void HubEditor::showPage(Page p, int slot) {
     if (p != Page::Main) {
         pageView_ = makeHubPage(*this, p, slot);
         content_.addAndMakeVisible(*pageView_);
+        recolourTextEditors(*pageView_);   // only now does the page see the editor's LookAndFeel (light theme)
     }
     layout();
     content_.repaint();
-    if (p == Page::Main) share_.grabKeyboardFocus();
-    else back_.grabKeyboardFocus();
+    if (isShowing()) {   // focus can only move once the window is on screen
+        if (p == Page::Main) share_.grabKeyboardFocus();
+        else back_.grabKeyboardFocus();
+    }
 }
 
 void HubEditor::showSettings(SettingsSection s) {

@@ -521,7 +521,7 @@ int StatusChip::idealWidth() const {
     const auto f = uiFont(height_ > 32.0f ? 12.5f : 12.0f, Weight::Medium);
     float w = textWidth(f, text_) + (height_ > 32.0f ? 26.0f : 22.0f);
     if (dot_ != Dot::None) w += 7.0f + 8.0f;
-    if (value_.isNotEmpty()) w += 8.0f + textWidth(f, value_);
+    if (value_.isNotEmpty()) w += 4.0f + textWidth(f, juce::String(juce::CharPointer_UTF8("\xc2\xb7 ")) + value_);   // as paintButton draws it
     if (chevron_) w += 8.0f + 14.0f;
     return juce::roundToInt(w) + 2;
 }

@@ -47,7 +47,10 @@ void TextField::setPlaceholder(const juce::String& p) {
 }
 
 void TextField::recolour() {
-    applyColourToAllText(findColour(juce::TextEditor::textColourId));
+    // applyColourToAllText(c, true) pins c on this component: a field first coloured before it had the
+    // editor's LookAndFeel (default = white) would stay white in the light theme. Always ask the LookAndFeel.
+    removeColour(juce::TextEditor::textColourId);
+    applyColourToAllText(findColour(juce::TextEditor::textColourId), false);
     setTextToShowWhenEmpty(placeholder_, paletteOf(*this).graphite);
 }
 

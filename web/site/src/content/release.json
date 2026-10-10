@@ -4,7 +4,7 @@
     "installer":  "/downloads/HEARASIDE-Setup-1.0.0.exe",
     "sizeMb":  "19.3",
     "sha256":  "e18e11a06d6bc7137ad0fb880081ef906e13dbc7372a72353237cdaa525f4c05",
-    "obsMin":  "[MIN VERSION]",
+    "obsMin":  "32",
     "notes":  [
                   {
                       "version":  "1.0.0",

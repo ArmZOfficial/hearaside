@@ -15,6 +15,10 @@
 #include <sys/random.h>
 #endif
 
+#ifndef _WIN32
+#include <csignal>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -269,15 +273,22 @@ juce::File ShareServer::findCloudflared() {
     dirs.add(local + "\\Microsoft\\WinGet\\Links");
     dirs.add(local + "\\HEARASIDE");
     for (const auto& d : dirs) {
-        if (d.trim().isEmpty()) continue;
+        if (!juce::File::isAbsolutePath(d.trim())) continue;   // empty or relative PATH entries (".")
         const juce::File f = juce::File(d.trim()).getChildFile("cloudflared.exe");
         if (f.existsAsFile()) return f;
     }
     return {};
 }
 
+void ShareServer::ignoreBrokenPipes() {
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);   // a failed write then returns an error instead
+#endif
+}
+
 bool ShareServer::start(ssbus::BusLayout* bus, const juce::String& listenToken, const juce::String& sendToken) {
     stop();
+    ignoreBrokenPipes();
     if (bus == nullptr) return false;
     bus_ = bus;
     listenToken_ = listenToken;

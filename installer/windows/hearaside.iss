@@ -77,15 +77,15 @@ thai.OpenGuide=เปิดคู่มือเริ่มต้นใช้�
 thai.RemoveSettings=ลบการตั้งค่า HEARASIDE ของฉันด้วย (ไฟล์อัดเสียงจะไม่ถูกลบ)
 
 [Types]
-Name: "full"; Description: "Full"; Flags: iscustom
+Name: "full"; Description: "Full"
 
 [Components]
 Name: "vst3"; Description: "{cm:CompVst3}"; Types: full; Flags: fixed
 #ifdef WithVst2
-Name: "vst2"; Description: "{cm:CompVst2}"; Types: full
+Name: "vst2"; Description: "{cm:CompVst2}"; Types: full; Flags: fixed
 #endif
-Name: "obs"; Description: "{cm:CompObs}"; Types: full
-Name: "cloudflared"; Description: "{cm:CompCloudflared}"; Types: full
+Name: "obs"; Description: "{cm:CompObs}"; Types: full; Flags: fixed
+Name: "cloudflared"; Description: "{cm:CompCloudflared}"; Types: full; Flags: fixed
 
 [Dirs]
 Name: "{commoncf64}\VST3\HEARASIDE"; Components: vst3

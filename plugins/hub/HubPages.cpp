@@ -566,7 +566,7 @@ public:
         measure_ = c.withTrimmedLeft(44.0f);
         using P = HubProcessor::SyncPhase;
         const bool busy = phase_ == P::Countdown || phase_ == P::Reference || phase_ == P::Microphone;
-        start_.setVisible(!busy && phase_ != P::Done);
+        start_.setVisible(!busy && phase_ != P::Done && phase_ != P::Failed);
         cancel_.setVisible(busy);
         again_.setVisible(phase_ == P::Done || phase_ == P::Failed);
         check_.setVisible(phase_ == P::Done);

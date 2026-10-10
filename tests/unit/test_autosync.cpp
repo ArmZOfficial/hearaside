@@ -55,6 +55,8 @@ struct Rig {
     int64_t roundTrip = 0;
     float bleed = 0.02f, noise = 0.002f;
     float leak = 0.0f;       // music that reaches the master another way (a channel without HEARASIDE Track)
+    float second = 0.0f;     // in the music step: a second copy of the music, `secondLag` frames later (drifting)
+    int64_t secondLag = 0;
     float echo = 0.0f;       // room / reverb: a copy 23 ms later
     std::vector<float> hp;   // a crude high-pass (headphones held to a mic lose the bass)
 
@@ -87,7 +89,7 @@ struct Rig {
             const float* pm[1] = { m.data() };
             musicTrack.process(pa, 1, n, t, true, false, false);
             micTrack.process(pm, 1, n, t, true, false, false);
-            for (int i = 0; i < n; ++i) l[size_t(i)] = r[size_t(i)] = musicToMaster ? a[size_t(i)] : m[size_t(i)] + leak * a[size_t(i)];
+            for (int i = 0; i < n; ++i) l[size_t(i)] = r[size_t(i)] = musicToMaster ? a[size_t(i)] + second * music(t + i - secondLag - (t + i) / 4800) : m[size_t(i)] + leak * a[size_t(i)];
             float* io[2] = { l.data(), r.data() };
             HubParams p;
             hub.process(io, 2, n, p, t, true, false);
@@ -97,12 +99,12 @@ struct Rig {
 
     // HubProcessor::serviceAutoSync: five readings 0.4 s apart after a settling time
     std::vector<std::optional<double>> readings(bool musicPhase, int slot, std::optional<double> removeMs = std::nullopt) {
-        run(musicPhase ? 1.2 : 2.0, musicPhase);
+        run(2.0, musicPhase);
         std::vector<std::optional<double>> out;
         for (int k = 0; k < 5; ++k) {
             if (k > 0) run(0.4, musicPhase);
             double score = 0.0;
-            out.push_back(hub.measureLag(slot, musicPhase ? 0.3 : 0.1, !musicPhase, false, &score, !musicPhase, removeMs));
+            out.push_back(hub.measureLag(slot, musicPhase ? 0.3 : 0.1, !musicPhase, false, &score, true, removeMs));   // like HubProcessor::serviceAutoSync
             std::printf("    %s reading %d: %s (score %.2f)\n", musicPhase ? "music" : "mic  ", k,
                         out.back() ? std::to_string(*out.back()).c_str() : "--", score);
         }
@@ -230,4 +232,20 @@ TEST_CASE("auto sync: App Audio running on another thread than the Hub (Studio O
     const auto rs = readings(5, 1.5);
     REQUIRE(steady(rs).has_value());
     for (const auto& v : rs) if (v && rs[0]) CHECK_NEAR(*v, *rs[0], 0.5);
+}
+
+TEST_CASE("auto sync: a second copy of the music in the master doesn't pull the music step apart") {
+    // the program also reaches the master another way, drifting (it played straight to the interface
+    // and came back through a loopback): user's autosync.log read 210 / 195 / 213 / 130 / 211 ms
+    for (const float sec : { 0.5f, 0.8f, 1.0f }) {
+        Rig r("autosync_second_" + std::to_string(int(sec * 10)) + "_" + std::to_string(currentPid()));
+        r.second = sec;
+        r.secondLag = 150 * 48;
+        std::printf("  second copy %.1f\n", sec);
+        const auto rs = r.readings(true, musicSlot(r));
+        const auto ref = steady(rs);
+        REQUIRE(ref.has_value());
+        CHECK_NEAR(*ref, 0.0, 0.5);
+        for (const auto& v : rs) { REQUIRE(v.has_value()); CHECK_NEAR(*v, *ref, 1.0); }
+    }
 }

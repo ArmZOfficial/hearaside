@@ -285,9 +285,34 @@ function scriptPlayer() {
   return sp;
 }
 
+// Phones: the sound has to start inside the tap itself (after an await the browser no longer counts
+// it as the tap and keeps the audio suspended); iOS plays Web Audio as "ambient", muted by the ringer
+// switch, unless a media element or the audio session says "playback"; a call or the lock screen
+// interrupts the audio and it has to be resumed.
+let keepAlive = null;
+function silentWav() {
+  const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+  const w = (o, s) => [...s].forEach((c, i) => b[o + i] = c.charCodeAt(0));
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true); b.fill(128, 44);
+  let s = ""; b.forEach(x => s += String.fromCharCode(x));
+  return "data:audio/wav;base64," + btoa(s);
+}
+function unlockAudio(c) {
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+  c.resume().catch(() => {});
+  if (!keepAlive) { keepAlive = new Audio(silentWav()); keepAlive.loop = true; keepAlive.setAttribute("playsinline", ""); }
+  keepAlive.play().catch(() => {});
+}
+function releaseAudio() { if (keepAlive) keepAlive.pause(); }
+function wakeAudio() { if (ctx && ctx.state !== "running" && ctx.state !== "closed") ctx.resume().catch(() => {}); }
+["visibilitychange", "pageshow", "touchend", "click"].forEach(t => document.addEventListener(t, wakeAudio));
+
 async function start() {
   view("connecting");
   ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+  unlockAudio(ctx);   // still inside the tap
   if (ctx.audioWorklet) {
     await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "application/javascript" })));
     node = new AudioWorkletNode(ctx, "hearaside-player", { outputChannelCount: [2] });
@@ -334,6 +359,7 @@ function stop() {
   backoff = 2000;
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (ctx) { ctx.close(); ctx = null; node = null; }
+  releaseAudio();
   $("ml").style.width = $("mr").style.width = "0";
   $("delay").textContent = "";
   view("idle");

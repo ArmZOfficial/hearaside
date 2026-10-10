@@ -62,6 +62,8 @@ public:
     void remeasureFriend(int slot);              // forget the measured delay and measure again
     // The listen links (/l/<token>) can be switched off without taking the friends away.
     void setListenEnabled(bool on) noexcept { listenEnabled_.store(on); }
+    // A new listen link while the server runs (friends stay connected); the old link stops working.
+    void setListenToken(const juce::String& token);
     bool listenEnabled() const noexcept { return listenEnabled_.load(); }
     juce::String friendUrl(const juce::String& token) const;     // best link: public if ready, else LAN
     int friendsConnected() const noexcept { return friendsLive_.load(); }
@@ -90,7 +92,8 @@ private:
     std::list<std::unique_ptr<Conn>> conns_;
     std::mutex connsMutex_, writeMutex_;
     ssbus::BusLayout* bus_ = nullptr;
-    juce::String listenToken_, sendToken_;
+    juce::String listenToken_, sendToken_;   // listenToken_ guarded by urlMutex_ (connection threads read it)
+    juce::String listenToken() const;
     int port_ = 0;
     std::atomic<int> listeners_ { 0 }, senders_ { 0 };
     std::atomic<uint32_t> senderGen_ { 0 };

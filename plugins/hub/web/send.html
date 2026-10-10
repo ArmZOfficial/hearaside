@@ -341,12 +341,37 @@ function setVolume() {
   if (outGain) outGain.gain.value = $("hear").checked ? v * v : 0;
 }
 
+// Phones: the sound has to start inside the tap itself (after an await the browser no longer counts
+// it as the tap and keeps the audio suspended); iOS plays Web Audio as "ambient", muted by the ringer
+// switch, unless a media element or the audio session says otherwise (here: play and record); a call or the lock screen
+// interrupts the audio and it has to be resumed.
+let keepAlive = null;
+function silentWav() {
+  const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+  const w = (o, s) => [...s].forEach((c, i) => b[o + i] = c.charCodeAt(0));
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true); b.fill(128, 44);
+  let s = ""; b.forEach(x => s += String.fromCharCode(x));
+  return "data:audio/wav;base64," + btoa(s);
+}
+function unlockAudio(c) {
+  try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch (e) {}
+  c.resume().catch(() => {});
+  if (!keepAlive) { keepAlive = new Audio(silentWav()); keepAlive.loop = true; keepAlive.setAttribute("playsinline", ""); }
+  keepAlive.play().catch(() => {});
+}
+function releaseAudio() { if (keepAlive) keepAlive.pause(); }
+function wakeAudio() { if (ctx && ctx.state !== "running" && ctx.state !== "closed") ctx.resume().catch(() => {}); }
+["visibilitychange", "pageshow", "touchend", "click"].forEach(t => document.addEventListener(t, wakeAudio));
+
 async function start() {
   running = true;
   $("hint").textContent = L.stopHint;
   status(L.connecting);
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: "interactive" });
+    unlockAudio(ctx);   // still inside the tap
     await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "application/javascript" })));
     node = new AudioWorkletNode(ctx, "hearaside-duplex", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
     outGain = ctx.createGain();
@@ -429,6 +454,7 @@ function stop() {
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   if (ctx) { ctx.close(); ctx = null; node = null; outGain = null; }
+  releaseAudio();
   behindMs = null;
   $("level").style.opacity = 0;
   idle();

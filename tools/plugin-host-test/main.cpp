@@ -391,6 +391,33 @@ void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm
     pump(300);
     Http after;
     check(!after.open(port) || after.request("/l/" + lt).empty(), "turning sharing off closes the links");
+
+    // sharing again (no permanent links): a new random listen link, the old one stays dead
+    ssbus::postRemote(L, ssbus::RemoteParam::Share, 1.0f);
+    pump(400);
+    juce::MemoryBlock st2;
+    rig.hub->getStateInformation(st2);
+    std::string raw2(static_cast<const char*>(st2.getData()), st2.getSize());
+    if (const auto wrap = juce::AudioProcessor::getXmlFromBinary(st2.getData(), int(st2.getSize())))
+        if (auto* comp = wrap->getChildByName("IComponent")) {
+            juce::MemoryBlock mb;
+            if (mb.fromBase64Encoding(comp->getAllSubText().trim())) raw2 = std::string(static_cast<const char*>(mb.getData()), mb.getSize());
+        }
+    juce::String lt2;
+    if (const auto at = raw2.find("listenToken=\""); at != std::string::npos) {
+        const auto from = at + 13, end = raw2.find('"', from);
+        lt2 = juce::String(raw2.substr(from, end - from));
+    }
+    int newOk = 0, oldOk = 0;
+    for (int p = 47810; p < 47830; ++p) {
+        Http a, b;
+        if (a.open(p) && a.request("/l/" + lt2).find(" 200 ") != std::string::npos) ++newOk;
+        if (b.open(p) && b.request("/l/" + lt).find(" 200 ") != std::string::npos) ++oldOk;
+    }
+    check(lt2.length() == 26 && lt2 != lt && newOk == 1 && oldOk == 0,
+          "share: every share gets a new random listen link, the old one stops working");
+    ssbus::postRemote(L, ssbus::RemoteParam::Share, 0.0f);
+    pump(300);
 }
 
 // Transport the host test drives (App Audio follows the DAW's record button).

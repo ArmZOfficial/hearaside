@@ -7,6 +7,11 @@
     "obsMin":  "32",
     "notes":  [
                   {
+                      "version":  "1.0.1",
+                      "en":  "Fixes: text in fields readable in the light theme, the OBS delay no longer cut off, the Settings › Account title no longer shows twice, friends mixed in a DAW track stay audible with large buffers, more stable latency measuring.",
+                      "th":  "แก้บั๊ก: ตัวอักษรในช่องพิมพ์อ่านได้ในธีมสว่าง ตัวเลขความหน่วง OBS ไม่ถูกตัด หัวข้อบัญชีในการตั้งค่าไม่ซ้ำ เสียงเพื่อนในแทร็ก DAW ไม่หายเมื่อใช้บัฟเฟอร์ใหญ่ และวัดความหน่วงได้นิ่งขึ้น"
+                  },
+                  {
                       "version":  "1.0.0",
                       "en":  "New look for every plug-in, English by default, one installer with everything included.",
                       "th":  "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง"

@@ -426,6 +426,15 @@ void HubProcessor::serviceShare() {
 void HubProcessor::setSharing(bool on) {
     if (on == shareWanted_) return;
     shareWanted_ = on;
+    // Without permanent links every share gets a new random listen link: a link sent for an earlier
+    // stream stops working. (Permanent links are meant to stay the same, so they keep their token.)
+    if (on && !permanentLinksSet()) {
+        if (const auto t = ShareServer::newToken(); t.isNotEmpty()) {
+            listenToken_ = t;
+            share_.setListenToken(t);
+            updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));   // saved with the project
+        }
+    }
     if (on) serviceShare();
     else directory_.stop();   // the permanent links say "not shared right now" at once; friends keep their server
     share_.setListenEnabled(on);

@@ -291,7 +291,7 @@ bool ShareServer::start(ssbus::BusLayout* bus, const juce::String& listenToken, 
     ignoreBrokenPipes();
     if (bus == nullptr) return false;
     bus_ = bus;
-    listenToken_ = listenToken;
+    setListenToken(listenToken);
     sendToken_ = sendToken;
     listener_ = std::make_unique<juce::StreamingSocket>();
     port_ = 0;
@@ -365,13 +365,23 @@ juce::String ShareServer::publicBase() const {
     return publicBase_;
 }
 
+void ShareServer::setListenToken(const juce::String& token) {
+    const std::lock_guard<std::mutex> lock(urlMutex_);
+    listenToken_ = token;
+}
+
+juce::String ShareServer::listenToken() const {
+    const std::lock_guard<std::mutex> lock(urlMutex_);
+    return listenToken_;
+}
+
 juce::String ShareServer::listenUrl() const {
     const auto p = publicBase();
-    return (p.isNotEmpty() ? p : lanBase()) + "/l/" + listenToken_;
+    return (p.isNotEmpty() ? p : lanBase()) + "/l/" + listenToken();
 }
 
 juce::String ShareServer::localListenUrl() const {
-    return "http://127.0.0.1:" + juce::String(port_) + "/l/" + listenToken_;
+    return "http://127.0.0.1:" + juce::String(port_) + "/l/" + listenToken();
 }
 
 juce::String ShareServer::sendUrl() const {
@@ -496,9 +506,10 @@ void ShareServer::serve(Conn& c) {
         respond(s, 404, "text/plain; charset=utf-8", off, sizeof(off) - 1);
         return;
     }
-    if (path == "/l/" + listenToken_) { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::listen_html, size_t(HearasideWeb::listen_htmlSize)); return; }
+    const auto lt = listenToken();
+    if (path == "/l/" + lt) { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::listen_html, size_t(HearasideWeb::listen_htmlSize)); return; }
     if (path == "/s/" + sendToken_)   { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::send_html, size_t(HearasideWeb::send_htmlSize)); return; }
-    if (path == "/ws/l/" + listenToken_ && key.isNotEmpty()) { if (upgrade()) streamTo(c); return; }
+    if (path == "/ws/l/" + lt && key.isNotEmpty()) { if (upgrade()) streamTo(c); return; }
     if (path == "/ws/s/" + sendToken_ && key.isNotEmpty())   { if (upgrade()) receiveFrom(c); return; }
     static const char notFound[] = "HEARASIDE: this link is not valid (any more).";
     respond(s, 404, "text/plain; charset=utf-8", notFound, sizeof(notFound) - 1);

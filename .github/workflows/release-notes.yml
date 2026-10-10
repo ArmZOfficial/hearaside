@@ -1,0 +1,29 @@
+# Publishes docs/releases/v<version>.md as the GitHub Release v<version> (tag, title, notes).
+# A new file creates the release as a pre-release (the Windows installer is built on a Windows PC
+# with .\build.ps1 -Installer and attached by hand); editing the file updates the notes.
+name: Release notes
+on:
+  push:
+    paths: ['docs/releases/v*.md']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create or update releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in docs/releases/v*.md; do
+            tag=$(basename "$f" .md)
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --notes-file "$f"
+              echo "updated $tag"
+            else
+              gh release create "$tag" --target "$GITHUB_SHA" --title "HEARASIDE ${tag#v}" --notes-file "$f" --prerelease
+              echo "created $tag"
+            fi
+          done

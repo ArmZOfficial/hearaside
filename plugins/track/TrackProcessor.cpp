@@ -76,7 +76,9 @@ void TrackProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     delayLine_.clear();
     delayWrite_ = 0;
     pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
-    reader_.prepare(sampleRate_, juce::jmax(2048, samplesPerBlock));
+    friendChunk_ = juce::jmax(2048, samplesPerBlock);
+    reader_.prepare(sampleRate_, friendChunk_);
+    monoScratch_.assign(size_t(friendChunk_), 0.0f);
     tapSum_ = 0.0f;
     tapPhase_ = 0;
     if (auto* f = feeder_.load(std::memory_order_relaxed))
@@ -156,23 +158,23 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
     auto& fh = b->friends[friendSlot];
     const uint32_t frRate = fh.sampleRate.load(std::memory_order_relaxed);
 
-    float* out[2];
-    out[0] = buffer.getWritePointer(0);
-    if (buffer.getNumChannels() > 1) {
-        out[1] = buffer.getWritePointer(1);
-    } else {
-        if (int(monoScratch_.size()) < n) monoScratch_.resize(size_t(n));
-        out[1] = monoScratch_.data();
+    // a block bigger than the reader was prepared for (some hosts, offline-like bursts) is pulled in
+    // pieces: one oversized pull would return silence and restart the jitter buffer every block
+    const bool mono = buffer.getNumChannels() == 1;
+    const int chunk = mono ? juce::jmin(friendChunk_, int(monoScratch_.size())) : friendChunk_;
+    for (int at = 0; at < n && chunk > 0; at += chunk) {
+        const int len = juce::jmin(chunk, n - at);
+        float* out[2] = { buffer.getWritePointer(0) + at, mono ? monoScratch_.data() : buffer.getWritePointer(1) + at };
+        reader_.pull(b->friendAudio[friendSlot], fh.writePos, frRate, out, len);
+        if (mono) {
+            const float* r = monoScratch_.data();
+            float* l = out[0];
+            for (int i = 0; i < len; ++i) l[i] = (l[i] + r[i]) * 0.5f;
+        }
     }
-
-    reader_.pull(b->friendAudio[friendSlot], fh.writePos, frRate, out, n);
+    if (chunk <= 0) buffer.clear();   // not prepared yet: never pass the track's own input through
     f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
 
-    if (buffer.getNumChannels() == 1) {
-        const float* r = monoScratch_.data();
-        float* l = buffer.getWritePointer(0);
-        for (int i = 0; i < n; ++i) l[i] = (l[i] + r[i]) * 0.5f;
-    }
     for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.clear(c, 0, n);
 
     const float decay = std::exp(-float(n) / (0.3f * float(sampleRate_)));

@@ -44,7 +44,7 @@ private:
     };
     mutable std::mutex mutex_;
     Config wanted_, registered_;      // registered_: what the site has (thread only)
-    bool registeredValid_ = false;
+    std::atomic<bool> registeredValid_{ false };   // written by run(), read by stop() on the message thread
     bool unregister_ = false;                   // stop() asked to take the links offline (guarded by mutex_)
     std::atomic<State> state_ { State::Off };
     std::atomic<int> heartbeatMs_ { 30000 }, retryMs_ { 2000 };

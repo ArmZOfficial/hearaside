@@ -153,7 +153,8 @@ private:
     std::unique_ptr<ssbus::SharedMemory> feederShm_;
     std::vector<std::unique_ptr<ssbus::SharedMemory>> retiredFeederShm_;
     ssengine::FriendReader reader_;
-    std::vector<float> monoScratch_;
+    std::vector<float> monoScratch_;   // right channel of a mono track, sized in prepareToPlay (never on the audio thread)
+    int friendChunk_ = 2048;           // the most frames reader_ takes per pull
     float tapSum_ = 0.0f;
     int tapPhase_ = 0;
     uint32_t replySeq_ = 0;

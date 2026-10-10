@@ -49,7 +49,10 @@ void HubEngine::maintain() {
 }
 
 void HubEngine::prepare(double sampleRate, int maxBlock) {
-    sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
+    {
+        const std::lock_guard<std::mutex> lock(measureMutex_);   // the measuring thread reads it
+        sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
+    }
     maxBlock_ = std::max(16, std::min(maxBlock, int(kRingFrames / 8)));
     for (int c = 0; c < 2; ++c) {
         tmpA_[c].assign(size_t(maxBlock_), 0.0f);
@@ -154,7 +157,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
     const double rate = sampleRate_ / 4.0;
     const double msPerLag = 4000.0 / sampleRate_;
     // the Hub reads the Tracks' signals behind the master bus by the sync-safety blocks
-    const int lead = int(std::lround(double(syncSafety_) * lastBlock_ / 4.0));
+    const int lead = int(std::lround(double(syncSafety_.load(std::memory_order_relaxed)) * lastBlock_.load(std::memory_order_relaxed) / 4.0));
     const int N = int(rate * 0.25);                 // 250 ms window
     const int K = int(rate * 0.5);                  // up to 500 ms of latency
     const int Kneg = lead + 8;
@@ -364,7 +367,7 @@ std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyP
     if (bus() == nullptr || capLen_ == 0 || slot < 0 || slot >= (source ? kMaxSources : kMaxSlots)) return std::nullopt;
     const float* hist = (source ? capSources_.data() : capSlots_.data()) + size_t(slot) * capLen_;
     const double rate = sampleRate_ / 4.0;
-    const int lead = int(std::lround(double(syncSafety_) * lastBlock_ / 4.0));
+    const int lead = int(std::lround(double(syncSafety_.load(std::memory_order_relaxed)) * lastBlock_.load(std::memory_order_relaxed) / 4.0));
     const int N = int(rate * (faint ? 1.0 : 0.25)), K = int(rate * 0.5);
     const int Kneg = lead + 8 + (faint ? int(rate * 0.4) : 0), M = N + K + Kneg;
     const uint32_t w = capWrite_.load(std::memory_order_acquire);
@@ -405,7 +408,7 @@ uint64_t HubEngine::anchorFor(int i, int n, int64_t timeSamples, bool useTimelin
     }
     viaTimeline = false;
     const uint64_t w = sh.writePos.load(std::memory_order_acquire);
-    const uint64_t back = uint64_t(n) * uint64_t(1 + std::clamp(syncSafety_, 0, 2));
+    const uint64_t back = uint64_t(n) * uint64_t(1 + std::clamp(syncSafety_.load(std::memory_order_relaxed), 0, 2));
     return w > back ? w - back : 0;
 }
 
@@ -432,7 +435,7 @@ void HubEngine::process(float* const* io, int numCh, int n, const HubParams& p,
     h.hubHeartbeatNs.store(nowNs(), std::memory_order_relaxed);
     h.hubSampleRate.store(sr, std::memory_order_relaxed);
     h.hubBlockSize.store(uint32_t(n), std::memory_order_relaxed);
-    syncSafety_ = std::clamp(p.syncSafety, 0, 2);
+    syncSafety_.store(std::clamp(p.syncSafety, 0, 2), std::memory_order_relaxed);
     h.hubLatencyFrames.store(uint32_t(limiters_[0].latency()), std::memory_order_relaxed);   // the stream itself is live
     const uint32_t flags = (p.preview ? kHubPreview : 0u) | (p.panic ? kHubPanic : 0u)
                          | (offline ? kHubOffline : 0u) | (p.bypassed ? kHubBypassed : 0u)
@@ -469,7 +472,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     const bool useTimeline = playing && hasTime;
     // With sync safety the Hub mixes "L samples in the past", so tracks that the host processes
     // after the master bus (or on another thread) have already published that part of the timeline.
-    const int64_t mixTime = hasTime ? timeSamples - int64_t(syncSafety_) * n : kNoTime;
+    const int64_t mixTime = hasTime ? timeSamples - int64_t(syncSafety_.load(std::memory_order_relaxed)) * n : kNoTime;
 
     // ---- transport events -> re-anchor every slot ----------------------------------------
     bool reanchorAll = false;
@@ -481,7 +484,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     for (auto& c : phones_) std::memset(c.data(), 0, size_t(n) * sizeof(float));
     int live[kMaxSlots];   // slots that feed the latency history this chunk
     int numLive = 0;
-    lastBlock_ = n;
+    lastBlock_.store(n, std::memory_order_relaxed);
     std::array<bool, kNumStreamOuts> used{};   // a stem is zeroed the first time a slot writes to it
     used[0] = true;
     // The Stream Mix is the master bus itself: every Track sends what viewers hear to the DAW,
@@ -500,7 +503,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
 
     const uint32_t maxDelay = std::min<uint32_t>(uint32_t(0.5 * sampleRate_ + 0.5),
                                                  kRingFrames - kGuardFrames - 4u * uint32_t(maxBlock_));
-    const uint64_t aheadThreshold = uint64_t(syncSafety_ * n) + uint64_t(std::max<double>(2.0 * n, 0.020 * sampleRate_));
+    const uint64_t aheadThreshold = uint64_t(syncSafety_.load(std::memory_order_relaxed) * n) + uint64_t(std::max<double>(2.0 * n, 0.020 * sampleRate_));
     const float pkDecay = std::exp(-float(n) / (0.3f * float(sr)));
     float* A[2] = { tmpA_[0].data(), tmpA_[1].data() };
     float* B[2] = { tmpB_[0].data(), tmpB_[1].data() };

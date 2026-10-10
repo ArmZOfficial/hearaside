@@ -200,7 +200,7 @@ private:
 
     double sampleRate_ = 48000;
     int    maxBlock_ = 0;
-    int    syncSafety_ = 0;
+    std::atomic<int> syncSafety_{ 0 };   // audio thread writes, measureLatencies() / measureLag() read
     uint32_t xfLen_ = 240;
 
     std::array<SlotState, ssbus::kMaxSlots> slots_;
@@ -222,7 +222,7 @@ private:
     std::atomic<uint32_t> capWrite_{ 0 };
     float decIn_ = 0;
     int decCount_ = 0;
-    int lastBlock_ = 256;
+    std::atomic<int> lastBlock_{ 256 };   // likewise
     std::mutex measureMutex_;                       // prepare() vs measureLatencies()
 
     std::vector<float> outs_[ssbus::kNumStreamOuts][2];

@@ -578,7 +578,7 @@ public:
         if (!busy && phase_ != P::Done && phase_ != P::Failed) {
             start_.setBounds(m.removeFromTop(50.0f).withWidth(juce::jmin(190.0f, m.getWidth())).toNearestInt());
         } else if (busy) {
-            cancel_.setBounds(m.withTrimmedTop(60.0f).removeFromTop(36.0f).withWidth(float(cancel_.idealWidth())).toNearestInt());
+            cancel_.setBounds(m.withTrimmedTop(76.0f).removeFromTop(36.0f).withWidth(float(cancel_.idealWidth())).toNearestInt());
         } else {
             // a failure message can wrap to several lines (Thai, narrow window): the buttons go under it
             const float errorH = juce::jmax(36.0f, wrappedHeight(hintFont, tr(ed.proc().autoSync().error), m.getWidth(), 4.0f));

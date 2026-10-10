@@ -361,7 +361,8 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
     return out;
 }
 
-std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyPolarity, bool source, double* score, bool faint) {
+std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyPolarity, bool source, double* score, bool faint,
+                                            std::optional<double> removeMs) {
     const std::lock_guard<std::mutex> lock(measureMutex_);
     if (score) *score = 0.0;
     if (bus() == nullptr || capLen_ == 0 || slot < 0 || slot >= (source ? kMaxSources : kMaxSlots)) return std::nullopt;
@@ -381,6 +382,22 @@ std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyP
     if (faint)   // first difference: music is mostly bass, a mic held to headphones hears mostly the rest
         for (int i = M - 1; i > 0; --i) { y[size_t(i)] -= y[size_t(i) - 1]; x[size_t(i)] -= x[size_t(i) - 1]; }
     const int yStart = M - Kneg - N;
+    if (removeMs) {
+        // y = g * x(n - kr) + the rest: take the best-fitting g over the window and subtract that copy
+        const double kr = *removeMs * sampleRate_ / 4000.0 - lead;
+        const int k0 = int(std::floor(kr));
+        const double fr = kr - k0;
+        auto shifted = [&](int n) {
+            const int a = n - k0;
+            return a - 1 >= 0 && a < M ? (1.0 - fr) * x[size_t(a)] + fr * x[size_t(a - 1)] : 0.0;
+        };
+        double yx = 0.0, xx = 0.0;
+        for (int n = yStart; n < yStart + N; ++n) { const double s = shifted(n); yx += y[size_t(n)] * s; xx += s * s; }
+        if (xx > 0.0) {
+            const double g = yx / xx;
+            for (int n = 0; n < M; ++n) y[size_t(n)] -= float(g * shifted(n));
+        }
+    }
     double ey = 0;
     for (int i = yStart; i < yStart + N; ++i) ey += double(y[size_t(i)]) * y[size_t(i)];
     std::vector<double> cum(size_t(M) + 1);

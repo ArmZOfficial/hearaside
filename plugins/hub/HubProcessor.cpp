@@ -104,11 +104,13 @@ void HubProcessor::run(juce::AudioBuffer<float>& buffer, bool bypassed) {
     hp.masterDb = master_->load();
     hp.limiterOn = limiter_->load() > 0.5f;
     hp.ceilingDb = ceiling_->load();
-    hp.preview = preview_->load() > 0.5f;
+    // auto sync silences the stream: "Hear viewers' mix" would then silence the headphones too, and the
+    // mic, which measures by hearing them, would hear nothing
+    hp.silence = silence_.load(std::memory_order_relaxed);
+    hp.preview = preview_->load() > 0.5f && !hp.silence;
     hp.panic = panic_->load() > 0.5f;
     hp.syncSafety = juce::roundToInt(sync_->load());
     hp.bypassed = bypassed;
-    hp.silence = silence_.load(std::memory_order_relaxed);
     const bool offline = isNonRealtime();
     engine_.process(buffer.getArrayOfWritePointers(), numCh, n, hp, time, playing, offline);
     if (bypassed || engine_.role() != HubEngine::Role::Owner) return;   // extra Hubs build the viewers FX channel
@@ -837,7 +839,10 @@ void HubProcessor::serviceAutoSync() {
     if (!syncReads_.empty() && frames - syncLastRead_ < uint64_t(sampleRate_ * 0.4)) return;
     syncLastRead_ = frames;
     double score = 0.0;
-    const auto lag = engine_.measureLag(st.ref, music ? 0.3 : 0.1, !music, st.refSource, &score, !music);
+    // phase 2: music that reaches the master another way (an FX return, a channel without HEARASIDE
+    // Track) would line up at the music's own lag and outvote the faint mic: take it out first
+    const auto lag = engine_.measureLag(st.ref, music ? 0.3 : 0.1, !music, st.refSource, &score, !music,
+                                        music ? std::nullopt : std::optional<double>(syncRefMs_));
     syncReads_.push_back({ lag, score });
     if (syncReads_.size() < 5) return;
     if (music) {

@@ -71,7 +71,7 @@ export function DiscordLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function GoogleLogo({ size = 20 }: { size?: number }) {
-  // only used when the Google Identity Services button can't load (it draws its own logo)
+export function GoogleLogo({ size = 18 }: { size?: number }) {
+  // one colour like Discord's; Google's own button sits invisibly on top of ours (AuthBits GoogleButton)
   return <img className="mono-logo" src="/logos/google.svg" width={size} height={size} alt="" aria-hidden="true" style={{ display: 'block' }} />;
 }

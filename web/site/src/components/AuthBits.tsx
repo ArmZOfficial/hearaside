@@ -2,7 +2,6 @@
 // Turnstile bot check and the safe "next" redirect.
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
-import { useResolvedDark } from '../lib/theme';
 import { AuthError, useAuth, authMode } from '../lib/auth';
 import { DiscordLogo, GoogleLogo } from './ui/Icons';
 
@@ -53,12 +52,12 @@ declare global {
   }
 }
 
-/** The button Google Identity Services draws (its own logo and colours, as Google's guidelines
- *  require). The ID token goes to Supabase with our nonce: the Google page shows our domain. */
+/** Our own button (same look as Discord's) with Google Identity Services' button laid invisibly on top,
+ *  so the click still lands on Google's: the ID token goes to Supabase with our nonce and the Google
+ *  page shows our domain. Google's button can't be restyled, which is why it isn't shown. */
 export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: AuthError): void }) {
   const { t, lang } = useT();
   const auth = useAuth();
-  const dark = useResolvedDark();
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   const ready = !!env.VITE_GOOGLE_CLIENT_ID && authMode === 'supabase';
@@ -67,9 +66,13 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
     if (!ready || !box.current) return;
     let alive = true;
     const el = box.current;
+    // Google's button is at most 400 px wide and 40 tall: stretch it over the whole of ours
+    let drawn = 0;
+    const fit = () => { if (drawn) el.style.setProperty('--gsi-sx', String(el.clientWidth / drawn)); };
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
     (async () => {
       try {
-        // hl: the button's language follows the page, not the browser
         await loadScript(`https://accounts.google.com/gsi/client?hl=${lang}`);
         if (!alive || !window.google) return;
         const raw = randomNonce();
@@ -83,20 +86,18 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
           },
         });
         el.innerHTML = '';
-        // Google draws this button (its logo, its colours, 40 px tall). It sits in a frame the size and shape
-        // of our other buttons (.gsi-box); the frame takes the button's own background so the seam doesn't show.
-        el.dataset.theme = dark ? 'dark' : 'light';
+        drawn = Math.min(400, Math.max(200, el.clientWidth));
         window.google.accounts.id.renderButton(el, {
-          theme: dark ? 'filled_black' : 'outline', shape: 'rectangular', text: 'continue_with', size: 'large',
-          width: Math.min(400, Math.max(200, el.clientWidth - 2)), locale: lang, logo_alignment: 'center',
+          theme: 'outline', shape: 'rectangular', text: 'continue_with', size: 'large', width: drawn, locale: lang,
         });
+        fit();
       } catch {
         if (alive) setFailed(true);
       }
     })();
-    return () => { alive = false; };
+    return () => { alive = false; ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, dark, lang]);
+  }, [ready, lang]);
 
   if (!ready) {
     return (
@@ -115,7 +116,12 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
       </div>
     );
   }
-  return <div ref={box} className="gsi-box" aria-label={t('signup.google')} />;
+  return (
+    <div className="gsi-wrap">
+      <button type="button" className="btn oauth" tabIndex={-1} aria-hidden="true"><GoogleLogo />{t('signup.google')}</button>
+      <div ref={box} className="gsi-overlay" aria-label={t('signup.google')} />
+    </div>
+  );
 }
 
 export function DiscordButton({ next, onError }: { next: string; onError(e: AuthError): void }) {

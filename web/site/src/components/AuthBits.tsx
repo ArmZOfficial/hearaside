@@ -69,7 +69,8 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
     const el = box.current;
     (async () => {
       try {
-        await loadScript('https://accounts.google.com/gsi/client');
+        // hl: the button's language follows the page, not the browser
+        await loadScript(`https://accounts.google.com/gsi/client?hl=${lang}`);
         if (!alive || !window.google) return;
         const raw = randomNonce();
         const hashed = await sha256Hex(raw);
@@ -77,16 +78,18 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
         window.google.accounts.id.initialize({
           client_id: env.VITE_GOOGLE_CLIENT_ID,
           nonce: hashed,
-          use_fedcm_for_button: true,
           callback: async (r: { credential: string }) => {
             try { await auth.signInWithGoogle(r.credential, raw); onDone(); }
             catch (e) { onError(e instanceof AuthError ? e : new AuthError('failed')); }
           },
         });
         el.innerHTML = '';
+        // Google draws this button (its logo, its colours, 40 px tall). It sits in a frame the size and shape
+        // of our other buttons (.gsi-box); the frame takes the button's own background so the seam doesn't show.
+        el.dataset.theme = dark ? 'dark' : 'light';
         window.google.accounts.id.renderButton(el, {
           theme: dark ? 'filled_black' : 'outline', shape: 'rectangular', text: 'continue_with', size: 'large',
-          width: Math.min(400, el.clientWidth || 360), locale: lang, logo_alignment: 'left',
+          width: Math.min(400, Math.max(200, el.clientWidth - 2)), locale: lang, logo_alignment: 'center',
         });
       } catch {
         if (alive) setFailed(true);

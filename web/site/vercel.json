@@ -13,15 +13,15 @@
     },
     {
       "source": "/l/:token",
-      "destination": "/listen.html"
+      "destination": "/listen"
     },
     {
       "source": "/s/:token",
-      "destination": "/send.html"
+      "destination": "/send"
     },
     {
       "source": "/((?!api/|assets/|l/|s/).*)",
-      "destination": "/app.html"
+      "destination": "/app"
     }
   ],
   "headers": [

@@ -341,10 +341,9 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             fh.outSlot.store(matchedSlot, std::memory_order_release);
             slot.fedBy.store(fid, std::memory_order_release);
             slot.fxLatencyBits.store(floatBits(float(li)), std::memory_order_relaxed);
-            if (lineUpOn_.load(std::memory_order_relaxed))
-                slot.flags.fetch_or(kFlagViewersViaHub, std::memory_order_release);
-            else
-                slot.flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+            // always through the Hub (Line up or not): only the Hub can keep the friend out of the
+            // mix that friends hear. Line up off = D is 0, so the friend is simply not delayed.
+            slot.flags.fetch_or(kFlagViewersViaHub, std::memory_order_release);
         } else {
             const int oldS = fh.outSlot.load(std::memory_order_relaxed);
             if (oldS >= 0 && oldS < kMaxSlots) {
@@ -510,6 +509,10 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     expectedTime_ = useTimeline ? timeSamples + n : kNoTime;
 
     for (auto& c : phones_) std::memset(c.data(), 0, size_t(n) * sizeof(float));
+    if (lateAny_) for (auto& o : late_) for (auto& c : o) std::memset(c.data(), 0, size_t(n) * sizeof(float));
+    lateAny_ = false;
+    for (auto& v : voice_) std::memset(v.data(), 0, size_t(n) * sizeof(float));
+    int carried[kMaxSlots];   // the friend slot a Track at the end of a channel carries, -1 = none
     int live[kMaxSlots];   // slots that feed the latency history this chunk
     int numLive = 0;
     lastBlock_.store(n, std::memory_order_relaxed);
@@ -589,6 +592,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             s.timelineLocked = false;
         }
 
+        carried[i] = -1;
         const float delayMs = bitsFloat(sh.strDelayBits.load(std::memory_order_relaxed));
         s.delay = std::min<uint32_t>(maxDelay, uint32_t(std::max(0.0f, delayMs) * float(sampleRate_) * 0.001f + 0.5f));
         if (f & kFlagViewersViaHub) {
@@ -597,6 +601,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             for (int j = 0; j < kMaxFriends; ++j) {
                 if (b->friends[j].id.load(std::memory_order_relaxed) == fid) { friendSlot = j; break; }
             }
+            carried[i] = friendSlot;
             if (friendSlot >= 0) {
                 const float liMs = bitsFloat(sh.fxLatencyBits.load(std::memory_order_relaxed));
                 const uint32_t liFrames = uint32_t(std::max(0.0f, liMs) * float(sampleRate_) * 0.001f + 0.5f);
@@ -620,6 +625,14 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             if (s.xfRemain == 0) s.xfActive = false;
         }
         s.cursor += uint64_t(n);
+
+        // a friend mixed in a DAW track: the other friends hear that track (your plug-ins on it), not
+        // delayed, at its viewers level
+        if (carried[i] >= 0) {
+            const float gv = 0.5f * ssdsp::dbToGain(bitsFloat(sh.strGainBits.load(std::memory_order_relaxed)));
+            float* vo = voice_[size_t(carried[i])].data();
+            for (int j = 0; j < n; ++j) vo[j] += (A[0][j] + A[1][j]) * gv;
+        }
 
         const uint64_t w = sh.writePos.load(std::memory_order_acquire);
         const int64_t lead = int64_t(w - s.cursor);
@@ -679,17 +692,21 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         live[numLive++] = i;
         if (silent) std::memset(mono, 0, size_t(n) * sizeof(float));
         if (!silent) {
-            float* s0 = outIdx > 0 ? outs_[outIdx][0].data() : nullptr;
-            float* s1 = outIdx > 0 ? outs_[outIdx][1].data() : nullptr;
+            // a Track carrying a friend sends the viewers' side here, not to the DAW: it joins after the
+            // Line-up delay (late_), already placed at D - the friend's delay
+            const bool viaHub = (f & kFlagViewersViaHub) != 0;
+            auto& dst = viaHub ? late_ : outs_;
+            lateAny_ = lateAny_ || viaHub;
+            float* s0 = outIdx > 0 ? dst[outIdx][0].data() : nullptr;
+            float* s1 = outIdx > 0 ? dst[outIdx][1].data() : nullptr;
+            float* m0 = viaHub && !p.panic ? late_[0][0].data() : nullptr;
+            float* m1 = viaHub && !p.panic ? late_[0][1].data() : nullptr;
             for (int j = 0; j < n; ++j) {
                 const float gg = s.gain.next();
                 const float l = V[0][j] * gg * s.panL.next();
                 const float r = V[1][j] * gg * s.panR.next();
                 if (s0) { s0[j] += l; s1[j] += r; }
-                if ((f & kFlagViewersViaHub) && !p.panic) {
-                    outs_[0][0][j] += l;
-                    outs_[0][1][j] += r;
-                }
+                if (m0) { m0[j] += l; m1[j] += r; }
                 mono[j] = l + r;
                 pk0 = std::max(pk0, std::abs(l));
                 pk1 = std::max(pk1, std::abs(r));

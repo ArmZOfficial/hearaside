@@ -625,6 +625,8 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
 
     std::vector<uint8_t> msg, packet;
     std::vector<float> l, r, ml(4096), mr(4096);
+    std::vector<float> voices[ssbus::kMaxFriends];   // the other friends (friendVoiceAudio), same positions as ml / mr
+    for (auto& v : voices) v.assign(ml.size(), 0.0f);
     std::vector<double> history;                 // recent delay readings (ms), for the median
     double smooth = -1.0;
     uint64_t mixCursor = bus_->friendMixWrite.load() > 2400 ? bus_->friendMixWrite.load() - 960 : 0;
@@ -709,7 +711,8 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
             }
         }
 
-        // ---- what the friend hears: the Stream Mix as the DAW makes it ---------------------
+        // ---- what the friend hears: the Stream Mix as the DAW makes it + every other friend --------
+        //      (like Jamulus: each voice as soon as it arrives; never their own)
         const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
         const uint64_t mw = bus_->friendMixWrite.load(std::memory_order_acquire);
         if (mw > mixCursor + uint64_t(hubRate) * 2) mixCursor = mw - hubRate / 10;   // fell far behind: jump to now
@@ -718,6 +721,15 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
             const uint32_t n = uint32_t(std::min<uint64_t>(mw - mixCursor, ml.size()));
             float* dst[2] = { ml.data(), mr.data() };
             if (ssbus::ringReadAt(bus_->friendMixAudio, bus_->friendMixWrite, mixCursor, dst, n) == ssbus::ReadResult::Overrun) { mixCursor = mw - hubRate / 10; break; }
+            for (int k = 0; k < ssbus::kMaxFriends / 2; ++k) {
+                float* vd[2] = { voices[size_t(2 * k)].data(), voices[size_t(2 * k + 1)].data() };
+                ssbus::ringReadAt(bus_->friendVoiceAudio[k], bus_->friendVoiceWrite[k], mixCursor, vd, n);   // a gap = silence
+            }
+            for (int j = 0; j < ssbus::kMaxFriends; ++j) {
+                if (j == slot) continue;   // nobody hears themselves come back
+                const float* v = voices[size_t(j)].data();
+                for (uint32_t i = 0; i < n; ++i) { ml[i] += v[i]; mr[i] += v[i]; }
+            }
             packet.resize(24 + size_t(n) * 4);
             const uint16_t chans = 2, flags = 0;
             std::memcpy(packet.data(), &kMagic2, 4);

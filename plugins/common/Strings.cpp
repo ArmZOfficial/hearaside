@@ -629,7 +629,7 @@ Table build() {
     s(Str::KeepOwnSound, "เก็บเสียงเดิมของแทร็กไว้ด้วย", "Keep this track’s own sound");
     s(Str::KeepOwnSoundCap, "ปิด: ส่งเฉพาะ %s ต่อไปที่ปลั๊กอินของคุณ", "Off: only %s goes on to your plug-ins");
     s(Str::FriendPaired, "%s ออกทาง HEARASIDE Track ท้ายแทร็กนี้ · ปลั๊กอินของคุณเพิ่ม %d ms", "%s goes out through HEARASIDE Track at the end of this track · your plug-ins add %d ms");
-    s(Str::FriendNotPaired, "ใส่ HEARASIDE Track ไว้ท้ายแทร็กนี้ ระหว่างนี้ %s ไปถึงคนดูผ่าน DAW อย่างเดียว ไม่เข้าหูฟัง และไม่ตรงจังหวะ", "Add HEARASIDE Track at the end of this track. Until then, %s reaches viewers through the DAW only, not your headphones, and isn’t lined up.");
+    s(Str::FriendNotPaired, "ใส่ HEARASIDE Track ไว้ท้ายแทร็กนี้ ระหว่างนี้ Hub เล่นเสียง %s ตรง ๆ โดยไม่ผ่านปลั๊กอินของคุณ", "Add HEARASIDE Track at the end of this track. Until then, the Hub plays %s straight, without your plug-ins.");
     s(Str::FriendStepBelow, "วางปลั๊กอินของคุณไว้ใต้ตัวนี้", "Put your plug-ins below this one");
     s(Str::FriendStepEnd, "ใส่ HEARASIDE Track ไว้ท้ายแทร็กนี้", "Put HEARASIDE Track at the end of this track");
     s(Str::FriendDawPaused, "DAW พักแทร็กนี้เพราะไม่มีเสียง ให้กดอาร์มแทร็กหรือเปิด input monitoring", "The DAW paused this track because it has no audio. Arm the track or turn on input monitoring.");

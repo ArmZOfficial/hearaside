@@ -844,6 +844,13 @@ int main(int argc, char** argv) {
             shot(*apps[1], "state-app-off-" + sfx, 440, 600);
             apps[1]->setOn(true);
 #endif
+            {   // S7: a Track bringing in a friend (Friend input): its level in + "keep own sound", not paired yet
+                TrackProcessor fr;
+                fr.setRole(TrackProcessor::Role::FriendInput);
+                fr.setFriendId(hub.friends().front().id);
+                pump(300);
+                shot(fr, "state-track-friend-" + sfx, TrackEditor::kWidth, TrackEditor::kHeight);
+            }
         }
         settings->setLanguage(Language::English);
         settings->setFlag("startHidden", false);

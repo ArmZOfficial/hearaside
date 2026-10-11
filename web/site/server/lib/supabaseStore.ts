@@ -174,7 +174,12 @@ export class SupabaseStore implements Store {
 
   async listLinks(userId: string): Promise<LinkRow[]> {
     const r = list(await this.db.from('share_links').select('*').eq('user_id', userId).is('revoked_at', null).order('created_at'));
-    return r.map(x => ({ id: x.id, userId: x.user_id, kind: x.kind, label: x.label, createdAt: x.created_at, revokedAt: x.revoked_at }));
+    return r.map(x => ({ id: x.id, userId: x.user_id, kind: x.kind, label: x.label, createdAt: x.created_at, revokedAt: x.revoked_at, tokenHash: x.token_hash }));
+  }
+  async recordLinks(userId: string, links: { kind: 'listen' | 'send'; tokenHash: string }[]) {
+    if (links.length === 0) return;
+    check(await this.db.from('share_links').upsert(links.map(l => ({ user_id: userId, kind: l.kind, token_hash: l.tokenHash })),
+                                                    { onConflict: 'token_hash', ignoreDuplicates: true }));
   }
   async revokeLink(userId: string, id: string) {
     const r = list(await this.db.from('share_links').update({ revoked_at: new Date().toISOString() }).eq('id', id).eq('user_id', userId).is('revoked_at', null).select('id'));

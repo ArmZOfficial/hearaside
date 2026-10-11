@@ -1,7 +1,7 @@
 // node --test test/   (docs/ux-roadmap.md 8.9)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ENTRY_TTL_SEC, LIMITS, memoryStore, overLimit, register, resolve, tunnelAllowed, unregister } from "../lib/directory.js";
+import { ENTRY_TTL_SEC, LIMITS, memoryStore, overLimit, register, resolve, revokeHash, sha256, tunnelAllowed, unregister } from "../lib/directory.js";
 import { handleRegister, handleResolve } from "../lib/handlers.js";
 
 const secret = "a".repeat(64), other = "b".repeat(64);
@@ -94,4 +94,27 @@ test("HTTP handlers: JSON in and out, 429 when flooded, no secret in the answer"
     let last;
     for (let i = 0; i <= LIMITS.register; i++) last = await handleRegister(req(body()));
     assert.equal(last.status, 429);
+});
+
+test("friends' send-in links register too, at most eight", async () => {
+    const s = memoryStore();
+    const F = ["friendaaaaaaaaaaaaaaaaaaa", "friendbbbbbbbbbbbbbbbbbbb"];
+    const r = await register(s, body({ tokens: { l: L, s: S, f: F } }));
+    assert.equal(r.status, 200);
+    assert.equal((await resolve(s, F[1])).body.ws, "wss://able-dog-cat.trycloudflare.com/ws/s/" + F[1]);
+    const nine = Array.from({ length: 9 }, (_, i) => "friend" + String(i).repeat(20));
+    assert.equal((await register(s, body({ tokens: { l: L, f: nine } }))).status, 400);
+    assert.equal((await register(s, body({ tokens: { l: L, f: [L] } }))).status, 400);   // the same token twice
+});
+
+test("a link revoked on the account website never resolves again; the Hub hears which one", async () => {
+    const s = memoryStore();
+    await register(s, body());
+    await revokeHash(s, sha256(L));
+    assert.deepEqual((await resolve(s, L)).body, { online: false });
+    const r = await register(s, body());
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.revoked, [L]);
+    assert.deepEqual(r.body.tokens, [{ kind: "s", token: S }]);
+    assert.equal((await resolve(s, S)).body.online, true);
 });

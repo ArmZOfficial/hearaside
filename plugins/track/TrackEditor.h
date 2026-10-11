@@ -115,6 +115,14 @@ private:
     TextLine footer_ { 11.0f };
     std::unique_ptr<DbSliderLink> headphoneLink_, viewersLink_, delayLink_;
     std::unique_ptr<ParamValueLink> headValueLink_, viewValueLink_, delayValueLink_;
+    // Friend input (prompt 3.8 items 2-3): the friend's level into this track + keep the track's own sound
+    ToggleRow keepRow_ { icons::Icon::Waveform };
+    LevelSlider friendSlider_ { 12.0 };
+    EditableValue friendValue_ { EditableValue::Kind::Db, -30.0f, 12.0f };
+    Field friendField_ { {}, &friendSlider_, 20, &friendValue_ };
+    std::unique_ptr<DbSliderLink> friendLink_;
+    std::unique_ptr<ParamValueLink> friendValueLink_;
+    void refreshFriendTexts();
     Sheet sheet_ { *this };
     AccountPanel accountPanel_ { AccountPanel::Mode::Compact };
 
@@ -122,6 +130,7 @@ private:
     juce::Rectangle<float> header_, card_, wordmark_, dot_, inputLabel_, summary_, footerLine_;
     bool lastMon_ = false, lastStr_ = false;
     int slowTick_ = 0;
+    juce::String layoutKey_;
     uint64_t lastFeederBlockCount_ = 0;
     juce::uint32 lastFeederBlockTime_ = 0;
 };

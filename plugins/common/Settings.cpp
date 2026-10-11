@@ -47,6 +47,7 @@ void Settings::save() {
     file_->setValue("glassAlpha", (double) glassAlpha_);
     file_->setValue("hostColours", hostColours_);
     sendChangeMessage();
+    if (appearanceChanged) appearanceChanged(*this);
 }
 
 void Settings::setLanguage(Language l) {

@@ -7,6 +7,7 @@
 #include <juce_core/juce_core.h>
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 
 namespace hearaside {
@@ -20,8 +21,14 @@ public:
 
     // message thread. base: "https://hearaside.vercel.app" ("" = no permanent links).
     // tunnel: the Hub's https tunnel ("" = none: the links go offline).
+    // friends: every friend's send-in token (the friends room), registered like the send token.
     void update(const juce::String& base, const juce::String& listenToken, const juce::String& sendToken,
-                const juce::String& secret, const juce::String& tunnel);
+                const juce::String& secret, const juce::String& tunnel, const juce::StringArray& friends = {});
+    // The account's access token for this base (thread; "" = none): the site then lists the links
+    // in Account › Links and friends. Only ever given for the account's own server.
+    void setBearer(std::function<juce::String(const juce::String& base)> f) { const std::lock_guard<std::mutex> l(mutex_); bearer_ = std::move(f); }
+    // Tokens the site said were revoked on the account website (message thread takes them).
+    juce::StringArray takeRevoked() { const std::lock_guard<std::mutex> l(mutex_); auto r = revoked_; revoked_.clear(); return r; }
     void stop();                  // sharing switched off: unregister (best effort, on the thread)
 
     State state() const noexcept { return state_.load(); }
@@ -36,10 +43,11 @@ public:
 
 private:
     void run() override;
-    int post(const juce::String& path, const juce::String& json);   // HTTP status, 0 = no answer
+    int post(const juce::String& path, const juce::String& json, juce::String* reply = nullptr);   // HTTP status, 0 = no answer
 
     struct Config {
         juce::String base, listen, send, secret, tunnel;
+        juce::StringArray friends;
         bool operator==(const Config&) const = default;
     };
     mutable std::mutex mutex_;
@@ -49,6 +57,8 @@ private:
     std::atomic<State> state_ { State::Off };
     std::atomic<int> heartbeatMs_ { 30000 }, retryMs_ { 2000 };
     juce::WebInputStream* current_ = nullptr;   // the request in flight (guarded by mutex_), for cancel()
+    std::function<juce::String(const juce::String&)> bearer_;   // guarded by mutex_
+    juce::StringArray revoked_;                                  // guarded by mutex_
 };
 
 } // namespace hearaside

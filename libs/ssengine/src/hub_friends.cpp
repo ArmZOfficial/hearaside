@@ -47,10 +47,10 @@ HubEngine::~HubEngine() { disconnect(); }
 void HubEngine::friendsPrepare() {
     delayCap_ = uint32_t(1.5 * sampleRate_) + 4u * uint32_t(maxBlock_) + 64u;
     for (int c = 0; c < 2; ++c) {
-        fmix_[c].assign(size_t(maxBlock_), 0.0f);
-        fmixOld_[c].assign(size_t(maxBlock_), 0.0f);
+        for (auto& o : late_) o[c].assign(size_t(maxBlock_), 0.0f);
         delayScratch_[c].assign(size_t(maxBlock_), 0.0f);
     }
+    for (auto& v : voice_) v.assign(size_t(maxBlock_), 0.0f);
     for (auto& d : outDelay_) d.assign(delayCap_);
     for (int j = 0; j < kMaxFriends; ++j) {
         auto p = std::make_unique<FriendPlayer>();
@@ -108,6 +108,8 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     if (friends_[0] == nullptr) return;
 
     // ---- what friends hear: the Stream Mix as the DAW made it, never delayed --------------------
+    // Friends never hear friends: the direct ones are mixed below and the DAW-carried ones wait in late_,
+    // so nobody gets their own voice back a round trip later (mix-minus for every friend at once).
     {
         const float* src[2] = { outs_[0][0].data(), outs_[0][1].data() };
         ringWrite(b->friendMixAudio, b->friendMixWrite, src, 2, uint32_t(n));
@@ -230,6 +232,16 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     for (int o = 0; o < kNumStreamOuts; ++o) if (used[size_t(o)]) delayOut(o);
     lineXfRemain_ = xfStart > uint32_t(n) ? xfStart - uint32_t(n) : 0;
 
+    // ---- friends that a DAW track carries: already delayed by D - own delay, so after delayOut ------
+    if (lateAny_)
+        for (int o = 0; o < kNumStreamOuts; ++o)
+            if (used[size_t(o)])
+                for (int c = 0; c < 2; ++c) {
+                    float* x = outs_[size_t(o)][size_t(c)].data();
+                    const float* l = late_[size_t(o)][size_t(c)].data();
+                    for (int i = 0; i < n; ++i) x[i] += l[i];
+                }
+
     // ---- mix every friend ----------------------------------------------------------------------
     float* phoneL = phones_[0].data();
     float* phoneR = phones_[1].data();
@@ -262,11 +274,14 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         DelayLine& d = f.dl;
         const uint32_t cap = uint32_t(d.buf[0].size());
         float pk = 0.0f;
+        float* vo = voice_[size_t(j)].data();
+        const float gf = live ? g * 0.5f : 0.0f;   // mono: (l + r) / 2
         if (!silentNow) {
             for (int i = 0; i < n; ++i) {
                 const float dg = f.direct.next();
                 const float gm = f.mon.next() * dg, gs = f.str.next() * dg;
                 const float l = f.out[0][size_t(i)], r = f.out[1][size_t(i)];
+                vo[i] += (l + r) * gf * dg;
                 phoneL[i] += l * gm;
                 phoneR[i] += r * gm;
                 const float vl = l * gs * f.panL.next(), vr = r * gs * f.panR.next();
@@ -297,6 +312,12 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         }
         d.pos = endPos;
         f.peak = std::max(pk, f.peak * pkDecay);
+    }
+
+    // ---- what friends hear of each other: written with friendMixAudio, so the positions match --------
+    for (int k = 0; k < kMaxFriends / 2; ++k) {
+        const float* src[2] = { voice_[size_t(2 * k)].data(), voice_[size_t(2 * k + 1)].data() };
+        ringWrite(b->friendVoiceAudio[k], b->friendVoiceWrite[k], src, 2, uint32_t(n));
     }
     (void) used;
 }

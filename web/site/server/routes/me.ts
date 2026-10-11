@@ -8,6 +8,8 @@ import { StoreError, type Store } from '../lib/store.js';
 import { authenticate } from '../lib/context.js';
 import { limit, over } from '../lib/limit.js';
 import { body, meOf } from '../lib/http.js';
+import { revokeHash, type DirStore } from '../share/directory.js';
+import { store as redisStore } from '../share/redis.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
@@ -22,7 +24,7 @@ export async function toAvatar(buf: Buffer): Promise<Buffer | null> {
   }
 }
 
-export function meRoutes(store: Store) {
+export function meRoutes(store: Store, dir: () => DirStore = redisStore) {
   const r = Router();
   const any = authenticate(store);
   const web = authenticate(store, { webOnly: true });
@@ -107,7 +109,11 @@ export function meRoutes(store: Store) {
     res.json({ links });
   });
   r.delete('/me/links/:id', web, async (req, res) => {
-    (await store.revokeLink(req.caller!.userId, String(req.params.id))) ? res.json({ ok: true }) : res.status(404).json({ error: 'not_found' });
+    const link = (await store.listLinks(req.caller!.userId)).find(l => l.id === String(req.params.id));
+    if (!link) return res.status(404).json({ error: 'not_found' });
+    await revokeHash(dir(), link.tokenHash);   // first: the link stops resolving even if the next step fails
+    await store.revokeLink(req.caller!.userId, link.id);
+    res.json({ ok: true });
   });
 
   r.get('/me/friends', any, async (req, res) => {
@@ -147,6 +153,7 @@ export function meRoutes(store: Store) {
     if (!b) return;
     const p = await store.getProfile(req.caller!.userId);
     if (!p || b.confirm.trim().toLowerCase() !== p.handle) return res.status(400).json({ error: 'confirm' });
+    for (const l of await store.listLinks(req.caller!.userId)) await revokeHash(dir(), l.tokenHash).catch(() => {});
     await store.deleteAccount(req.caller!.userId);
     res.json({ ok: true });
   });

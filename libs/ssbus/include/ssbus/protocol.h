@@ -22,7 +22,7 @@
 namespace ssbus {
 
 constexpr uint32_t kMagic           = 0x53535031; // 'SSP1'
-constexpr uint32_t kProtocolVersion = 13;   // v13: friends room (8 friend rings) + friend input feeders (a Track mixes a friend in the DAW); v2: remote-control queue; v4: no scenes / Hub state mirror; v6: stream = master bus; v7: chain latency; v8: App Audio sources; v9: Hub mute for auto sync; v10: App Audio signal + delay for auto sync; v11: link input; v12: App Audio track slot (you hear / viewers hear)
+constexpr uint32_t kProtocolVersion = 14;   // v14: friends hear each other (friendVoiceAudio); v13: friends room (8 friend rings) + friend input feeders (a Track mixes a friend in the DAW); v2: remote-control queue; v4: no scenes / Hub state mirror; v6: stream = master bus; v7: chain latency; v8: App Audio sources; v9: Hub mute for auto sync; v10: App Audio signal + delay for auto sync; v11: link input; v12: App Audio track slot (you hear / viewers hear)
 constexpr int      kMaxSlots        = 64;
 constexpr int      kMaxStems        = 8;
 constexpr int      kNumStreamOuts   = 1 + kMaxStems;   // [0] = Stream Mix, [1..8] = stems
@@ -398,6 +398,14 @@ struct BusLayout {
     // the timeline friends report back against (S3).
     alignas(64) std::atomic<uint64_t> friendMixWrite;
     alignas(64) ChannelRing friendMixAudio;
+
+    // ---- v14 ---------------------------------------------------------------------------------
+    // Friends hear each other (like Jamulus): each friend's voice as the Hub plays it, mono, at its
+    // volume, as soon as it arrives (never delayed by Line up): friendVoiceAudio[k].ch[0] = friend 2k,
+    // .ch[1] = friend 2k + 1. Written in the same block as friendMixAudio, so the same frame position
+    // reads the same moment. The share server adds everyone but the listener (nobody hears themselves).
+    alignas(64) std::atomic<uint64_t> friendVoiceWrite[kMaxFriends / 2];
+    alignas(64) ChannelRing friendVoiceAudio[kMaxFriends / 2];
 };
 
 static_assert(std::is_standard_layout_v<BusLayout>, "BusLayout must be standard layout");

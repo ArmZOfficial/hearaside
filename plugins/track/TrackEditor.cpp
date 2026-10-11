@@ -365,6 +365,8 @@ TrackEditor::TrackEditor(TrackProcessor& p)
     : EditorShell(p, kWidth, kHeight, int(theme::layout::trackMinW), int(theme::layout::trackMinH), "track", 640, 1400), proc_(p) {
     for (juce::Component* c : std::initializer_list<juce::Component*> { &chip_, &fineButton_, &banner_, &name_, &inputMeter_, &monRow_, &strRow_, &scroll_, &footer_ })
         content_.addAndMakeVisible(c);
+    content_.addChildComponent(keepRow_);
+    body_.addChildComponent(friendField_);
     content_.addChildComponent(sheet_);
     content_.addChildComponent(accountPanel_);
     accountPanel_.onBack = [this] { openAccount(false); };
@@ -375,6 +377,11 @@ TrackEditor::TrackEditor(TrackProcessor& p)
 
     monRow_.onClick = [this] { toggle(trackparam::Mon); };
     strRow_.onClick = [this] { toggle(trackparam::Str); };
+    keepRow_.onClick = [this] {
+        auto* p = proc_.params().getParameter(trackparam::KeepOwn);
+        setParamWithGesture(*p, p->getValue() > 0.5f ? 0.0f : 1.0f);
+        timerCallback();
+    };
     fineButton_.onClick = [this] { openFineSettings(!sheet_.isVisible()); };
     name_.onRename = [this](const juce::String& n) { proc_.setDisplayNameOverride(n); };
 
@@ -386,6 +393,9 @@ TrackEditor::TrackEditor(TrackProcessor& p)
     headValueLink_ = std::make_unique<ParamValueLink>(headValue_, *pr.getParameter(trackparam::MonTrim));
     viewValueLink_ = std::make_unique<ParamValueLink>(viewValue_, *pr.getParameter(trackparam::StrGain));
     delayValueLink_ = std::make_unique<ParamValueLink>(delayValue_, *pr.getParameter(trackparam::StrDelay));
+    friendLink_ = std::make_unique<DbSliderLink>(friendSlider_, *pr.getParameter(trackparam::FriendLevel));
+    friendValueLink_ = std::make_unique<ParamValueLink>(friendValue_, *pr.getParameter(trackparam::FriendLevel));
+    friendSlider_.setTooltip(tr(Str::DoubleClickToReset));
 
     procListener_.fn = [this] {
         const uint32_t rep = proc_.lastReply();
@@ -399,7 +409,9 @@ TrackEditor::TrackEditor(TrackProcessor& p)
             proc_.clearReply();
         }
         refreshStatus();
+        refreshFriendTexts();
         sheet_.sync();
+        layout();   // the role may have changed: friend rows in place of the two switches
         content_.repaint();
     };
     proc_.stateChanged.addChangeListener(&procListener_);
@@ -477,6 +489,16 @@ void TrackEditor::refreshTexts() {
     headphoneSlider_.setTooltip(tr(Str::DoubleClickToReset));
     viewersSlider_.setTooltip(tr(Str::DoubleClickToReset));
     footer_.setTooltip(tr(Str::DawBufferFooterTip));
+    refreshFriendTexts();
+}
+
+void TrackEditor::refreshFriendTexts() {
+    FriendDirectory::Info fi;
+    const uint32_t fid = proc_.friendId();
+    const auto fn = fid != 0 && FriendDirectory::find(fid, fi) ? fi.name : tr(Str::FriendWord);
+    keepRow_.setTexts(tr(Str::KeepOwnSound), trf(Str::KeepOwnSoundCap, { fn }));
+    friendField_.setTexts(trf(Str::FriendLevelIn, { fn }), {});
+    friendSlider_.setTitle(trf(Str::FriendLevelIn, { fn }));
 }
 
 void TrackEditor::refreshStatus() {
@@ -524,8 +546,11 @@ void TrackEditor::refreshStatus() {
     }
     else show = false;
 
-    if (show != banner_.isVisible()) {
+    // the banner and the summary change height with their text (pairing a friend changes both)
+    const auto key = (show ? banner_.text() : juce::String()) + "|" + summaryText();
+    if (show != banner_.isVisible() || key != layoutKey_) {
         banner_.setVisible(show);
+        layoutKey_ = key;
         layout();
         content_.repaint();
     }
@@ -540,6 +565,8 @@ juce::String TrackEditor::summaryText() const {
         const uint32_t fid = proc_.friendId();
         FriendDirectory::Info fi;
         const auto fn = (fid != 0 && FriendDirectory::find(fid, fi)) ? fi.name : tr(Str::FriendWord);
+        if (fid == 0 || fi.outSlot < 0)   // not paired yet: what to do, not what happens once it is
+            return "1  " + tr(Str::FriendStepBelow) + "\n2  " + tr(Str::FriendStepEnd);
         return trf(Str::FriendHearSummary, { fn });
     }
     return tr(summaryKey());
@@ -572,6 +599,12 @@ void TrackEditor::timerCallback() {
         lastStr_ = str;
         layout();   // the summary sentence changes length
         content_.repaint();
+    }
+    if (isFriend) {
+        keepRow_.setOn(paramOn(trackparam::KeepOwn), content_.isShowing());
+        friendLink_->update();
+        friendValueLink_->update();
+        if (slowTick_ % 30 == 0) refreshFriendTexts();   // the friend may be renamed in the Hub
     }
     headphoneLink_->update();
     viewersLink_->update();
@@ -627,10 +660,23 @@ void TrackEditor::layout() {
     name_.setBounds(nameRow.withTrimmedLeft(-7.0f).toNearestInt());
     c.removeFromTop(12.0f);
 
-    monRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
-    c.removeFromTop(8.0f);
-    strRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
+    // friend input: "keep own sound" and the friend's level in place of You hear / Viewers hear and the
+    // levels (those live on the HEARASIDE Track at the end of the channel, prompt 3.8 item 5)
+    const bool fr = proc_.isFriendInput();
+    monRow_.setVisible(!fr);
+    strRow_.setVisible(!fr);
+    keepRow_.setVisible(fr);
+    if (fr) {
+        keepRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
+    } else {
+        monRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
+        c.removeFromTop(8.0f);
+        strRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
+    }
     c.removeFromTop(12.0f);
+    body_.fields = fr ? std::vector<Field*> { &friendField_ } : std::vector<Field*> { &headField_, &viewField_, &delayField_ };
+    for (auto* f : { &friendField_, &headField_, &viewField_, &delayField_ })
+        f->setVisible(std::find(body_.fields.begin(), body_.fields.end(), f) != body_.fields.end());
 
     const float th = wrappedHeight(uiFont(12.5f), summaryText(), c.getWidth() - 24.0f, 6.0f);
     summary_ = c.removeFromTop(th + 20.0f);

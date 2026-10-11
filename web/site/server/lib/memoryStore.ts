@@ -155,6 +155,14 @@ export class MemoryStore implements Store {
   }
 
   async listLinks(userId: string) { return [...this.links.values()].filter(l => l.userId === userId && !l.revokedAt); }
+  async recordLinks(userId: string, links: { kind: 'listen' | 'send'; tokenHash: string }[]) {
+    const known = new Set([...this.links.values()].map(l => l.tokenHash));
+    for (const l of links) {
+      if (known.has(l.tokenHash)) continue;
+      const row: LinkRow = { id: randomUUID(), userId, kind: l.kind, label: '', createdAt: now(), revokedAt: null, tokenHash: l.tokenHash };
+      this.links.set(row.id, row);
+    }
+  }
   async revokeLink(userId: string, id: string) {
     const l = this.links.get(id);
     if (!l || l.userId !== userId || l.revokedAt) return false;

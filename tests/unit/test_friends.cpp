@@ -49,6 +49,10 @@ struct Room {
         uint32_t rate = kRate;
     };
     Friend friends[kMaxFriends];
+    // a HEARASIDE Track at the end of a DAW channel that carries a friend (S7): content = noise(t - lag, seed)
+    std::unique_ptr<TrackPublisher> carrier;
+    int64_t carrierLag = 0;
+    uint32_t carrierSeed = 0;
 
     explicit Room(const char* tag) : bus(uniqueBus(tag)) {
         hub.connect(bus);
@@ -90,6 +94,15 @@ struct Room {
         }
         std::vector<float> l(static_cast<size_t>(block), 0.0f), r(static_cast<size_t>(block), 0.0f);
         for (int i = 0; i < block; ++i) l[size_t(i)] = music ? noiseAt(t + i, kMusic) : 0.0f;
+        if (carrier) {
+            std::vector<float> c(static_cast<size_t>(block));
+            for (int i = 0; i < block; ++i) c[size_t(i)] = noiseAt(t + i - carrierLag, carrierSeed);
+            const float* ch[1] = { c.data() };
+            carrier->process(ch, 1, block, t, true, false, false);
+            // the DAW plays the Track's output into the master, unless it sends the viewers' side to the Hub
+            if (!(carrier->slot()->flags.load() & kFlagViewersViaHub))
+                for (int i = 0; i < block; ++i) l[size_t(i)] += c[size_t(i)];
+        }
         r = l;
         float* io[2] = { l.data(), r.data() };
         hub.process(io, 2, block, params, t, true, false);
@@ -346,15 +359,14 @@ TEST_CASE("friends: S7 feeder pairing by track identity, Li measurement, and Lin
     CHECK(b->friends[0].outSlot.load() == sidx);
     CHECK_NEAR(bitsFloat(b->slots[sidx].fxLatencyBits.load()), 12.5f, 0.1f);
 
-    // With Line up enabled, kFlagViewersViaHub should be set on the paired slot
+    // a paired Track always sends the viewers' side through the Hub, Line up or not: only the Hub
+    // can keep the friend out of the mix that friends hear
     r.hub.setLineUp(true, 400.0f);
     r.hub.measureLatencies();
     CHECK((b->slots[sidx].flags.load() & kFlagViewersViaHub) != 0);
-
-    // With Line up disabled, kFlagViewersViaHub should be cleared
     r.hub.setLineUp(false, 400.0f);
     r.hub.measureLatencies();
-    CHECK((b->slots[sidx].flags.load() & kFlagViewersViaHub) == 0);
+    CHECK((b->slots[sidx].flags.load() & kFlagViewersViaHub) != 0);
 
     // Release feeder: slot should be unpaired and fedBy cleared
     b->friends[0].feeder.store(-1);
@@ -366,3 +378,64 @@ TEST_CASE("friends: S7 feeder pairing by track identity, Li measurement, and Lin
     releaseFeeder(*b, fidx);
 }
 
+
+TEST_CASE("friends: a friend mixed in a DAW track never hears themselves, and is delayed once, not twice") {
+    Room r("s7_minus");
+    r.params.syncSafety = 0;
+    r.openFriend(0, kVoice, 100.0);
+    r.openFriend(1, kVoice2, 250.0);                 // the friend a DAW track carries
+    BusLayout* b = r.hub.bus();
+    b->friends[1].route.store(kRouteDaw);
+    r.carrier = std::make_unique<TrackPublisher>();
+    r.carrier->connect(r.bus, "", kRate, 1);
+    r.carrier->prepare(kRate, 1);
+    r.carrierSeed = kVoice2;
+    r.carrierLag = int64_t(0.300 * kRate);           // the voice reaches the DAW track 300 ms after its beat
+    SlotHeader* sh = r.carrier->slot();
+    REQUIRE(sh != nullptr);
+    sh->fedBy.store(101);
+    sh->flags.fetch_or(kFlagViewersViaHub);          // paired (what measureLatencies does)
+    r.hub.setLineUp(true, 600.0f);
+    r.run(4.0);
+
+    const size_t from = size_t(3.0 * kRate), len = size_t(0.06 * kRate);
+    double s = 0;
+    // what friends hear: the music, never a friend (direct or carried by the DAW)
+    CHECK(Room::bestLag(r.friendMix, 0, from, len, kVoice2, 0, int64_t(1.2 * kRate), &s) < 0);
+    CHECK(Room::bestLag(r.friendMix, 0, from, len, kVoice, 0, int64_t(1.2 * kRate), &s) < 0);
+    CHECK(Room::bestLag(r.friendMix, 0, from, len, kMusic, 0, 400, &s) >= 0);
+
+    // the viewers: the carried friend joins after the Line-up delay, placed at D - its own delay
+    const double D = r.hub.lineUpMs();
+    const double tot1 = double(bitsFloat(r.hub.friendInfo(1).totalMsBits.load()));
+    CHECK(D > 250.0);
+    const int64_t lagC = Room::bestLag(r.stream, 0, from, len, kVoice2, 0, int64_t(1.2 * kRate), &s);
+    CHECK(lagC >= 0);
+    CHECK_NEAR(Room::ms(lagC), 300.0 + D - tot1, 8.0);   // before the fix: + D twice
+}
+
+TEST_CASE("friends: friends hear each other as soon as each voice arrives (Jamulus style), Line up or not") {
+    Room r("hear_each");
+    r.music = false;
+    r.openFriend(0, kVoice, 100.0);
+    r.openFriend(1, kVoice2, 250.0);
+    r.hub.setLineUp(true, 600.0f);
+    r.run(4.0);
+    BusLayout* b = r.hub.bus();
+    const uint64_t w = b->friendVoiceWrite[0].load();
+    REQUIRE(w == b->friendMixWrite.load());   // same positions as the mix friends hear
+    const uint32_t len = uint32_t(0.5 * kRate);
+    std::vector<float> v0(len), v1(len);
+    float* d[2] = { v0.data(), v1.data() };
+    ringReadAt(b->friendVoiceAudio[0], b->friendVoiceWrite[0], w - len, d, len);
+    // position == DAW time here; each voice is only as late as the line + the Hub's jitter buffer (not D)
+    const int64_t from = int64_t(w - len);
+    const int64_t lag0 = Room::bestLag(v0, from, 0, size_t(0.06 * kRate), kVoice, 0, int64_t(0.5 * kRate));
+    const int64_t lag1 = Room::bestLag(v1, from, 0, size_t(0.06 * kRate), kVoice2, 0, int64_t(0.5 * kRate));
+    CHECK(lag0 >= 0); CHECK(lag1 >= 0);
+    CHECK_NEAR(Room::ms(lag0), 100.0 + 10.0 + double(bitsFloat(r.hub.friendInfo(0).bufferMsBits.load())), 8.0);
+    CHECK_LT(Room::ms(lag1), r.hub.lineUpMs() - 1.0 + 30.0);
+    CHECK(r.hub.lineUpMs() > 250.0);
+    // the base mix still carries no friend (the share server adds everyone but the listener)
+    CHECK(Room::bestLag(r.friendMix, 0, size_t(3.0 * kRate), size_t(0.06 * kRate), kVoice, 0, int64_t(0.6 * kRate)) < 0);
+}

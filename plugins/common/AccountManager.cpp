@@ -1,4 +1,5 @@
 #include "AccountManager.h"
+#include "Settings.h"
 #include "Strings.h"
 #include "Host.h"
 
@@ -15,12 +16,39 @@ juce::String getEnv(const char* name, const juce::String& def = {}) {
     const auto val = juce::SystemStats::getEnvironmentVariable(name, {});
     return val.trim().isNotEmpty() ? val.trim() : def;
 }
+
+// The appearance the account syncs (web/site/shared/schemas.ts syncedSettings.appearance).
+juce::var appearanceOf(const Settings& s) {
+    auto* o = new juce::DynamicObject();
+    o->setProperty("language", s.language() == Language::Thai ? "th" : "en");
+    o->setProperty("theme", s.themeMode() == ThemeMode::Light ? "light" : s.themeMode() == ThemeMode::Dark ? "dark" : "system");
+    o->setProperty("uiScale", double(s.uiScale()));
+    o->setProperty("glassAlpha", double(s.glassAlpha()));
+    o->setProperty("hostColours", s.hostColours());
+    o->setProperty("reduceMotion", s.reduceMotion());
+    return juce::var(o);
+}
+
+void applyAppearance(Settings& s, const juce::var& a) {
+    if (a.hasProperty("language")) s.setLanguage(a["language"].toString() == "th" ? Language::Thai : Language::English);
+    if (a.hasProperty("theme")) {
+        const auto t = a["theme"].toString();
+        s.setThemeMode(t == "light" ? ThemeMode::Light : t == "dark" ? ThemeMode::Dark : ThemeMode::Auto);
+    }
+    if (a.hasProperty("uiScale")) s.setUiScale(float(double(a["uiScale"])));
+    if (a.hasProperty("glassAlpha")) s.setGlassAlpha(float(double(a["glassAlpha"])));
+    if (a.hasProperty("hostColours")) s.setHostColours(bool(a["hostColours"]));
+    if (a.hasProperty("reduceMotion")) s.setReduceMotion(bool(a["reduceMotion"]));
+}
+
+juce::int64 isoMs(const juce::var& v) {
+    return v.isString() && v.toString().isNotEmpty() ? juce::Time::fromISO8601(v.toString()).toMilliseconds() : 0;
+}
 } // namespace
 
-AccountManager& AccountManager::get() {
-    static AccountManager instance;
-    return instance;
-}
+JUCE_IMPLEMENT_SINGLETON(AccountManager)
+
+AccountManager& AccountManager::get() { return *getInstance(); }
 
 AccountManager::AccountManager() : juce::Thread("AccountWorker") {
     serverBase_ = getEnv("HEARASIDE_API_URL", "https://hearaside.vercel.app");
@@ -29,9 +57,12 @@ AccountManager::AccountManager() : juce::Thread("AccountWorker") {
     loadFromDisk();
     startThread(juce::Thread::Priority::normal);
     startTimerHz(1); // 1 Hz timer for file watch & countdown ticks
+    Settings::appearanceChanged = [](const Settings& st) { get().localAppearanceChanged(appearanceOf(st)); };
 }
 
 AccountManager::~AccountManager() {
+    clearSingletonInstance();
+    Settings::appearanceChanged = nullptr;
     stopTimer();
     signalThreadShouldExit();
     actionEvent_.signal();
@@ -242,26 +273,46 @@ void AccountManager::setHideEmail(bool hide) {
     }
     saveToDisk();
     notifyProfileChanged();
-    // Also patch remote
-    juce::DynamicObject::Ptr body = new juce::DynamicObject();
-    body->setProperty("hideEmail", hide);
-    int status = 0;
-    juce::var res;
-    juce::String token;
-    {
-        const std::lock_guard<std::mutex> lk(mutex_);
-        token = accessToken_;
-    }
-    httpPatch("/api/v1/me", juce::var(body.get()), res, status, token);
+    pendingHideEmail_.store(hide ? 1 : 0);   // the worker thread sends it: never wait on the network here
+    actionEvent_.signal();
 }
 
 void AccountManager::setSyncAppearance(bool sync) {
+    juce::var local;
+    if (sync) { SharedSettings st; local = appearanceOf(*st); }
     {
         const std::lock_guard<std::mutex> lk(mutex_);
         profile_.syncAppearance = sync;
+        if (sync) {
+            // this computer's look goes up only when the account has none yet; otherwise the account's comes down
+            localAppearance_ = local;
+            localChangedAt_ = 0;
+            localDirty_ = true;
+            remoteSeenAt_ = 0;
+        }
     }
     saveToDisk();
     notifyProfileChanged();
+    lastPeriodicMs_ = 0;   // sync now
+    actionEvent_.signal();
+}
+
+void AccountManager::localAppearanceChanged(const juce::var& appearance) {
+    if (applyingRemote_.load()) return;   // our own copy of the account's appearance, not a change
+    {
+        const std::lock_guard<std::mutex> lk(mutex_);
+        if (!profile_.syncAppearance) return;
+        localAppearance_ = appearance;
+        localChangedAt_ = juce::Time::currentTimeMillis();
+        localDirty_ = true;
+    }
+    lastPeriodicMs_ = 0;
+    actionEvent_.signal();
+}
+
+juce::String AccountManager::accessToken() const {
+    const std::lock_guard<std::mutex> lk(mutex_);
+    return accessTokenExpiresAt_ > juce::Time::getCurrentTime() + juce::RelativeTime::seconds(30) ? accessToken_ : juce::String();
 }
 
 void AccountManager::setDeviceName(const juce::String& name) {
@@ -410,6 +461,14 @@ bool AccountManager::httpGet(const juce::String& endpoint, juce::var& responseJs
 }
 
 bool AccountManager::httpPatch(const juce::String& endpoint, const juce::var& body, juce::var& responseJson, int& statusCode, const juce::String& bearerToken) {
+    return httpWithBody("PATCH", endpoint, body, responseJson, statusCode, bearerToken);
+}
+
+bool AccountManager::httpPut(const juce::String& endpoint, const juce::var& body, juce::var& responseJson, int& statusCode, const juce::String& bearerToken) {
+    return httpWithBody("PUT", endpoint, body, responseJson, statusCode, bearerToken);
+}
+
+bool AccountManager::httpWithBody(const char* method, const juce::String& endpoint, const juce::var& body, juce::var& responseJson, int& statusCode, const juce::String& bearerToken) {
     juce::String base;
     {
         const std::lock_guard<std::mutex> lk(mutex_);
@@ -419,7 +478,7 @@ bool AccountManager::httpPatch(const juce::String& endpoint, const juce::var& bo
     juce::URL url(base + endpoint);
     const auto jsonStr = juce::JSON::toString(body);
     juce::WebInputStream ws(url.withPOSTData(jsonStr), true);
-    ws.withCustomRequestCommand("PATCH");
+    ws.withCustomRequestCommand(method);
     juce::String headers = "Content-Type: application/json";
     if (bearerToken.isNotEmpty()) headers += "\r\nAuthorization: Bearer " + bearerToken;
 
@@ -544,10 +603,86 @@ void AccountManager::run() {
                 doSignOut();
                 break;
             case Action::None:
-            default:
-                actionEvent_.wait(1000);
+            default: {
+                if (const int h = pendingHideEmail_.exchange(-1); h >= 0) doPatchHideEmail(h == 1);
+                const auto now = juce::Time::getMillisecondCounter();
+                if (isSignedIn() && (lastPeriodicMs_ == 0 || now - lastPeriodicMs_ > 60000)) {
+                    lastPeriodicMs_ = juce::jmax(1u, now);
+                    doPeriodic();
+                } else {
+                    actionEvent_.wait(1000);
+                }
                 break;
+            }
         }
+    }
+}
+
+// Every minute while signed in: a fresh access token before the old one runs out (permanent links
+// carry it), the profile (a computer signed out on the website notices here), the appearance.
+void AccountManager::doPeriodic() {
+    doRefreshToken();
+    doFetchProfile();
+    doSyncAppearance();
+}
+
+void AccountManager::doPatchHideEmail(bool hide) {
+    const auto token = accessToken();
+    if (token.isEmpty()) return;
+    juce::DynamicObject::Ptr body = new juce::DynamicObject();
+    body->setProperty("hideEmail", hide);
+    int status = 0;
+    juce::var res;
+    httpPatch("/api/v1/me", juce::var(body.get()), res, status, token);
+}
+
+// "Sync appearance": newer wins. Never Peak ceiling, Sync safety, Line-up limit or Bus name.
+void AccountManager::doSyncAppearance() {
+    juce::var local;
+    juce::int64 localAt = 0, seen = 0;
+    bool dirty = false;
+    {
+        const std::lock_guard<std::mutex> lk(mutex_);
+        if (!profile_.syncAppearance) return;
+        local = localAppearance_;
+        localAt = localChangedAt_;
+        dirty = localDirty_;
+        seen = remoteSeenAt_;
+    }
+    const auto token = accessToken();
+    if (token.isEmpty()) return;
+    juce::var res;
+    int status = 0;
+    if (!httpGet("/api/v1/me/settings", res, status, token) || !res.isObject()) return;
+    const auto remoteAt = isoMs(res["updatedAt"]);
+    const auto remote = res["appearance"];
+    const bool remoteHas = remote.getDynamicObject() != nullptr && remote.getDynamicObject()->getProperties().size() > 0;
+
+    if (dirty && local.isObject() && (localAt > remoteAt || !remoteHas)) {
+        juce::DynamicObject::Ptr body = new juce::DynamicObject();
+        body->setProperty("appearance", local);
+        body->setProperty("stemNames", res["stemNames"].isArray() ? res["stemNames"] : juce::var(juce::Array<juce::var>()));
+        juce::var put;
+        int st = 0;
+        if (httpPut("/api/v1/me/settings", juce::var(body.get()), put, st, token)) {
+            const std::lock_guard<std::mutex> lk(mutex_);
+            if (localChangedAt_ == localAt) localDirty_ = false;   // no newer change meanwhile
+            remoteSeenAt_ = isoMs(put["updatedAt"]);
+        }
+        return;
+    }
+    if (remoteHas && remoteAt > seen) {
+        {
+            const std::lock_guard<std::mutex> lk(mutex_);
+            remoteSeenAt_ = remoteAt;
+            localDirty_ = false;
+        }
+        juce::MessageManager::callAsync([this, remote] {
+            applyingRemote_.store(true);
+            SharedSettings st;
+            applyAppearance(*st, remote);
+            applyingRemote_.store(false);
+        });
     }
 }
 
@@ -671,10 +806,18 @@ void AccountManager::doPollDeviceCode() {
     }
 }
 
-void AccountManager::doRefreshToken() {
+void AccountManager::doRefreshToken(const juce::String& failed) {
+    // Every DAW (process) with a HEARASIDE plug-in shares account.dat. A refresh token works once:
+    // one process at a time, and only when the token on disk still needs it (another one may have
+    // just refreshed), or the server takes the reuse for a stolen token and signs this computer out.
+    juce::InterProcessLock lock("HEARASIDE_account_refresh");
+    const juce::InterProcessLock::ScopedLockType held(lock);
+    if (storageFile().getLastModificationTime() != lastFileModTime_) loadFromDisk();
     juce::String ref;
     {
         const std::lock_guard<std::mutex> lk(mutex_);
+        const bool fresh = accessTokenExpiresAt_ > juce::Time::getCurrentTime() + juce::RelativeTime::minutes(2);
+        if (accessToken_.isNotEmpty() && accessToken_ != failed && fresh) return;
         ref = refreshToken_;
     }
     if (ref.isEmpty()) return;
@@ -686,12 +829,14 @@ void AccountManager::doRefreshToken() {
     int status = 0;
     if (httpPost("/api/v1/token/refresh", juce::var(req.get()), res, status)) {
         if (const auto* o = res.getDynamicObject()) {
-            const std::lock_guard<std::mutex> lk(mutex_);
-            accessToken_ = o->getProperty("access_token").toString();
-            refreshToken_ = o->getProperty("refresh_token").toString();
-            const int ttl = int(o->getProperty("expires_in"));
-            accessTokenExpiresAt_ = juce::Time::getCurrentTime() + juce::RelativeTime::seconds(double(ttl));
-            saveToDisk();
+            {
+                const std::lock_guard<std::mutex> lk(mutex_);
+                accessToken_ = o->getProperty("access_token").toString();
+                refreshToken_ = o->getProperty("refresh_token").toString();
+                const int ttl = int(o->getProperty("expires_in"));
+                accessTokenExpiresAt_ = juce::Time::getCurrentTime() + juce::RelativeTime::seconds(double(ttl));
+            }
+            saveToDisk();   // outside mutex_: saveToDisk takes it (holding it here deadlocked the worker)
         }
     } else if (status == 401) {
         // Token revoked
@@ -711,7 +856,7 @@ void AccountManager::doFetchProfile() {
     int status = 0;
     if (!httpGet("/api/v1/me", res, status, token)) {
         if (status == 401) {
-            doRefreshToken();
+            doRefreshToken(token);
             {
                 const std::lock_guard<std::mutex> lk(mutex_);
                 token = accessToken_;

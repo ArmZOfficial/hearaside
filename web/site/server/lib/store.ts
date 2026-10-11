@@ -51,7 +51,7 @@ export interface DeviceRow {
   revokedAt: string | null;
 }
 
-export interface LinkRow { id: string; userId: string; kind: 'listen' | 'send'; label: string; createdAt: string; revokedAt: string | null }
+export interface LinkRow { id: string; userId: string; kind: 'listen' | 'send'; label: string; createdAt: string; revokedAt: string | null; tokenHash: string }
 export interface FriendRow { id: string; ownerId: string; name: string; createdAt: string }
 
 export class StoreError extends Error {
@@ -90,6 +90,8 @@ export interface Store {
   putSettings(userId: string, s: SyncedSettings): Promise<SyncedSettings & { updatedAt: string }>;
 
   listLinks(userId: string): Promise<LinkRow[]>;
+  /** a signed-in Hub registered these links (already known ones are left as they are) */
+  recordLinks(userId: string, links: { kind: 'listen' | 'send'; tokenHash: string }[]): Promise<void>;
   revokeLink(userId: string, id: string): Promise<boolean>;
 
   listFriends(userId: string): Promise<FriendRow[]>;

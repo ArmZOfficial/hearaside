@@ -139,6 +139,8 @@ public:
     const ShareServer& share() const noexcept { return share_; }
     const ShareDirectory& directory() const noexcept { return directory_; }
     bool permanentLinksSet() const;   // a share web site is set and permanent links are on
+    // the share web site: the one set in Settings, else the account's website while signed in ("" = none)
+    juce::String shareBase() const;
     juce::String permanentUrl(bool listen) const;   // https://<site>/l/<token> (or /s/), "" = not set
     const ControlServer& control() const noexcept { return control_; }   // REST API
 
@@ -191,6 +193,7 @@ private:
     void serviceFeeders();                                  // S7 feeder route & status
     void serviceAutoSync();
     void serviceShare();
+    void renewRevokedLinks();                               // links revoked on the account website get new tokens
     void finishAutoSync(Str error);
     Str steadyLag(double& ms, Str notFound);                // agree on this phase's readings
     void writeSyncLog(const juce::String& result);          // Documents\HEARASIDE\autosync.log
@@ -243,6 +246,9 @@ private:
     juce::uint32 controlTry_ = 0;
     ShareServer share_;
     ShareDirectory directory_;
+    juce::String bearerBase_;   // the account website the directory may send the access token to
+    bool accountLinksFailed_ = false;   // the account's website can't host links (not deployed / no Redis): links as before
+    juce::uint32 dirFailSince_ = 0;
     SharedSettings settings_;
     bool shareWanted_ = false;
     FriendRoom friendRoom_;

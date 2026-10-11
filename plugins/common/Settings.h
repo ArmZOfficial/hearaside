@@ -63,6 +63,11 @@ public:
     // Resolved theme (Auto follows the OS).
     bool isDark() const;
 
+    // Called (message thread) after Language, Theme, UI size, Glass, Track colours or Reduce motion
+    // changed: the account syncs them when "Sync appearance" is on (A6 item 1). Never anything that
+    // changes the sound.
+    static inline std::function<void(const Settings&)> appearanceChanged;
+
 private:
     void save();
 

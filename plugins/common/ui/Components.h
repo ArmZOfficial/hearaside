@@ -185,6 +185,7 @@ public:
     enum class Style { Warning, Info, Dark, Outline };
     void set(Style, icons::Icon, const juce::String& text);
     int idealHeight(int width) const;
+    const juce::String& text() const noexcept { return text_; }
     void paint(juce::Graphics&) override;
 private:
     Style style_ = Style::Warning;

@@ -262,7 +262,11 @@ private:
     uint32_t lineD_ = 0, lineOldD_ = 0;                          // delay (frames) now / before the crossfade
     uint32_t lineXfRemain_ = 0, lineHold_ = 0;
     std::array<uint32_t, ssbus::kMaxFriends> usedTot_{}, oldTot_{};   // each friend's own delay (frames) D was set against
-    std::vector<float> fmix_[2], fmixOld_[2];                    // scratch for friend audio
+    // the viewers' side of Tracks that carry a friend (kFlagViewersViaHub), per output: added after the
+    // Line-up delay and kept out of the mix friends hear, so no friend ever hears their own voice back
+    std::vector<float> late_[ssbus::kNumStreamOuts][2];
+    bool lateAny_ = false;
+    std::vector<float> voice_[ssbus::kMaxFriends];   // each friend's voice for the other friends (mono, undelayed)
     std::vector<float> delayScratch_[2];
     uint32_t delayCap_ = 0;
 

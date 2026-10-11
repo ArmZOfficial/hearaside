@@ -287,8 +287,8 @@ TEST_CASE("remote: many writers, one reader, every command delivered once and in
 
 TEST_CASE("v13: layout stays within what the proposal promised") {
     CHECK(sizeof(BeaconHeader) == 64);
-    CHECK(kLayoutSize < size_t(52) * 1024 * 1024);   // proposal: about 50 MB with 8 friend rings
-    CHECK(kProtocolVersion == 13);
+    CHECK(kLayoutSize < size_t(54) * 1024 * 1024);   // proposal: about 50 MB with 8 friend rings (+2 MB: v14 friends' voices)
+    CHECK(kProtocolVersion >= 13);
     CHECK(kMaxFriends == 8);
 }
 

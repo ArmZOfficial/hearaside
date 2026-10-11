@@ -11,8 +11,12 @@ import type { Store } from './lib/store.js';
 import { deviceRoutes } from './routes/device.js';
 import { meRoutes } from './routes/me.js';
 import { devRoutes } from './routes/dev.js';
+import { shareRoutes } from './routes/share.js';
+import { store as redisStore } from './share/redis.js';
+import { memoryStore as dirMemory, type DirStore } from './share/directory.js';
 
-export function createApp(store: Store = process.env.STORE === 'memory' ? new MemoryStore() : new SupabaseStore()) {
+export function createApp(store: Store = process.env.STORE === 'memory' ? new MemoryStore() : new SupabaseStore(),
+                          dir: () => DirStore = store instanceof MemoryStore ? (() => { const d = dirMemory(); return () => d; })() : redisStore) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);   // Vercel's proxy sets X-Forwarded-For
@@ -23,9 +27,10 @@ export function createApp(store: Store = process.env.STORE === 'memory' ? new Me
   const v1 = express.Router();
   v1.get('/health', (_req, res) => { res.json({ ok: true }); });
   v1.use(deviceRoutes(store));
-  v1.use(meRoutes(store));
+  v1.use(meRoutes(store, dir));
   if (store instanceof MemoryStore) v1.use(devRoutes(store));
   app.use('/api/v1', v1);
+  app.use('/api', shareRoutes(store, dir));
 
   app.use('/api', (_req, res) => { res.status(404).json({ error: 'not_found' }); });
 

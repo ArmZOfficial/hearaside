@@ -1,6 +1,7 @@
 #include "HubProcessor.h"
 #include "HubEditor.h"
 #include "Strings.h"
+#include "AccountManager.h"
 
 #include "ssdsp/dsp.h"
 
@@ -379,7 +380,16 @@ juce::String HubProcessor::diagnostics() const {
     return r;   // track names, links, tokens and keys stay out on purpose
 }
 
-bool HubProcessor::permanentLinksSet() const { return settings_->permanentLinks() && settings_->shareBase().isNotEmpty(); }
+bool HubProcessor::permanentLinksSet() const { return settings_->permanentLinks() && shareBase().isNotEmpty(); }
+
+// Signed in: the account's website (hearaside.vercel.app) hosts the permanent links too, so nobody
+// has to deploy a share site of their own. A share web address set in Settings always wins.
+juce::String HubProcessor::shareBase() const {
+    const auto own = settings_->shareBase();
+    if (own.isNotEmpty()) return own;
+    auto& account = AccountManager::get();
+    return account.isSignedIn() && !accountLinksFailed_ ? account.serverBaseUrl() : juce::String();
+}
 
 // Permanent links live on the internet for months: projects from before them get 130-bit tokens
 // from the OS's secure random source, and a secret that proves the links are theirs.
@@ -393,7 +403,7 @@ void HubProcessor::ensureStrongTokens() {
 
 juce::String HubProcessor::permanentUrl(bool listen) const {
     if (!permanentLinksSet() || listenToken_.length() < 24) return {};
-    return settings_->shareBase() + (listen ? "/l/" + listenToken_ : "/s/" + sendToken_);
+    return shareBase() + (listen ? "/l/" + listenToken_ : "/s/" + sendToken_);
 }
 
 void HubProcessor::serviceShare() {
@@ -415,12 +425,47 @@ void HubProcessor::serviceShare() {
     share_.setListenEnabled(shareWanted_);
     friendRoom_.service(bus, engine_, share_, {});
     engine_.setLineUp(lineUp_, float(settings_->lineUpLimitMs()));
-    if (!shareWanted_) return;
-    // tell the share web site where the tunnel is (its own thread; heartbeat every 30 s)
-    const auto base = permanent ? settings_->shareBase() : juce::String();
+    if (!serverWanted) { directory_.stop(); return; }   // nothing to find any more: the links go offline
+    renewRevokedLinks();
+    // tell the share web site where the tunnel is (its own thread; heartbeat every 30 s): the listen
+    // link while sharing, and every friend's send-in link while the room has friends
+    const auto base = permanent ? shareBase() : juce::String();
     share_.setAllowedOrigin(ShareDirectory::originOf(base));
+    if (const auto account = AccountManager::get().serverBaseUrl(); account != bearerBase_) {
+        bearerBase_ = account;   // the account's token goes to the account's own website only
+        directory_.setBearer([account](const juce::String& b) { return b == account ? AccountManager::get().accessToken() : juce::String(); });
+    }
+    juce::StringArray friendTokens;
+    for (const auto& e : friendRoom_.entries()) if (e.token.length() >= 24) friendTokens.add(e.token);
     const bool ready = share_.running() && share_.tunnel() == ShareServer::Tunnel::Ready;
-    directory_.update(base, listenToken_, sendToken_, shareSecret_, ready ? share_.publicBase() : juce::String());
+    directory_.update(base, shareWanted_ ? listenToken_ : juce::String(), shareWanted_ ? sendToken_ : juce::String(),
+                      shareSecret_, ready ? share_.publicBase() : juce::String(), friendTokens);
+    // the account's website refuses links for a minute: never hand out links that can't work, use the
+    // tunnel's own (changing) links for the rest of this session
+    if (base.isNotEmpty() && settings_->shareBase().isEmpty()) {
+        const auto now = juce::Time::getMillisecondCounter();
+        if (directory_.state() != ShareDirectory::State::Unreachable) dirFailSince_ = 0;
+        else if (dirFailSince_ == 0) dirFailSince_ = now;
+        else if (now - dirFailSince_ > 60000) { accountLinksFailed_ = true; directory_.stop(); stateChanged.sendChangeMessage(); }
+    }
+}
+
+void HubProcessor::renewRevokedLinks() {
+    const auto revoked = directory_.takeRevoked();
+    if (revoked.isEmpty()) return;
+    bool changed = false;
+    if (revoked.contains(listenToken_)) {
+        if (const auto t = ShareServer::newToken(); t.isNotEmpty()) { listenToken_ = t; share_.setListenToken(t); changed = true; }
+    }
+    if (revoked.contains(sendToken_)) {
+        if (const auto t = ShareServer::newToken(); t.isNotEmpty()) { sendToken_ = t; shareBus_ = nullptr; changed = true; }   // restart with it
+    }
+    for (const auto& e : friendRoom_.entries())
+        if (revoked.contains(e.token)) { newFriendLink(e.id); changed = true; }
+    if (changed) {
+        updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));   // saved with the project
+        stateChanged.sendChangeMessage();
+    }
 }
 
 void HubProcessor::setSharing(bool on) {
@@ -463,7 +508,10 @@ void HubProcessor::renameFriend(uint32_t id, const juce::String& name) {
 
 juce::String HubProcessor::friendLink(uint32_t id) const {
     const auto t = friendRoom_.token(id);
-    return t.isEmpty() || !share_.running() ? juce::String() : share_.friendUrl(t);
+    if (t.isEmpty()) return {};
+    // permanent: the same link every stream (the share web site finds the Hub's tunnel)
+    if (permanentLinksSet() && t.length() >= 24) return shareBase() + "/s/" + t;
+    return share_.running() ? share_.friendUrl(t) : juce::String();
 }
 
 juce::String HubProcessor::newFriendLink(uint32_t id) {
@@ -668,8 +716,12 @@ void HubProcessor::serviceFeeders() {
 
         if (curFeeder >= 0) {
             auto& f = bus->feeders[curFeeder];
+            // the DAW carries the friend only once a Track at the end of that channel is paired: before
+            // that the feeder passes silence and the Hub keeps playing the friend directly (never twice,
+            // never into the DAW master, where friends would hear themselves come back)
             const bool flowing = f.status.load(std::memory_order_relaxed) == ssbus::kFeederFlowing;
-            fh.route.store(flowing ? ssbus::kRouteDaw : ssbus::kRouteDirect, std::memory_order_release);
+            const bool paired = fh.outSlot.load(std::memory_order_acquire) >= 0;
+            fh.route.store(flowing && paired ? ssbus::kRouteDaw : ssbus::kRouteDirect, std::memory_order_release);
         } else {
             fh.route.store(ssbus::kRouteDirect, std::memory_order_release);
         }

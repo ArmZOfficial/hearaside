@@ -15,8 +15,8 @@ ShareDirectory::~ShareDirectory() {
 }
 
 void ShareDirectory::update(const juce::String& base, const juce::String& listenToken, const juce::String& sendToken,
-                            const juce::String& secret, const juce::String& tunnel) {
-    const Config c { base.trimCharactersAtEnd("/"), listenToken, sendToken, secret, tunnel };
+                            const juce::String& secret, const juce::String& tunnel, const juce::StringArray& friends) {
+    const Config c { base.trimCharactersAtEnd("/"), listenToken, sendToken, secret, tunnel, friends };
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         if (c == wanted_ && !unregister_) return;
@@ -59,14 +59,18 @@ juce::String ShareDirectory::origin() const {
     return originOf(wanted_.base);
 }
 
-int ShareDirectory::post(const juce::String& path, const juce::String& json) {
+int ShareDirectory::post(const juce::String& path, const juce::String& json, juce::String* reply) {
     juce::String base;
+    std::function<juce::String(const juce::String&)> bearer;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         base = wanted_.base.isNotEmpty() ? wanted_.base : registered_.base;
+        bearer = bearer_;
     }
+    juce::String headers = "Content-Type: application/json";
+    if (const auto t = bearer ? bearer(base) : juce::String(); t.isNotEmpty()) headers << "\r\nAuthorization: Bearer " << t;
     juce::WebInputStream ws(juce::URL(base + path).withPOSTData(json), true);
-    ws.withExtraHeaders("Content-Type: application/json").withConnectionTimeout(5000).withNumRedirectsToFollow(0);
+    ws.withExtraHeaders(headers).withConnectionTimeout(5000).withNumRedirectsToFollow(0);
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         if (threadShouldExit()) return 0;
@@ -75,17 +79,24 @@ int ShareDirectory::post(const juce::String& path, const juce::String& json) {
     int code = 0;
     if (ws.connect(nullptr)) {
         code = ws.getStatusCode();
-        ws.readEntireStreamAsString();   // small JSON; never logged (the request carries the secret)
+        const auto text = ws.readEntireStreamAsString();   // small JSON; never logged (the request carries the secret)
+        if (reply != nullptr) *reply = text;
     }
     const std::lock_guard<std::mutex> lock(mutex_);
     current_ = nullptr;
     return code;
 }
 
-static juce::String body(const juce::String& secret, const juce::String& listen, const juce::String& send, const juce::String& tunnel) {
+static juce::String body(const juce::String& secret, const juce::String& listen, const juce::String& send, const juce::String& tunnel,
+                         const juce::StringArray& friends) {
     auto* tokens = new juce::DynamicObject();
     if (listen.isNotEmpty()) tokens->setProperty("l", listen);
     if (send.isNotEmpty()) tokens->setProperty("s", send);
+    if (!friends.isEmpty()) {
+        juce::Array<juce::var> f;
+        for (const auto& t : friends) f.add(t);
+        tokens->setProperty("f", f);
+    }
     auto* o = new juce::DynamicObject();
     o->setProperty("secret", secret);
     o->setProperty("tokens", juce::var(tokens));
@@ -104,10 +115,10 @@ void ShareDirectory::run() {
             unregister = unregister_;
         }
         const bool active = want.base.isNotEmpty() && want.tunnel.isNotEmpty() && want.secret.isNotEmpty()
-                         && (want.listen.isNotEmpty() || want.send.isNotEmpty());
+                         && (want.listen.isNotEmpty() || want.send.isNotEmpty() || !want.friends.isEmpty());
         if (!active) {
             if (unregister && registeredValid_) {   // sharing switched off: take the links offline now
-                post("/api/unregister", body(registered_.secret, registered_.listen, registered_.send, {}));
+                post("/api/unregister", body(registered_.secret, registered_.listen, registered_.send, {}, registered_.friends));
                 const std::lock_guard<std::mutex> lock(mutex_);
                 if (unregister_) unregister_ = false;
             }
@@ -118,9 +129,15 @@ void ShareDirectory::run() {
         }
         if (!registeredValid_ || !(registered_ == want)) state_.store(State::Registering);
         // registering again is also the heartbeat (the site forgets an address after 90 s)
-        const int code = post("/api/register", body(want.secret, want.listen, want.send, want.tunnel));
+        juce::String reply;
+        const int code = post("/api/register", body(want.secret, want.listen, want.send, want.tunnel, want.friends), &reply);
         if (threadShouldExit()) break;
         if (code == 200) {
+            // links revoked on the account website: the Hub makes new ones (takeRevoked)
+            if (const auto* r = juce::JSON::parse(reply)["revoked"].getArray(); r != nullptr && !r->isEmpty()) {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                for (const auto& t : *r) revoked_.addIfNotAlreadyThere(t.toString());
+            }
             registered_ = want;
             registeredValid_ = true;
             state_.store(State::Online);

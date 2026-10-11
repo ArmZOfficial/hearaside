@@ -19,6 +19,8 @@ inline constexpr const char* StrPan   = "strPan";
 inline constexpr const char* StrDelay = "strDelay";
 inline constexpr const char* MonTrim  = "monTrim";
 inline constexpr const char* StrSolo  = "strSolo";
+inline constexpr const char* FriendLevel = "friendLevel";
+inline constexpr const char* KeepOwn  = "keepOwn";
 }
 
 class TrackProcessor : public juce::AudioProcessor, private juce::Timer {
@@ -117,6 +119,8 @@ private:
     std::atomic<float>* delay_ = nullptr;
     std::atomic<float>* trim_ = nullptr;
     std::atomic<float>* solo_ = nullptr;
+    std::atomic<float>* friendLevel_ = nullptr;
+    std::atomic<float>* keepOwn_ = nullptr;
     std::atomic<int> stem_ { -1 };
     std::atomic<bool> bypassed_ { false };
     std::atomic<bool> busSolo_ { false };   // some Track on the bus is soloed for the viewers
@@ -153,7 +157,8 @@ private:
     std::unique_ptr<ssbus::SharedMemory> feederShm_;
     std::vector<std::unique_ptr<ssbus::SharedMemory>> retiredFeederShm_;
     ssengine::FriendReader reader_;
-    std::vector<float> monoScratch_;   // right channel of a mono track, sized in prepareToPlay (never on the audio thread)
+    std::vector<float> friendScratch_[2];   // the friend's voice before it is mixed in, sized in prepareToPlay (never on the audio thread)
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> friendGain_;
     int friendChunk_ = 2048;           // the most frames reader_ takes per pull
     float tapSum_ = 0.0f;
     int tapPhase_ = 0;

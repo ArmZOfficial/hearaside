@@ -37,6 +37,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout TrackProcessor::createLayout
         NormalisableRange<float>(0.0f, 500.0f, 1.0f), 0.0f, AudioParameterFloatAttributes().withLabel("ms")));
     p.push_back(std::make_unique<AudioParameterFloat>(ParameterID { trackparam::MonTrim, 1 }, "Headphone Level", db(-60.0f, 6.0f), 0.0f, dbAttr));
     p.push_back(std::make_unique<AudioParameterBool>(ParameterID { trackparam::StrSolo, 1 }, "Viewers Solo", false));
+    // Friend input (S7): the friend's level into this track's plug-ins, and whether the track's own input stays
+    p.push_back(std::make_unique<AudioParameterFloat>(ParameterID { trackparam::FriendLevel, 1 }, "Friend Level In", db(-60.0f, 12.0f), 0.0f, dbAttr));
+    p.push_back(std::make_unique<AudioParameterBool>(ParameterID { trackparam::KeepOwn, 1 }, "Keep Own Sound", false));
     return { p.begin(), p.end() };
 }
 
@@ -52,6 +55,8 @@ TrackProcessor::TrackProcessor()
     delay_ = apvts_.getRawParameterValue(trackparam::StrDelay);
     trim_  = apvts_.getRawParameterValue(trackparam::MonTrim);
     solo_  = apvts_.getRawParameterValue(trackparam::StrSolo);
+    friendLevel_ = apvts_.getRawParameterValue(trackparam::FriendLevel);
+    keepOwn_ = apvts_.getRawParameterValue(trackparam::KeepOwn);
     connect();
     startTimerHz(30);
 }
@@ -78,7 +83,9 @@ void TrackProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
     friendChunk_ = juce::jmax(2048, samplesPerBlock);
     reader_.prepare(sampleRate_, friendChunk_);
-    monoScratch_.assign(size_t(friendChunk_), 0.0f);
+    for (auto& v : friendScratch_) v.assign(size_t(friendChunk_), 0.0f);
+    friendGain_.reset(sampleRate_, 0.020);
+    friendGain_.setCurrentAndTargetValue(0.0f);
     tapSum_ = 0.0f;
     tapPhase_ = 0;
     if (auto* f = feeder_.load(std::memory_order_relaxed))
@@ -131,10 +138,11 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
     }
 
     const uint32_t fid = friendId_.load(std::memory_order_relaxed);
+    const bool keepOwn = keepOwn_->load(std::memory_order_relaxed) > 0.5f;
     if (f == nullptr || b == nullptr || fid == 0) {
         if (f != nullptr) f->status.store(ssbus::kFeederNoFriend, std::memory_order_relaxed);
         reader_.reset();
-        buffer.clear();
+        if (!keepOwn) buffer.clear();
         for (int c = 0; c < 2; ++c) peak_[c].store(0.0f, std::memory_order_relaxed);
         return;
     }
@@ -150,54 +158,66 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
     if (friendSlot < 0 || b->friends[friendSlot].state.load(std::memory_order_acquire) != ssbus::kFriendLive) {
         f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
         reader_.reset();
-        buffer.clear();
+        if (!keepOwn) buffer.clear();
         for (int c = 0; c < 2; ++c) peak_[c].store(0.0f, std::memory_order_relaxed);
         return;
     }
 
     auto& fh = b->friends[friendSlot];
     const uint32_t frRate = fh.sampleRate.load(std::memory_order_relaxed);
+    // Unpaired (no HEARASIDE Track at the end of this channel yet): the Hub keeps playing the friend
+    // directly, so this track stays silent. Letting the voice reach the DAW master now would play it
+    // twice and send it back to every friend, who would hear themselves a round trip late.
+    const bool paired = fh.outSlot.load(std::memory_order_acquire) >= 0;
+    const bool keep = keepOwn;
+    friendGain_.setTargetValue(paired ? ssdsp::dbToGain(friendLevel_->load(std::memory_order_relaxed)) : 0.0f);
 
     // a block bigger than the reader was prepared for (some hosts, offline-like bursts) is pulled in
     // pieces: one oversized pull would return silence and restart the jitter buffer every block
-    const bool mono = buffer.getNumChannels() == 1;
-    const int chunk = mono ? juce::jmin(friendChunk_, int(monoScratch_.size())) : friendChunk_;
+    const int chans = juce::jmin(buffer.getNumChannels(), 2);
+    const int chunk = juce::jmin(friendChunk_, int(friendScratch_[0].size()));
+    float* x0 = buffer.getWritePointer(0);
+    float* x1 = chans > 1 ? buffer.getWritePointer(1) : nullptr;
+    const int fidx = feederIndex_.load(std::memory_order_relaxed);
+    auto* tap = fidx >= 0 && fidx < ssbus::kMaxFeeders ? &b->feederTap[fidx] : nullptr;
+    uint64_t tw = f->tapWrite.load(std::memory_order_relaxed);
+    float pk = 0.0f;
     for (int at = 0; at < n && chunk > 0; at += chunk) {
         const int len = juce::jmin(chunk, n - at);
-        float* out[2] = { buffer.getWritePointer(0) + at, mono ? monoScratch_.data() : buffer.getWritePointer(1) + at };
+        float* out[2] = { friendScratch_[0].data(), friendScratch_[1].data() };
         reader_.pull(b->friendAudio[friendSlot], fh.writePos, frRate, out, len);
-        if (mono) {
-            const float* r = monoScratch_.data();
-            float* l = out[0];
-            for (int i = 0; i < len; ++i) l[i] = (l[i] + r[i]) * 0.5f;
+        for (int i = 0; i < len; ++i) {
+            const float l = out[0][i], r = out[1][i];
+            pk = juce::jmax(pk, std::abs(l), std::abs(r));
+            if (tap != nullptr) {   // the raw voice: the Hub finds it again in the Track at the end (L_i)
+                tapSum_ += (l + r) * 0.5f;
+                if (++tapPhase_ >= ssbus::kTapDecimation) {
+                    tap->mono[tw % ssbus::kTapFrames] = tapSum_ * (1.0f / float(ssbus::kTapDecimation));
+                    ++tw;
+                    tapSum_ = 0.0f;
+                    tapPhase_ = 0;
+                }
+            }
+            const float g = friendGain_.getNextValue();
+            const int k = at + i;
+            if (x1 != nullptr) {
+                x0[k] = (keep ? x0[k] : 0.0f) + l * g;
+                x1[k] = (keep ? x1[k] : 0.0f) + r * g;
+            } else {
+                x0[k] = (keep ? x0[k] : 0.0f) + (l + r) * 0.5f * g;
+            }
         }
     }
-    if (chunk <= 0) buffer.clear();   // not prepared yet: never pass the track's own input through
+    if (chunk <= 0 && !keep) buffer.clear();   // not prepared yet: never pass the track's own input through
     f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
 
     for (int c = 2; c < buffer.getNumChannels(); ++c) buffer.clear(c, 0, n);
 
     const float decay = std::exp(-float(n) / (0.3f * float(sampleRate_)));
-    for (int c = 0; c < 2; ++c) {
-        const float pk = buffer.getMagnitude(juce::jmin(c, buffer.getNumChannels() - 1), 0, n);
+    for (int c = 0; c < 2; ++c)   // the meter shows the friend's voice as it arrives
         peak_[c].store(juce::jmax(pk, peak_[c].load(std::memory_order_relaxed) * decay), std::memory_order_relaxed);
-    }
 
-    const int fidx = feederIndex_.load(std::memory_order_relaxed);
-    if (fidx >= 0 && fidx < ssbus::kMaxFeeders) {
-        auto& tap = b->feederTap[fidx];
-        uint64_t tw = f->tapWrite.load(std::memory_order_relaxed);
-        const float* l = buffer.getReadPointer(0);
-        const float* r = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : l;
-        for (int i = 0; i < n; ++i) {
-            tapSum_ += (l[i] + r[i]) * 0.5f;
-            if (++tapPhase_ >= ssbus::kTapDecimation) {
-                tap.mono[tw % ssbus::kTapFrames] = tapSum_ * (1.0f / float(ssbus::kTapDecimation));
-                ++tw;
-                tapSum_ = 0.0f;
-                tapPhase_ = 0;
-            }
-        }
+    if (tap != nullptr) {
         f->tapWrite.store(tw, std::memory_order_release);
     }
 }

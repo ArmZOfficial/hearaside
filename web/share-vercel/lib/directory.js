@@ -6,6 +6,7 @@
 //   hs:t:<token>      {"kind":"l"|"s","tunnel":"https://x.trycloudflare.com","updatedAt":ms}  TTL 90 s
 //   hs:owner:<token>  sha-256 of the owner secret (hex)                                      TTL 180 days
 //   hs:rl:<what>:<ip>:<minute>  request counter (rate limit)                                  TTL 60 s
+//   hs:revoked:<sha-256 of token>  "1": the owner revoked the link on the account website      TTL 180 days
 
 import { createHash } from "node:crypto";
 
@@ -15,6 +16,7 @@ export const TOKEN_RE = /^[a-z0-9]{20,64}$/;
 export const SECRET_RE = /^[0-9a-f]{64}$/;
 const QUICK_TUNNEL_RE = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
 export const LIMITS = { register: 30, resolve: 240 };   // requests per IP per minute
+export const MAX_FRIENDS = 8;
 
 /**
  * @typedef {{ get(key: string): Promise<string | null>,
@@ -35,7 +37,15 @@ export function tunnelAllowed(url, extraHosts = process.env.HEARASIDE_TUNNEL_HOS
     return !!m && hosts.includes(m[1]);
 }
 
-const sha256 = (/** @type {string} */ s) => createHash("sha256").update(s).digest("hex");
+export const sha256 = (/** @type {string} */ s) => createHash("sha256").update(s).digest("hex");
+
+const revokedKey = (/** @type {string} */ token) => `hs:revoked:${sha256(token)}`;
+
+/** The account website revoked a link: it never resolves again and the Hub is told to make a new one.
+ * @param {Store} store @param {string} tokenHash sha-256 (hex) of the token */
+export async function revokeHash(store, tokenHash) {
+    if (/^[0-9a-f]{64}$/.test(tokenHash)) await store.set(`hs:revoked:${tokenHash}`, "1", OWNER_TTL_SEC);
+}
 
 /** Every miss looks the same: unknown token, expired entry, bad input. */
 const offline = () => ({ status: 200, body: { online: false } });
@@ -47,15 +57,33 @@ export async function overLimit(store, what, ip, now = Date.now()) {
     return n > limit;
 }
 
-/** POST /api/register {tunnel, secret, tokens: {l, s}} (also the heartbeat, every 30 s)
+/** The tokens of a register / unregister body: [kind, token], kind "l" (listen) or "s" (send-in,
+ *  also every friend's link in tokens.f), or null when malformed.
+ * @param {any} body @returns {[string, string][] | null} */
+function tokensOf(body) {
+    const tokens = body && typeof body.tokens === "object" && body.tokens ? body.tokens : {};
+    const friends = tokens.f === undefined ? [] : tokens.f;
+    if (!Array.isArray(friends) || friends.length > MAX_FRIENDS) return null;
+    /** @type {[string, string][]} */
+    const list = Object.entries(tokens).filter(([k]) => k === "l" || k === "s").map(([k, t]) => [k, t]);
+    for (const t of friends) list.push(["s", t]);
+    return list.length > 0 && list.every(([, t]) => typeof t === "string" && TOKEN_RE.test(t)) ? list : null;
+}
+
+/** POST /api/register {tunnel, secret, tokens: {l, s, f: [friend tokens]}} (also the heartbeat, every 30 s)
+ *  -> {ok, ttl, tokens: [registered], revoked: [tokens revoked on the website: make new ones]}
  * @param {Store} store @param {any} body @param {number} now @returns {Promise<Result>} */
 export async function register(store, body, now = Date.now()) {
-    const tokens = body && typeof body.tokens === "object" && body.tokens ? body.tokens : {};
-    const list = /** @type {[string, string][]} */ (Object.entries(tokens).filter(([k]) => k === "l" || k === "s"));
-    if (!body || !SECRET_RE.test(body.secret ?? "") || list.length === 0 || !list.every(([, t]) => TOKEN_RE.test(t)))
+    const all = tokensOf(body);
+    if (!body || !SECRET_RE.test(body.secret ?? "") || !all)
         return { status: 400, body: { error: "bad request" } };
+    /** @type {string[]} */
+    const revoked = [];
+    /** @type {[string, string][]} */
+    const list = [];
+    for (const e of all) ((await store.get(revokedKey(e[1]))) ? revoked.push(e[1]) : list.push(e));
     if (!tunnelAllowed(body.tunnel)) return { status: 400, body: { error: "tunnel not allowed" } };
-    if (new Set(list.map(([, t]) => t)).size !== list.length) return { status: 400, body: { error: "bad request" } };
+    if (new Set(all.map(([, t]) => t)).size !== all.length) return { status: 400, body: { error: "bad request" } };
     const hash = sha256(body.secret);
     // every token must be free or ours before anything is written
     for (const [, token] of list) {
@@ -66,15 +94,16 @@ export async function register(store, body, now = Date.now()) {
         await store.set(`hs:owner:${token}`, hash, OWNER_TTL_SEC);
         await store.set(`hs:t:${token}`, JSON.stringify({ kind, tunnel: body.tunnel, updatedAt: now }), ENTRY_TTL_SEC);
     }
-    return { status: 200, body: { ok: true, ttl: ENTRY_TTL_SEC } };
+    return { status: 200, body: { ok: true, ttl: ENTRY_TTL_SEC, tokens: list.map(([k, t]) => ({ kind: k, token: t })), revoked } };
 }
 
-/** POST /api/unregister {secret, tokens: {l, s}} - sharing was switched off
+/** POST /api/unregister {secret, tokens: {l, s, f}} - sharing was switched off
  * @param {Store} store @param {any} body @returns {Promise<Result>} */
 export async function unregister(store, body) {
-    const tokens = body && typeof body.tokens === "object" && body.tokens ? Object.values(body.tokens) : [];
-    if (!body || !SECRET_RE.test(body.secret ?? "") || tokens.length === 0 || !tokens.every(t => TOKEN_RE.test(String(t))))
+    const all = tokensOf(body);
+    if (!body || !SECRET_RE.test(body.secret ?? "") || !all)
         return { status: 400, body: { error: "bad request" } };
+    const tokens = all.map(([, t]) => t);
     const hash = sha256(body.secret);
     for (const token of tokens) {
         const owner = await store.get(`hs:owner:${token}`);
@@ -88,6 +117,7 @@ export async function unregister(store, body) {
  * @param {Store} store @param {string} token @returns {Promise<Result>} */
 export async function resolve(store, token) {
     if (!TOKEN_RE.test(token ?? "")) return offline();
+    if (await store.get(revokedKey(token))) return offline();
     const raw = await store.get(`hs:t:${token}`);
     if (!raw) return offline();
     let entry;

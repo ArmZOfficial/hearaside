@@ -499,6 +499,63 @@ int testAccount() {
     return failures == 0 ? 0 : 1;
 }
 
+// --test-account-flow: sign in with a code against HEARASIDE_API_URL (a fake server that approves),
+// the plug-in must poll and end up signed in. Needs HEARASIDE_ACCOUNT_NAME: never the user's account file.
+int testAccountFlow() {
+    if (juce::SystemStats::getEnvironmentVariable("HEARASIDE_ACCOUNT_NAME", {}).isEmpty()) {
+        std::printf("set HEARASIDE_ACCOUNT_NAME (a test account file) first\n");
+        return 2;
+    }
+    int failures = 0;
+    auto expect = [&](const char* what, bool ok) { std::printf("%s %s\n", ok ? "ok  " : "FAIL", what); failures += ok ? 0 : 1; };
+    auto& mgr = AccountManager::get();
+    expect("starts signed out", mgr.state() == AccountManager::State::SignedOut);
+    mgr.startDeviceFlow("hub");
+    bool in = false;
+    for (int i = 0; i < 100 && !in; ++i) {
+        pump(200);
+        in = mgr.state() == AccountManager::State::SignedIn;
+    }
+    std::printf("     code %s, state %d\n", mgr.deviceCode().userCode.toRawUTF8(), int(mgr.state()));
+    expect("signed in once the browser allows it", in);
+    expect("profile from the token reply", mgr.profile().handle == "flowtest");
+
+    // the signed-in page keeps its rows when the profile refreshes (every minute): they went 0 x 0
+    {
+        SharedSettings st;   // the snapshot settings file, never the user's
+        st->setLanguage(Language::Thai);
+        st->setThemeMode(ThemeMode::Dark);
+        AccountPanel panel(AccountPanel::Mode::Full, "hub");
+        panel.setSize(760, panel.idealHeight(760));
+        pump(300);
+        auto rowsLaidOut = [&panel] {
+            int rows = 0, empty = 0;
+            std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
+                for (auto* ch : c.getChildren()) {
+                    if (dynamic_cast<SettingRow*>(ch) != nullptr) { ++rows; if (ch->getHeight() == 0) ++empty; }
+                    walk(*ch);
+                }
+            };
+            walk(panel);
+            return rows > 0 && empty == 0;
+        };
+        const auto out = juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots");
+        out.createDirectory();
+        save(panel, out.getChildFile("account-signed-in.png"), 1.0f);
+        expect("signed-in rows laid out", rowsLaidOut());
+        mgr.refreshProfile();
+        pump(1500);
+        save(panel, out.getChildFile("account-signed-in-refreshed.png"), 1.0f);
+        expect("rows still there after the profile refreshes", rowsLaidOut());
+    }
+
+    mgr.signOut();
+    pump(1500);
+    expect("signed out again", mgr.state() == AccountManager::State::SignedOut);
+    std::printf("%s\n", failures == 0 ? "account flow: all passed" : "account flow: FAILED");
+    return failures == 0 ? 0 : 1;
+}
+
 // Every design-system component in one frame (prompt 4 U1: a demo page in ui-snapshot, both themes).
 struct Gallery : juce::Component {
     LookAndFeel lnf;
@@ -686,13 +743,16 @@ void buildGallery(Gallery& gl) {
 int main(int argc, char** argv) {
 #ifdef _WIN32
     _putenv_s("HEARASIDE_SETTINGS_NAME", "settings-ui-snapshot");   // never the user's window sizes, flags, language
+    if (std::getenv("HEARASIDE_ACCOUNT_NAME") == nullptr) _putenv_s("HEARASIDE_ACCOUNT_NAME", "account-ui-snapshot");   // nor their sign-in
 #else
     setenv("HEARASIDE_SETTINGS_NAME", "settings-ui-snapshot", 1);
+    setenv("HEARASIDE_ACCOUNT_NAME", "account-ui-snapshot", 0);
 #endif
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String(argv[1]) == "--test-directory") return testDirectory();
     if (argc > 1 && juce::String(argv[1]) == "--test-ui") return testUi();
     if (argc > 1 && juce::String(argv[1]) == "--test-account") return testAccount();
+    if (argc > 1 && juce::String(argv[1]) == "--test-account-flow") return testAccountFlow();
 #ifdef _WIN32
     if (argc > 2 && juce::String(argv[1]) == "--test-sync") return testSync(argv[2]);
     if (argc > 2 && juce::String(argv[1]) == "--test-app-audio") return testAppAudio(argv[2], argc > 3 ? juce::String(argv[3]) : juce::String(), argc > 4 ? juce::String(argv[4]).getIntValue() : 480);
@@ -1263,6 +1323,7 @@ int main(int argc, char** argv) {
             const int seconds = juce::String(argv[i + 1]).getIntValue();
             hub.setSharing(true);   // try the share links (listen / send pages) while the demo runs
             pump(500);
+            std::printf("while starting (tunnel %d): listen link \"%s\"%c", int(hub.share().tunnel()), hub.share().listenUrl().toRawUTF8(), 10);
             for (int k = 0; k < 60 && hub.share().tunnel() == ShareServer::Tunnel::Starting; ++k) pump(250);   // internet link (cloudflared)
             for (int k = 0; k < 40 && hub.permanentLinksSet() && hub.directory().state() != ShareDirectory::State::Online; ++k) pump(250);
             if (stateFile != juce::File()) {

@@ -312,6 +312,7 @@ bool ShareServer::start(ssbus::BusLayout* bus, const juce::String& listenToken, 
     } else {
         cloudflared_ = std::make_unique<Tunnelled>();
         if (cloudflared_->start(exe.getFullPathName(), port_)) {
+            tunnelStartMs_.store(juce::Time::getMillisecondCounter());
             tunnel_.store(Tunnel::Starting);
             tunnelThread_ = std::thread([this] { tunnelLoop(); });
         } else {
@@ -375,9 +376,16 @@ juce::String ShareServer::listenToken() const {
     return listenToken_;
 }
 
-juce::String ShareServer::listenUrl() const {
+juce::String ShareServer::linkBase() const {
     const auto p = publicBase();
-    return (p.isNotEmpty() ? p : lanBase()) + "/l/" + listenToken();
+    if (p.isNotEmpty()) return p;
+    if (tunnel_.load() == Tunnel::Starting && juce::Time::getMillisecondCounter() - tunnelStartMs_.load() < kTunnelWaitMs) return {};
+    return lanBase();
+}
+
+juce::String ShareServer::listenUrl() const {
+    const auto b = linkBase();
+    return b.isEmpty() ? juce::String() : b + "/l/" + listenToken();
 }
 
 juce::String ShareServer::localListenUrl() const {
@@ -385,13 +393,13 @@ juce::String ShareServer::localListenUrl() const {
 }
 
 juce::String ShareServer::sendUrl() const {
-    const auto p = publicBase();
-    return (p.isNotEmpty() ? p : lanBase()) + "/s/" + sendToken_;
+    const auto b = linkBase();
+    return b.isEmpty() ? juce::String() : b + "/s/" + sendToken_;
 }
 
 juce::String ShareServer::friendUrl(const juce::String& token) const {
-    const auto p = publicBase();
-    return (p.isNotEmpty() ? p : lanBase()) + "/s/" + token;
+    const auto b = linkBase();
+    return b.isEmpty() ? juce::String() : b + "/s/" + token;
 }
 
 void ShareServer::setFriendLinks(std::vector<FriendLink> links) {

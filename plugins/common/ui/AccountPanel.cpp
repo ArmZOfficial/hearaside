@@ -145,7 +145,7 @@ void AccountPanel::build() {
     list_.clear();
 
     const auto s = mgr_.state();
-    const auto& prof = mgr_.profile();
+    builtState_ = s;
 
     if (mode_ == Mode::Compact) {
         addAndMakeVisible(back_);
@@ -182,13 +182,8 @@ void AccountPanel::build() {
             addAndMakeVisible(offlineBanner_);
         }
 
-        displayNameField_.setText(prof.displayName, false);
-        usernameField_.setText(prof.handle, false);
-        aboutField_.setText(prof.about, false);
-        deviceField_.setText(prof.deviceName, false);
-
-        syncSwitch_.setOn(prof.syncAppearance, false);
-        hideEmailSwitch_.setOn(prof.hideEmail, false);
+        refreshProfileFields();
+        const auto& prof = mgr_.profile();
 
         if (mode_ == Mode::Full) {
             // Photo row
@@ -200,12 +195,15 @@ void AccountPanel::build() {
                     if (rm) rm->setBounds(getWidth() - 72, (getHeight() - 30) / 2, 72, 30);
                 }
             };
-            auto photoComp = std::make_unique<PhotoRow>();
-            photoComp->ch = &changePhoto_;
-            photoComp->rm = &removePhoto_;
-            photoComp->addAndMakeVisible(changePhoto_);
-            photoComp->addAndMakeVisible(removePhoto_);
-            list_.add(std::make_unique<SettingRow>(tr(Str::AccountPhoto), tr(Str::AccountPhotoCap), photoComp.release(), 160, 34));
+            if (photoRow_ == nullptr) {
+                auto row = std::make_unique<PhotoRow>();
+                row->ch = &changePhoto_;
+                row->rm = &removePhoto_;
+                row->addAndMakeVisible(changePhoto_);
+                row->addAndMakeVisible(removePhoto_);
+                photoRow_ = std::move(row);
+            }
+            list_.add(std::make_unique<SettingRow>(tr(Str::AccountPhoto), tr(Str::AccountPhotoCap), photoRow_.get(), 160, 34));
 
             // Name row
             list_.add(std::make_unique<SettingRow>(tr(Str::AccountDisplayName), tr(Str::AccountDisplayNameCap), &displayNameField_, 280, 36));
@@ -316,9 +314,25 @@ void AccountPanel::accountStateChanged(AccountManager::State) {
 }
 
 void AccountPanel::accountProfileChanged(const AccountManager::Profile&) {
+    const auto s = mgr_.state();
+    if (s == builtState_ && (s == AccountManager::State::SignedIn || s == AccountManager::State::Offline)) {
+        refreshProfileFields();   // the profile refreshes every minute: new values, same rows (a rebuild took the focus)
+        repaint();
+        return;
+    }
     build();
     resized();
     repaint();
+}
+
+// the fields follow the account, except the one being typed in
+void AccountPanel::refreshProfileFields() {
+    const auto& prof = mgr_.profile();
+    for (auto [field, value] : { std::pair<TextField*, juce::String>{ &displayNameField_, prof.displayName }, { &usernameField_, prof.handle },
+                                 { &aboutField_, prof.about }, { &deviceField_, prof.deviceName } })
+        if (!field->hasKeyboardFocus(true) && field->getText() != value) field->setText(value, false);
+    syncSwitch_.setOn(prof.syncAppearance, false);
+    hideEmailSwitch_.setOn(prof.hideEmail, false);
 }
 
 void AccountPanel::accountDeviceCodeUpdated(const AccountManager::DeviceCode& dc) {
@@ -412,7 +426,7 @@ void AccountPanel::paint(juce::Graphics& g) {
             g.setColour(p.ink2);
             juce::String sub = "@" + prof.handle;
             const auto masked = mgr_.getMaskedEmail();
-            if (masked.isNotEmpty()) sub += " · " + masked;
+            if (masked.isNotEmpty()) sub += juce::String::fromUTF8(" \xc2\xb7 ") + masked;
             g.drawText(sub, bottom, juce::Justification::centredLeft, true);
         }
 
@@ -495,6 +509,7 @@ void AccountPanel::layoutFull(juce::Rectangle<int> r) {
 
         const int listH = list_.idealHeight(r.getWidth());
         list_.setBounds(r.removeFromTop(listH));
+        list_.resized();   // rows rebuilt at the same size get no resized() of their own: they'd stay 0 x 0
 
         r.removeFromTop(16);
         auto botRow = r.removeFromTop(36);

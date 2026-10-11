@@ -549,6 +549,7 @@ int main(int argc, char** argv) {
 #if JUCE_WINDOWS
     _putenv_s("HEARASIDE_DEFAULT_BUS", bus.toRawUTF8());
     _putenv_s("HEARASIDE_NO_TUNNEL", "1");   // share tests stay on this machine
+    _putenv_s("HEARASIDE_ACCOUNT_NAME", "account-host-test");   // signed out: the user's sign-in would turn on permanent links
 #else
     setenv("HEARASIDE_DEFAULT_BUS", bus.toRawUTF8(), 1);
 #endif

@@ -855,7 +855,14 @@ void HubEditor::timerCallback() {
         meterR_.setLevel(meterPosition(ssbus::bitsFloat(sh.peakBits[0][1].load(std::memory_order_relaxed))));
     }
 
-    if (++slowTick_ % 3 == 0 && pageView_ != nullptr) pageView_->tick();
+    if (++slowTick_ % 3 == 0 && pageView_ != nullptr) {
+        pageView_->tick();
+        // a page that grew a card by itself (Share: the backup link, the install command) needs the glass behind it to grow too
+        const auto now = pageView_->cards();
+        const bool same = now.size() == pageCards_.size()
+                          && std::equal(now.begin(), now.end(), pageCards_.begin(), [](const GlassCard& a, const GlassCard& b) { return a.bounds == b.bounds && a.radius == b.radius; });
+        if (!same && page_ != Page::Main) { resized(); repaint(); }
+    }
     if (slowTick_ % 6 == 0) {   // ~5 Hz: OBS chip, LUFS, summary, banners
         const bool obs = proc_.obsConnected();
         const bool compact = mode_ == Mode::Compact;
@@ -1050,7 +1057,8 @@ void HubEditor::layout() {
     std::vector<GlassCard> cards { { header_, theme::radius::header } };
     if (page_ != Page::Main && pageView_ != nullptr) {
         pageView_->setBounds(r.toNearestInt());
-        for (auto c : pageView_->cards()) cards.push_back({ c.bounds + pageView_->getPosition().toFloat(), c.radius });
+        pageCards_ = pageView_->cards();
+        for (auto c : pageCards_) cards.push_back({ c.bounds + pageView_->getPosition().toFloat(), c.radius });
         backdrop_.setCards(std::move(cards));
         return;
     }

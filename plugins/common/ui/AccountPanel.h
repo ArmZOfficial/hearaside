@@ -100,6 +100,10 @@ private:
     void layoutCodeBlock(juce::Rectangle<int>& r);
     juce::Rectangle<float> codeHead_, codeBig_, codeLink_, codeStatus_;
     bool builtExpired_ = false, builtHaveCode_ = false;
+
+    AccountManager::State builtState_ = AccountManager::State::SignedOut;
+    std::unique_ptr<juce::Component> photoRow_;   // Full: Change / Remove (kept: rows don't own their control)
+    void refreshProfileFields();
 };
 
 } // namespace hearaside

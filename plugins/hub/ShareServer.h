@@ -34,7 +34,10 @@ public:
     int port() const noexcept { return port_; }
     juce::String lanBase() const;                       // http://192.168.1.5:47810
     juce::String publicBase() const;                    // https://xxxx.trycloudflare.com, "" = none
-    juce::String listenUrl() const;                     // best link: public if ready, else LAN
+    juce::String listenUrl() const;                     // best link: public if ready, else LAN ("" while the tunnel starts)
+    // Cloudflare first: while the tunnel is starting the links are "" (a LAN link copied then never
+    // works outside the house). Without internet cloudflared never says it's ready: LAN after this.
+    static constexpr juce::uint32 kTunnelWaitMs = 20000;
     juce::String localListenUrl() const;                // http://127.0.0.1:47810/l/... for this computer
     juce::String sendUrl() const;
     Tunnel tunnel() const noexcept { return tunnel_.load(); }
@@ -106,6 +109,8 @@ private:
     std::atomic<bool> listenEnabled_ { true };
 
     std::atomic<Tunnel> tunnel_ { Tunnel::Off };
+    std::atomic<juce::uint32> tunnelStartMs_ { 0 };
+    juce::String linkBase() const;   // public, LAN, or "" while waiting for the tunnel
     struct Tunnelled;                          // the cloudflared process (dies with the DAW, even on a crash)
     std::unique_ptr<Tunnelled> cloudflared_;
     mutable std::mutex urlMutex_;

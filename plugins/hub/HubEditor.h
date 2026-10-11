@@ -179,6 +179,7 @@ private:
     Backdrop backdrop_;
     Page page_ = Page::Main;
     std::unique_ptr<HubPage> pageView_;
+    std::vector<GlassCard> pageCards_;   // what the backdrop has for the page: a page that lays itself out again gets new ones
     Mode mode_ = Mode::Regular;
     Tab tab_ = Tab::Tracks;
     bool levelHeadphones_ = false, narrowRows_ = false;

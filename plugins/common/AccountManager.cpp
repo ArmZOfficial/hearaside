@@ -92,7 +92,7 @@ void AccountManager::setServerBaseUrl(const juce::String& url) {
 juce::File AccountManager::storageFile() const {
     const auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("HEARASIDE");
     if (!dir.exists()) dir.createDirectory();
-    return dir.getChildFile("account.dat");
+    return dir.getChildFile(getEnv("HEARASIDE_ACCOUNT_NAME", "account") + ".dat");   // tests use their own file
 }
 
 juce::MemoryBlock AccountManager::encryptData(const juce::String& text) {
@@ -428,7 +428,7 @@ bool AccountManager::httpPost(const juce::String& endpoint, const juce::var& bod
     }
 
     juce::URL url(base + endpoint);
-    const auto jsonStr = juce::JSON::toString(body);
+    const auto jsonStr = body.isVoid() ? juce::String("{}") : juce::JSON::toString(body);   // the server takes no bare null
     juce::WebInputStream ws(url.withPOSTData(jsonStr), true);
     juce::String headers = "Content-Type: application/json";
     if (bearerToken.isNotEmpty()) headers += "\r\nAuthorization: Bearer " + bearerToken;
@@ -485,7 +485,7 @@ bool AccountManager::httpWithBody(const char* method, const juce::String& endpoi
     }
 
     juce::URL url(base + endpoint);
-    const auto jsonStr = juce::JSON::toString(body);
+    const auto jsonStr = body.isVoid() ? juce::String("{}") : juce::JSON::toString(body);   // the server takes no bare null
     juce::WebInputStream ws(url.withPOSTData(jsonStr), true);
     ws.withCustomRequestCommand(method);
     juce::String headers = "Content-Type: application/json";
@@ -749,9 +749,9 @@ void AccountManager::doStartDeviceFlow() {
         setState(State::WaitingForCode);
         notifyDeviceCodeUpdated();
 
-        // Queue poll loop
+        // poll next: run() picks it up straight away. No signal: the poll loop would take it for a cancel
+        // and stop before asking once (the browser said "signed in", the plug-in kept waiting)
         pendingAction_.store(Action::PollToken, std::memory_order_relaxed);
-        actionEvent_.signal();
     }
 }
 
@@ -766,8 +766,8 @@ void AccountManager::doPollDeviceCode() {
 
     while (!threadShouldExit() && state() == State::WaitingForCode) {
         if (actionEvent_.wait(intervalSec * 1000)) {
-            // Interrupted by cancel or another action
-            return;
+            // woken: stop for a cancel or another action; any other wake-up (a setting changed) keeps polling
+            if (pendingAction_.load(std::memory_order_relaxed) != Action::None || state() != State::WaitingForCode) return;
         }
 
         if (state() != State::WaitingForCode || devCode.isEmpty()) return;

@@ -30,6 +30,8 @@ struct LinkField : TextField {
         setFont(monoFont(12.0f));
     }
     void setLink(const juce::String& l) { if (l != getText()) setText(l, false); }
+    void setWaiting(const juce::String& w) { if (w != waiting_) { waiting_ = w; setPlaceholder(w); repaint(); } }   // shown while there's no link yet
+    juce::String waiting_;
 };
 
 // Track that a value was changed from the UI recently, so polling doesn't fight the user.
@@ -303,10 +305,12 @@ public:
         // the permanent link can be copied any time (send it once); the others only exist while sharing
         listenField_.setLink(permanent ? proc.permanentUrl(true) : live ? sh.listenUrl() : juce::String());
         backupField_.setLink(permanent && live ? sh.listenUrl() : juce::String());
+        listenField_.setWaiting(live && !permanent && sh.tunnel() == ShareServer::Tunnel::Starting ? tr(Str::LinksStarting) : juce::String());
         copy_.setEnabled(listenField_.getText().isNotEmpty());
         open_.setEnabled(live);
-        const bool backup = backupField_.getText().isNotEmpty() && proc.directory().state() != ShareDirectory::State::Online;
-        const bool missing = (on || proc.friendCount() > 0) && (sh.tunnel() == ShareServer::Tunnel::Missing || sh.tunnel() == ShareServer::Tunnel::Failed);
+        const bool wide = getWidth() >= 760;   // narrow has no connection card (resized): don't show them there every tick
+        const bool backup = wide && backupWanted();
+        const bool missing = wide && installWanted();
         bool relayout = false;
         if (backup != backupField_.isVisible() || missing != install_.isVisible()) {
             backupField_.setVisible(backup);

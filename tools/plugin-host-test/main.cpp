@@ -210,7 +210,7 @@ void testAutoSyncApp(Rig& rig, ssbus::BusLayout& L, int slotB, int D = 1104) {
 // ---- share links (like LISTENTO) --------------------------------------------------------------
 struct Http {
     juce::StreamingSocket s;
-    bool open(int port) { return s.connect("127.0.0.1", port, 2000); }
+    bool open(int port, int ms = 2000) { return s.connect("127.0.0.1", port, ms); }
     std::string request(const juce::String& path, const juce::String& extra = {}) {
         const auto req = "GET " + path + " HTTP/1.1\r\nHost: 127.0.0.1\r\n" + extra + "\r\n";
         s.write(req.toRawUTF8(), int(req.getNumBytesAsUTF8()));
@@ -409,10 +409,10 @@ void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm
         lt2 = juce::String(raw2.substr(from, end - from));
     }
     int newOk = 0, oldOk = 0;
-    for (int p = 47810; p < 47830; ++p) {
+    for (int p = 47810; p < 47830; ++p) {   // a closed port waits out the connect timeout: keep it short (localhost answers at once)
         Http a, b;
-        if (a.open(p) && a.request("/l/" + lt2).find(" 200 ") != std::string::npos) ++newOk;
-        if (b.open(p) && b.request("/l/" + lt).find(" 200 ") != std::string::npos) ++oldOk;
+        if (a.open(p, 200) && a.request("/l/" + lt2).find(" 200 ") != std::string::npos) ++newOk;
+        if (b.open(p, 200) && b.request("/l/" + lt).find(" 200 ") != std::string::npos) ++oldOk;
     }
     check(lt2.length() == 26 && lt2 != lt && newOk == 1 && oldOk == 0,
           "share: every share gets a new random listen link, the old one stops working");

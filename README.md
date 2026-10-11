@@ -4,7 +4,16 @@
 
 > ตัวอย่างเคสหลัก: แทร็กร้องตั้ง `คุณได้ยิน = ปิด`, `คนดูได้ยิน = เปิด` คนดูได้ยินเสียงร้องที่ผ่าน EQ / Comp / Reverb แล้ว แต่ในหูฟังคุณไม่ได้ยินเสียงตัวเอง
 
-แผนฉบับเต็ม: [docs/plan.md](docs/plan.md)
+แผนฉบับเต็ม: [docs/plan.md](docs/plan.md) · เวอร์ชันล่าสุด **1.0.3** ([release notes](docs/releases/v1.0.3.md))
+
+## ติดตั้ง (ผู้ใช้)
+
+1. ดาวน์โหลด `HEARASIDE-Setup-1.0.3.exe` จาก [GitHub Releases](https://github.com/ArmZOfficial/hearaside/releases) หรือ [hearaside.vercel.app/download](https://hearaside.vercel.app/download)
+2. ปิด DAW และ OBS แล้วรันตัวติดตั้ง ได้ครบในไฟล์เดียว: Hub, Track, App Audio (VST3 + VST2), HEARASIDE for OBS และ cloudflared (ลิงก์ผ่านเน็ต ไม่ต้องลงเพิ่ม)
+3. ใน DAW: สแกนปลั๊กอินใหม่ → ใส่ **HEARASIDE Hub** บน Master และ **HEARASIDE Track** ท้ายทุกแทร็ก
+4. ใน OBS: เพิ่ม Source ชื่อ **HEARASIDE**
+
+> **อัปเดตทุกตัวพร้อมกัน** (ทุกเครื่อง ทุก DAW และปลั๊กอิน OBS) เวอร์ชันที่เปลี่ยนรูปแบบ shared memory (เช่น 1.0.3 = protocol v14) คุยกับตัวเก่าไม่ได้ ตัวเก่าจะขึ้นว่าไม่มี Hub
 
 ---
 
@@ -16,49 +25,47 @@
 | **HEARASIDE Hub** | Insert บน Master bus (ตัวเดียวต่อโปรเจกต์) | รับเสียงคนดูจาก Master (ผ่านปลั๊กอินเหนือ Hub) ส่ง OBS, สร้างเสียงหูฟังจากแต่ละแทร็ก, mixer กลาง (รีโมตทุกแทร็ก), limiter, LUFS, ปุ่มตัดเสียงคนดู, ฟังแบบคนดู, ระดับหูฟังรวม |
 | **HEARASIDE OBS Source** | ปลั๊กอินใน OBS | อ่าน Stream Mix จาก shared memory, ชดเชย clock drift, แปลง sample rate |
 | **HEARASIDE App Audio** (Windows) | Insert บนแทร็กไหนก็ได้ (Audio / Instrument / Bus) | ดึงเสียงจากโปรแกรมเดียว (YouTube, Spotify...) หรือทั้งเครื่องยกเว้น DAW เข้าแทร็ก, เปิด/ปิด + ระดับเสียง, อัดลง WAV (Print) แบบกดเองหรืออัดตาม DAW, ควบคุมจาก Hub ได้ |
-| *Bridge* (เสริม) | แอปบน tray | ส่ง Stream Mix ออก audio device อื่น (VB-CABLE ฯลฯ) |
+| **เว็บไซต์ + บัญชี** (`web/site`) | [hearaside.vercel.app](https://hearaside.vercel.app) (Vercel + Supabase) | หน้าแนะนำ ดาวน์โหลด คู่มือ, บัญชี (ไม่บังคับ), เข้าสู่ระบบในปลั๊กอินด้วยโค้ด, ลิงก์ถาวรของลิงก์ฟัง/ลิงก์เพื่อน (เสียงไม่ผ่านเว็บ) |
+| *Bridge* (เสริม) | แอปบน tray | ส่ง Stream Mix ออก audio device อื่น (VB-CABLE ฯลฯ) — ยังไม่ได้ทำ |
 
 ---
 
-## สถานะ (9 ต.ค. 2026)
+## สถานะ (11 ต.ค. 2026, 1.0.3)
 
-> รอบ UX + automation (9 ต.ค.): audit และแผนเต็มอยู่ที่ [docs/ux-roadmap.md](docs/ux-roadmap.md)
-> - **UI responsive**: Hub แบบ Compact / Regular / Wide (ขั้นต่ำ 420×460 จากเดิม 880×750), Track และ App Audio ย่อขยายได้, จำขนาดหน้าต่าง, เปิดครั้งแรกเลือกขนาด UI ให้พอดีจอ
-> - **ใช้ง่ายขึ้น**: เช็คลิสต์เริ่มใช้งานที่ติ๊กเอง, ปุ่ม ✓ **ตรวจระบบ** (บอกผลกับคุณ / ผลกับคนดู / วิธีแก้) + คัดลอกรายงานปัญหา, เตือน "คนดูไม่ได้ยินอะไรเลย", ขั้นตอนเฉพาะ DAW ที่ใช้อยู่, การ์ดสรุปบอก "คนดูได้ยิน แต่คุณไม่ได้ยิน"
-> - **ลิงก์แชร์ถาวร** ผ่านเว็บ Vercel ของคุณเอง ([web/share-vercel](web/share-vercel/README.md)) เสียงไม่ผ่าน Vercel
-> - **REST API** ในเครื่อง สำหรับ Stream Deck / สคริปต์ ([docs/rest-api.md](docs/rest-api.md))
-> - OBS Source ปิด Audio Monitoring ให้เองเมื่อสร้าง และเตือนถ้าเปิดอยู่
+- **1.0.3 ห้องเพื่อนร้องด้วยกัน:** เพื่อนได้ยินกันเองแบบ Jamulus (ไม่ได้ยินเสียงตัวเอง), หน้าเว็บเพื่อนหน่วงน้อยลง, เพื่อนที่มิกซ์ในแทร็ก DAW ไม่สะท้อนกลับและไม่ช้ากว่าจังหวะ, ลิงก์ถาวรผ่านบัญชี, ซิงก์หน้าตาข้ามเครื่อง
+- **1.0.2** ซิงก์เสียงร้องอัตโนมัติวัดได้ในโปรเจกต์จริง · **1.0.1** แก้บั๊ก UI · **1.0.0** UI ใหม่ทุกปลั๊กอิน, ห้องเพื่อน 8 คน, ตัวติดตั้งไฟล์เดียว
+- รายละเอียดแต่ละรุ่น: [docs/releases](docs/releases) · audit UX และงานค้าง: [docs/ux-roadmap.md](docs/ux-roadmap.md)
 
 ### ✅ เสร็จแล้ว
 
 | โฟลเดอร์ | เนื้อหา |
 |---|---|
-| `libs/ssbus` | Shared memory protocol v1 บน Windows (security descriptor ให้ DAW/OBS ที่รันแบบ admin ใช้ร่วมกับโปรเซสปกติได้) และ macOS (POSIX shm), broadcast ring buffer แบบไม่ใช้ lock (writer ไม่เคยรอ reader), การจอง/คืน slot, กู้ slot ของโปรเซสที่ตาย, จัดการ UUID ซ้ำเมื่อ duplicate แทร็ก, mailbox คำสั่ง Hub → Track, ขอเปลี่ยนชื่อแทร็ก, timeline tag |
+| `libs/ssbus` | Shared memory protocol (v14) บน Windows (security descriptor ให้ DAW/OBS ที่รันแบบ admin ใช้ร่วมกับโปรเซสปกติได้) และ macOS (POSIX shm), broadcast ring buffer แบบไม่ใช้ lock (writer ไม่เคยรอ reader), การจอง/คืน slot, กู้ slot ของโปรเซสที่ตาย, จัดการ UUID ซ้ำเมื่อ duplicate แทร็ก, mailbox คำสั่ง Hub → Track, ขอเปลี่ยนชื่อแทร็ก, timeline tag |
 | `libs/ssdsp` | Smoother, equal-power pan, brick-wall limiter แบบ lookahead (รับประกันไม่เกิน ceiling), LUFS meter ตาม ITU-R BS.1770 (M / S), ตัวควบคุม drift แบบ PI, resampler ปรับ ratio ได้ละเอียด 5–15 ppm (speexdsp), `StreamConsumer` สำหรับฝั่ง OBS / Bridge |
 | `libs/ssengine` | `TrackPublisher` และ `HubEngine` (sync แทร็กด้วย timeline tag จึงรองรับ ASIO-Guard / Anticipative FX, re-anchor เมื่อ seek / หยุด / เล่น, sync safety, stream delay สูงสุด 500 ms ที่อ่านย้อนจาก FIFO โดยไม่ใช้หน่วยความจำเพิ่ม, crossfade, solo, panic, stem 8 ช่อง, limiter, ฟังแบบคนดู) |
 | `plugins/track` | **HEARASIDE Track** (VST3 + VST2): คุณได้ยิน / คนดูได้ยิน, **ระดับในหูฟัง** (ลดเสียงที่คุณได้ยินโดยคนดูยังได้ยินเท่าเดิม ไม่ต้องแตะ fader), ระดับฝั่งคนดู, **หน่วงเวลาฝั่งคนดู 0–500 ms** (เหมือน Sync Offset ของ OBS แต่ทำทีละแทร็ก เช่น ชดเชยปลั๊กอินร้องที่หน่วง), pan / stem / solo / ชื่อ / bus ในแผงตั้งค่าละเอียด, ชื่อ+สีแทร็กจาก DAW (VST3), รับคำสั่งจาก Hub ผ่าน host (undo / automation / save ได้) |
-| `plugins/hub` | **HEARASIDE Hub** (VST3 + VST2): หน้าจอตาม mock-up (`StreamSplit Plugin UI.html`), รีโมตทุกแทร็ก (ปุ่มได้ยิน/ไม่ได้ยิน + สไลเดอร์ระดับหูฟัง/คนดูในแต่ละแถว), **ระดับหูฟังรวม** (ไม่มีผลกับคนดูและตอน export), ตัดเสียงคนดู, ฟังแบบคนดู, กันเสียงพีค, LUFS, สถานะ OBS + ความหน่วงถึง OBS, ตั้งค่า bus / sync safety / ชื่อ stem |
+| `plugins/hub` | **HEARASIDE Hub** (VST3 + VST2): หน้าจอตาม design export (หน้าหลัก + หน้าย่อย Share and friends, Settings, Track fine settings, Auto-sync, Manage tracks, Manage program audio), ห้องเพื่อน 8 คน + Line up, ลิงก์แชร์, REST API, รีโมตทุกแทร็ก (ปุ่มได้ยิน/ไม่ได้ยิน + สไลเดอร์ระดับหูฟัง/คนดูในแต่ละแถว), **ระดับหูฟังรวม** (ไม่มีผลกับคนดูและตอน export), ตัดเสียงคนดู, ฟังแบบคนดู, กันเสียงพีค, LUFS, สถานะ OBS + ความหน่วงถึง OBS, ตั้งค่า bus / sync safety / ชื่อ stem |
 | `plugins/common` | UI "Frosted Studio" แบบ native JUCE: กระจกขุ่น pre-render, ธีมสว่าง/มืด/ตามระบบ, ไทย/อังกฤษ, ฟอนต์ Anuphan ฝังในปลั๊กอิน, ขนาด 100–200 %, ลดการเคลื่อนไหว; design tokens จาก `design/tokens.json` → `Theme.h` |
 | `obs/hearaside-obs` | **OBS Source** (OBS 32): เลือก bus / Stream Mix หรือ Stem 1–8 / buffer 15–60 ms, แสดงสถานะ (DAW rate, buffer, drift, underrun), ชดเชย drift + แปลง sample rate, ไม่พึ่ง DLL อื่นนอกจาก `obs.dll`; **hotkey** (ตัด/คืนเสียงคนดู, ฟังแบบคนดู ใช้กับ Stream Deck ได้) |
 | `tools/` | `bus-inspector` (ดู bus แบบ real-time), `ui-snapshot` (เรนเดอร์หน้าจอปลั๊กอินเป็น PNG), `plugin-host-test` (โหลด VST3/VST2 ที่ build แล้วแบบ DAW แล้วตรวจ end-to-end) |
-| `installer/windows/install.ps1` | ติดตั้ง VST3 / VST2 / OBS plugin ลงโฟลเดอร์มาตรฐาน (และ `-Uninstall`) |
+| `installer/windows` | `hearaside.iss` + `build-installer.ps1`: ตัวติดตั้ง Inno Setup ไฟล์เดียว (VST3, VST2, OBS, cloudflared ที่ตรวจ SHA-256) · `install.ps1` ติดตั้งจาก build โดยตรง (และ `-Uninstall`) |
+| `web/site` | เว็บไซต์ React + Vite + Tailwind และ API Express (Vercel Function): บัญชี, device sign-in, `/me`, ลิงก์ถาวร (`/api/register`, `/api/resolve`, `/l/:token`, `/s/:token`) |
+| `web/share-vercel` | เว็บลิงก์ถาวรแบบ deploy เอง (ไม่ใช้บัญชี) · ต้นฉบับของ `directory.js` ที่ `web/site` ใช้ร่วม (`npm run sync`) |
 
-### ผลทดสอบล่าสุด (`.\build.ps1 -Test`): 10/10 ผ่าน
+### ผลทดสอบล่าสุด (`.\build.ps1 -Test`, 1.0.3): 14/14 ผ่าน
 
-- ✅ **unit** 40 ชุด (ผ่านทั้ง Release และ AddressSanitizer) รวม e2e Hub → OBS consumer 44.1k → 48k + drift 150 ppm ไม่มี underrun / เสียงคลิก
+- ✅ **unit** 68 ชุด รวมห้องเพื่อน: Line up ตรงจังหวะ, ไม่มีใครได้ยินเสียงตัวเอง, เพื่อนได้ยินกันทันที, เพื่อนผ่านแทร็ก DAW หน่วงครั้งเดียว, 8 เพื่อนพร้อมกันไม่เกิน limiter, ซิงก์อัตโนมัติ
 - ✅ **ipc** ข้ามโปรเซส 242,944 frames ตรงทุก sample, คืน slot ของโปรเซสที่ถูก kill ได้
-- ✅ **plugin_host_vst3 / plugin_host_vst2** โหลดไฟล์ปลั๊กอินจริงแบบ DAW: null test (เหลือ −240 dBFS), ระดับในหูฟัง −20 dB ลดเฉพาะเสียงออก DAW (คนดูยังได้ 100 %), ปิด "คุณได้ยิน" แล้วคนดูยังได้ยิน, หน่วง 40 ms ตรงกับสำเนาที่ช้า 1920 sample พอดี, คำสั่งจาก Hub เปลี่ยนพารามิเตอร์ที่ host เห็น, save/restore state
-- ✅ host test ส่วนคำสั่งจาก OBS: ตัดเสียงคนดู → stream เงียบ, ระดับรวม −6 dB + ระดับแทร็ก −6 dB ถึง Stream Mix ตรงค่า
-- ✅ **design_tokens_in_sync** + **design_contrast** (ข้อความทุกสีบนทุกพื้น ≥ 4.5:1 ทั้งสองธีม)
-- ✅ **rest_api** 12 ข้อ (key, Origin, Host ปลอม, state, คำสั่งถึง Track ผ่านพารามิเตอร์ของ host)
-- ✅ **share_directory** (ลิงก์ถาวรฝั่ง Hub กับเว็บจำลอง: register / heartbeat / retry / unregister / ปิด DAW ไม่รอเน็ต) + **share_api** (node:test 10 ข้อ) + **share_web_in_sync**
-- ✅ `ui-snapshot --audit`: 81 ภาพ (Hub 8 ขนาด × ไทย/อังกฤษ × สว่าง/มืด, Track/App, แผงย่อย, สถานะต่าง ๆ) ตัวตรวจ layout 0 ปัญหา
+- ✅ **plugin_host_vst3 / plugin_host_vst2** โหลดไฟล์ปลั๊กอินจริงแบบ DAW: null test, ระดับในหูฟัง, คุณได้ยิน/คนดูได้ยิน, หน่วง, คำสั่งจาก Hub, save/restore state, คำสั่งจาก OBS
+- ✅ **friends_room / friend_page / friend_app_source** ห้องเพื่อนฝั่ง Hub, หน้าเว็บเพื่อนในเบราว์เซอร์จริง, App Audio ที่รับเสียงเพื่อน
+- ✅ **rest_api**, **share_directory**, **share_api**, **share_web_in_sync**, **ui_values**, **design_tokens_in_sync**, **design_contrast**
+- ✅ เว็บ: `npm test` ใน `web/site` (39 ข้อ รวม API ลิงก์ถาวร) · `ui-snapshot --audit` ตัวตรวจ layout 0 ปัญหา
 
 ### ⏳ ยังไม่ได้ทำ
 
-1. ติดตั้งลงเครื่องแล้วทดสอบกับ DAW จริง (Cubase 15 / Studio One 7 / Reaper / FL) และ OBS 32 ตาม host matrix ในแผน
-2. pluginval strictness 10
-3. Bridge app, installer แบบ Inno Setup, คู่มือ, build macOS
+1. ร้องกับเพื่อนผ่านเน็ตใน DAW จริง และทดสอบตาม host matrix (Studio One 7 / Cubase 15 / Reaper / FL / Ableton) กับ OBS 32
+2. Friend input: เลือก Track ท้ายช่องเอง (`Goes out through`) สำหรับ DAW ที่ไม่ส่งชื่อแทร็ก, รอนิ่ง 500 ms ก่อนสลับกลับทาง DAW
+3. ซิงก์ชื่อ stem ผ่านบัญชี, pluginval strictness 10, Bridge app, build macOS
 
 ### เรื่อง VST2
 
@@ -78,7 +85,8 @@ Steinberg เปลี่ยน license เป็น MIT เฉพาะ **VST3*
 .\scripts\fetch-deps.ps1        # JUCE 8.0.15, libobs 32.2.2 headers, speexdsp
 .\build.ps1 -Test               # build + รัน test (OBS plugin ต้องมี OBS ติดตั้งที่ C:\Program Files\obs-studio)
 .\build.ps1 -Vst2Sdk C:\path\to\vstsdk2.4 -Test   # + VST2 (ห้าม commit SDK เข้า repo)
-.\installer\windows\install.ps1  # (Administrator) ติดตั้ง VST3 / VST2 / OBS plugin
+.\build.ps1 -Vst2Sdk C:\path\to\vstsdk2.4 -Installer   # + dist\HEARASIDE-Setup-<version>.exe (Inno Setup 6) และอัปเดต web\site\src\content\release.json
+.\installer\windows\install.ps1  # (Administrator) ติดตั้ง VST3 / VST2 / OBS plugin จาก build โดยตรง
 .\build\Release\tools\bus-inspector\bus-inspector.exe Main
 ```
 
@@ -122,12 +130,12 @@ Master:  Gullfoss ─► IMPusher ─► HEARASIDE Hub ─► (ปลั๊ก�
 ปุ่ม 🔗 ใน Hub → เปิดแชร์ ได้ 2 ลิงก์:
 
 - **ลิงก์ฟังสด** เปิดในเบราว์เซอร์/มือถือ ฟังเสียงที่คนดูได้ยิน (16-bit ไม่บีบอัด, เลือกความหน่วง เร็วสุด/สมดุล/ลื่นสุด)
-- **ลิงก์ส่งเสียงเข้า** เพื่อนเปิดแล้วส่งไมค์เข้ามา → ใส่ App Audio แล้วเลือก "เสียงที่เพื่อนส่งเข้ามา"
+- **ลิงก์เพื่อน** (ห้องเพื่อน ด้านล่าง) เพื่อนแต่ละคนมีลิงก์ส่งเสียงของตัวเอง อัดเพื่อนลง DAW: ใส่ App Audio ที่ช่อง Input แล้วเลือกชื่อเพื่อน
 - App Audio ยัง **รับลิงก์ฟังสดของ HEARASIDE เครื่องอื่น** ได้ (DAW ถึง DAW) จาก "รับจากลิงก์ของคนอื่น..."
-- ผ่านเน็ต: ติดตั้ง cloudflared (ฟรี ไม่ต้องสมัคร) `winget install --id Cloudflare.cloudflared` แล้วปิด/เปิดแชร์ใหม่ Hub จะได้ลิงก์ https อัตโนมัติ ถ้าไม่มีจะได้ลิงก์ใน WiFi เดียวกัน (http: หน้าฟังใช้ตัวเล่นสำรองแทน AudioWorklet ซึ่งเบราว์เซอร์เปิดให้เฉพาะ https / localhost; การส่งไมค์จากเบราว์เซอร์ต้องใช้ลิงก์ https)
+- ผ่านเน็ต: ตัวติดตั้งใส่ cloudflared มาให้แล้ว (`C:\Program Files\HEARASIDE\cloudflared`) Hub ได้ลิงก์ https อัตโนมัติ ไม่ต้องสมัคร Cloudflare (ถ้า build เองให้ `winget install --id Cloudflare.cloudflared`) ถ้าไม่มี cloudflared จะได้ลิงก์ใน WiFi เดียวกัน (http: หน้าฟังใช้ตัวเล่นสำรองแทน AudioWorklet ซึ่งเบราว์เซอร์เปิดให้เฉพาะ https / localhost; การส่งไมค์จากเบราว์เซอร์ต้องใช้ลิงก์ https)
 - ปุ่มเปิดลิงก์ฟังใน Hub เปิดผ่าน `http://127.0.0.1` (ฟังบนเครื่องนี้ ไม่ผ่าน tunnel)
-- ลิงก์ผูกกับโปรเจกต์ (เปิดโปรเจกต์ใหม่ได้ลิงก์เดิม ยกเว้นส่วนโดเมนของ cloudflared ที่เปลี่ยนทุกครั้ง) ครั้งแรก Windows อาจถามสิทธิ์ firewall ให้ DAW
-- **ลิงก์ถาวร (เข้าสู่ระบบแล้ว ไม่ต้องตั้งอะไร)**: เข้าสู่ระบบบัญชี HEARASIDE ในปลั๊กอิน แล้ว Hub ใช้เว็บของบัญชี (`hearaside.vercel.app`) เป็นที่อยู่ลิงก์ถาวรให้เอง ทั้งลิงก์ฟังและลิงก์ส่งเสียงของเพื่อนแต่ละคน ลิงก์ขึ้นในหน้า Account › Links and friends และเพิกถอนจากเว็บได้ (Hub ออกลิงก์ใหม่ให้เองในรอบถัดไป) · ที่อยู่ที่ตั้งเองใน Settings ชนะเสมอ
+- ไม่มีลิงก์ถาวร: เปิดแชร์แต่ละครั้งได้ลิงก์ฟังสุ่มใหม่ (ลิงก์ของไลฟ์ก่อนใช้ไม่ได้) และโดเมนของ cloudflared เปลี่ยนทุกครั้ง ครั้งแรก Windows อาจถามสิทธิ์ firewall ให้ DAW
+- **ลิงก์ถาวร (เข้าสู่ระบบแล้ว ไม่ต้องตั้งอะไร)**: เข้าสู่ระบบบัญชี HEARASIDE ในปลั๊กอิน แล้ว Hub ใช้เว็บของบัญชี (`hearaside.vercel.app`) เป็นที่อยู่ลิงก์ถาวรให้เอง ทั้งลิงก์ฟังและลิงก์ส่งเสียงของเพื่อนแต่ละคน ลิงก์ขึ้นในหน้า Account › Links and friends และเพิกถอนจากเว็บได้ (Hub ออกลิงก์ใหม่ให้เองในรอบถัดไป) · ที่อยู่ที่ตั้งเองใน Settings ชนะเสมอ · ถ้าเว็บลงทะเบียนลิงก์ไม่ได้ 1 นาที Hub กลับไปใช้ลิงก์ที่เปลี่ยนทุกไลฟ์จนจบ session
 - **ลิงก์ถาวร (ไม่มีบัญชี)**: deploy `web/share-vercel` ในบัญชี Vercel ของคุณ ([วิธีทำ](web/share-vercel/README.md)) แล้วใส่ที่อยู่ใน Hub › ตั้งค่า › "ที่อยู่เว็บแชร์" ลิงก์จะเป็น `https://<เว็บของคุณ>/l/<token>` คงที่ต่อโปรเจกต์ ส่งครั้งเดียวใช้ได้ทุกไลฟ์ (Hub บอกเว็บว่า tunnel อยู่ไหนทุก 30 วิ เสียงยังวิ่งตรงจาก Hub)
 - หน้าเว็บที่ไม่ได้มาจาก Hub หรือเว็บแชร์ที่ตั้งไว้จะต่อ WebSocket ไม่ได้ (Hub ตรวจ `Origin`)
 
@@ -161,6 +169,14 @@ Master:  Gullfoss ─► IMPusher ─► HEARASIDE Hub ─► (ปลั๊ก�
 - **ปุ่มตัดเสียง (Mute / Panic):** ปุ่ม Mute ใน Hub และ panic ตัดเสียงเพื่อนทันทีทั้งสองทาง (ทั้งทางตรงและทาง DAW) ภายใน 1 block
 - **DAW Suspended / Paused:** หาก DAW พักการประมวลผลของช่อง (เช่น Cubase VST3 silence suspension) ปลั๊กอินจะรายงานสถานะเตือนบนหน้าจอ พร้อม tail length ตลอดชีพเพื่อป้องกัน DAW ตัดการประมวลผล
 
+### บัญชีและเว็บไซต์ (ไม่บังคับ)
+
+ทุกอย่างด้านเสียงใช้ได้โดยไม่มีบัญชีและไม่มีเน็ต บัญชีเป็นของเสริม:
+
+- **เข้าสู่ระบบในปลั๊กอิน** (Hub › Settings › Account, Track/App Audio › Account): กด *Sign in with your browser* → ได้โค้ด 8 ตัว → อนุญาตที่ `hearaside.vercel.app/link` ไม่มีการพิมพ์รหัสผ่านในปลั๊กอิน · เข้าที่ตัวไหน ปลั๊กอินทุกตัวในเครื่องเข้าด้วย (token เก็บใน `%APPDATA%\HEARASIDE\account.dat` เข้ารหัส DPAPI ไม่อยู่ในไฟล์โปรเจกต์)
+- **ได้อะไร:** ลิงก์ถาวรโดยไม่ต้องมีเว็บของตัวเอง, ชื่อ/รูปที่เพื่อนเห็น, **Sync appearance** (ภาษา ธีม ขนาด ความทึบกระจก สีแทร็ก ลดการเคลื่อนไหว ตามไปทุกเครื่อง ค่าใหม่กว่าชนะ ไม่ซิงก์ค่าที่กระทบเสียง), รายการอุปกรณ์ + ออกจากระบบจากเว็บ
+- **deploy เว็บ** (`web/site` บน Vercel, ค่าตัวอย่างใน `web/site/.env.example`): Supabase (บัญชี, รูป), `PLUGIN_TOKEN_SECRET`, และ **`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`** สำหรับลิงก์ถาวรและ rate limit · dev ในเครื่อง: `npm run dev` ใน `web/site` (`STORE=memory` ไม่ต้องมี Supabase)
+
 ### REST API
 
 Hub › ตั้งค่า › **REST API** แล้วคัดลอก API key: `http://127.0.0.1:47800/api/v1` (เฉพาะโปรแกรมในเครื่องนี้) อ่านสถานะ ตัดเสียงคนดู ฟังแบบคนดู ปรับระดับ และสลับคุณได้ยิน/คนดูได้ยินของแต่ละแทร็ก ทุกคำสั่งผ่าน host จึง undo ได้ — รายละเอียดใน [docs/rest-api.md](docs/rest-api.md)
@@ -170,6 +186,12 @@ Hub › ตั้งค่า › **REST API** แล้วคัดลอก AP
 ตั้งได้ที่ **Settings → Hotkeys → HEARASIDE** (ตัด/คืนเสียงคนดู, ฟังแบบคนดู) ต้องมี Source **HEARASIDE** อย่างน้อย 1 ตัว
 
 ใน OBS: เพิ่ม Source ชื่อ **HEARASIDE** แล้วตั้ง Audio Monitoring เป็น "Monitor Off" (ฟังจาก DAW อยู่แล้ว) และถ้า DAW เล่นผ่าน Desktop Audio ให้ปิด Desktop Audio ไม่งั้นคนดูได้ยินซ้ำ
+
+### ออกเวอร์ชันใหม่
+
+1. เปลี่ยนเลขใน `CMakeLists.txt` (`project(... VERSION x.y.z)`) และ `installer/windows/hearaside.iss` (`AppVersion`)
+2. `.\build.ps1 -Vst2Sdk <sdk> -Installer -Test` แล้วคัดลอก `dist\HEARASIDE-Setup-x.y.z.exe` ไป `web/site/public/downloads/` และเพิ่มบรรทัดใน `notes` ของ `release.json`
+3. เขียน `docs/releases/vx.y.z.md` (อังกฤษ + ไทย) แล้ว push: workflow สร้าง GitHub pre-release ให้เอง จากนั้น `gh release upload vx.y.z dist\HEARASIDE-Setup-x.y.z.exe`
 
 ## Dependencies และ License
 
@@ -181,3 +203,4 @@ Hub › ตั้งค่า › **REST API** แล้วคัดลอก AP
 | OBS / libobs | GPLv2 (OBS plugin ต้องเปิด source) |
 | speexdsp | BSD |
 | Anuphan (`external/fonts`) | SIL OFL 1.1 |
+| cloudflared (แนบในตัวติดตั้ง) | Apache-2.0 |

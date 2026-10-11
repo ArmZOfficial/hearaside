@@ -16,8 +16,8 @@ void AccountPanel::BenefitTile::paint(juce::Graphics& g) {
     drawWrapped(g, this->text, f, p.ink, text.withSizeKeepingCentre(text.getWidth(), h), 3.0f, juce::Justification::left, 2);
 }
 
-AccountPanel::AccountPanel(Mode mode)
-    : mode_(mode), mgr_(AccountManager::get()) {
+AccountPanel::AccountPanel(Mode mode, const char* plugin)
+    : mode_(mode), plugin_(plugin != nullptr ? plugin : (mode == Mode::Full ? "hub" : "track")), mgr_(AccountManager::get()) {
     mgr_.addListener(this);
 
     tile1_.icon = icons::Icon::Link;
@@ -163,6 +163,9 @@ void AccountPanel::build() {
         addAndMakeVisible(createAccountLink_);
     } else if (s == AccountManager::State::WaitingForCode) {
         const auto& dc = mgr_.deviceCode();
+        builtExpired_ = dc.expired;
+        builtHaveCode_ = dc.userCode.isNotEmpty();
+        copyCodeButton_.setButtonText(tr(Str::CopyCode));
         if (dc.expired) {
             addAndMakeVisible(newCodeButton_);
             addAndMakeVisible(cancelButton_);
@@ -170,6 +173,8 @@ void AccountPanel::build() {
             addAndMakeVisible(openPageButton_);
             addAndMakeVisible(copyCodeButton_);
             addAndMakeVisible(cancelButton_);
+            openPageButton_.setEnabled(builtHaveCode_);   // nothing to open or copy until the code is here
+            copyCodeButton_.setEnabled(builtHaveCode_);
         }
     } else { // SignedIn or Offline
         if (s == AccountManager::State::Offline) {
@@ -250,7 +255,7 @@ int AccountPanel::idealHeight(int width) const {
             return 440;
         }
     } else if (s == AccountManager::State::WaitingForCode) {
-        return 320;
+        return mode_ == Mode::Full ? 210 : 330;
     } else { // SignedIn or Offline
         if (mode_ == Mode::Full) {
             return list_.idealHeight(width) + 160;
@@ -261,7 +266,7 @@ int AccountPanel::idealHeight(int width) const {
 }
 
 void AccountPanel::onSignInClicked() {
-    mgr_.startDeviceFlow(mode_ == Mode::Full ? "HEARASIDE Hub" : "HEARASIDE Track");
+    mgr_.startDeviceFlow(plugin_);
 }
 
 void AccountPanel::onOpenPageClicked() {
@@ -316,7 +321,12 @@ void AccountPanel::accountProfileChanged(const AccountManager::Profile&) {
     repaint();
 }
 
-void AccountPanel::accountDeviceCodeUpdated(const AccountManager::DeviceCode&) {
+void AccountPanel::accountDeviceCodeUpdated(const AccountManager::DeviceCode& dc) {
+    if (mgr_.state() == AccountManager::State::WaitingForCode
+        && (dc.expired != builtExpired_ || dc.userCode.isNotEmpty() != builtHaveCode_)) {
+        build();   // the code arrived or ran out: other buttons
+        resized();
+    }
     repaint();
 }
 
@@ -351,43 +361,42 @@ void AccountPanel::paint(juce::Graphics& g) {
         }
     } else if (s == AccountManager::State::WaitingForCode) {
         const auto& dc = mgr_.deviceCode();
-        auto headArea = r.removeFromTop(40.0f);
+        // Full: left, in line with the buttons and the Settings title above; Compact: centred over full-width buttons
+        const auto just = mode_ == Mode::Full ? juce::Justification::centredLeft : juce::Justification::centred;
         g.setFont(uiFont(16.0f, Weight::SemiBold));
         g.setColour(p.ink);
-        g.drawText(tr(Str::EnterCode), headArea, juce::Justification::centred, true);
+        g.drawText(tr(Str::EnterCode), codeHead_, just, true);
 
-        // Code display area
-        auto codeArea = r.removeFromTop(60.0f);
         g.setFont(uiFont(38.0f, Weight::SemiBold));
-        g.setColour(p.ink);
-        g.drawText(dc.userCode, codeArea, juce::Justification::centred, true);
+        g.setColour(dc.userCode.isNotEmpty() ? p.ink : p.ink2);
+        g.drawText(dc.userCode.isNotEmpty() ? dc.userCode : juce::String::fromUTF8("\xc2\xb7\xc2\xb7\xc2\xb7\xc2\xb7-\xc2\xb7\xc2\xb7\xc2\xb7\xc2\xb7"), codeBig_, just, true);
 
-        // Subtitle: at hearaside.app/link
-        auto linkArea = r.removeFromTop(26.0f);
         g.setFont(uiFont(13.5f, Weight::Medium));
         g.setColour(p.ink2);
         const auto host = mgr_.serverBaseUrl().replace("https://", "").replace("http://", "");
-        g.drawText(trf(Str::CodeAt, { host + "/link" }), linkArea, juce::Justification::centred, true);
+        g.drawText(trf(Str::CodeAt, { host + "/link" }), codeLink_, just, true);
 
-        // Status countdown
-        r.removeFromTop(12.0f);
-        auto statArea = r.removeFromTop(24.0f);
-        const int rem = mgr_.getCodeRemainingSeconds();
-        const int mins = rem / 60;
-        const int secs = rem % 60;
-        const juce::String timeStr = juce::String::formatted("%d:%02d", mins, secs);
-
+        juce::String text;
+        Dot dot = Dot::Warn;
+        juce::Colour colour = p.ink2;
         if (dc.expired) {
-            drawStatusDot(g, statArea.removeFromLeft(14.0f).getCentre(), Dot::Warn, p);
-            g.setFont(uiFont(13.0f, Weight::Medium));
-            g.setColour(p.warn);
-            g.drawText(tr(Str::CodeExpired), statArea, juce::Justification::left, true);
+            text = tr(Str::CodeExpired);
+            colour = p.warn;
+        } else if (dc.userCode.isEmpty()) {
+            text = tr(Str::GettingCode);
+            dot = Dot::Muted;
         } else {
-            drawStatusDot(g, statArea.removeFromLeft(14.0f).getCentre(), Dot::Warn, p);
-            g.setFont(uiFont(13.0f, Weight::Regular));
-            g.setColour(p.ink2);
-            g.drawText(trf(Str::WaitingAllow, { timeStr }), statArea, juce::Justification::left, true);
+            const int rem = mgr_.getCodeRemainingSeconds();
+            text = trf(Str::WaitingAllow, { juce::String::formatted("%d:%02d", rem / 60, rem % 60) });
         }
+        const auto f = uiFont(13.0f, dc.expired ? Weight::Medium : Weight::Regular);
+        auto stat = codeStatus_;
+        if (mode_ == Mode::Compact) stat = stat.withSizeKeepingCentre(juce::jmin(stat.getWidth(), 24.0f + textWidth(f, text)), stat.getHeight());
+        drawStatusDot(g, stat.removeFromLeft(14.0f).getCentre(), dot, p);
+        stat.removeFromLeft(4.0f);
+        g.setFont(f);
+        g.setColour(colour);
+        g.drawText(text, stat, juce::Justification::centredLeft, true);
     } else { // SignedIn or Offline
         if (avatarArea_.getWidth() > 0) {
             drawAvatar(g, avatarArea_, prof.displayName.isNotEmpty() ? prof.displayName : prof.handle, true, p, prof.avatarImage);
@@ -460,7 +469,8 @@ void AccountPanel::layoutFull(juce::Rectangle<int> r) {
         r.removeFromTop(10);
         errorArea_ = r.removeFromTop(38).toFloat();
     } else if (s == AccountManager::State::WaitingForCode) {
-        r.removeFromTop(140); // Code header, big user code, domain link, status
+        r.removeFromTop(6);
+        layoutCodeBlock(r);
         const auto& dc = mgr_.deviceCode();
         auto btnRow = r.removeFromTop(40);
         if (dc.expired) {
@@ -499,6 +509,17 @@ void AccountPanel::layoutFull(juce::Rectangle<int> r) {
     }
 }
 
+// heading, the big code, "at hearaside.vercel.app/link", status; the buttons go below r
+void AccountPanel::layoutCodeBlock(juce::Rectangle<int>& r) {
+    codeHead_ = r.removeFromTop(26).toFloat();
+    r.removeFromTop(4);
+    codeBig_ = r.removeFromTop(52).toFloat();
+    codeLink_ = r.removeFromTop(22).toFloat();
+    r.removeFromTop(10);
+    codeStatus_ = r.removeFromTop(22).toFloat();
+    r.removeFromTop(18);
+}
+
 // one box, three rows: ink icon tile + text (prompt 3.12 item 1)
 void AccountPanel::layoutBenefits(juce::Rectangle<int>& r, int rowH) {
     auto box = r.removeFromTop(3 * rowH + 2 * 4 + 2 * 12);
@@ -522,7 +543,7 @@ void AccountPanel::layoutCompact(juce::Rectangle<int> r) {
         r.removeFromTop(8);
         errorArea_ = r.removeFromTop(38).toFloat();
     } else if (s == AccountManager::State::WaitingForCode) {
-        r.removeFromTop(140);
+        layoutCodeBlock(r);
         const auto& dc = mgr_.deviceCode();
         if (dc.expired) {
             newCodeButton_.setBounds(r.removeFromTop(40));

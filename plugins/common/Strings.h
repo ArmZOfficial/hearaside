@@ -110,7 +110,7 @@ enum class Str {
     MoveHere, LinkCopiedSendTo, LinkNotHearaside, LinkOtherRoom, LinkListenNotLinedUp, FriendGone, RecordFriendHint,
     MixFriendTitle, MixFriendStep1, MixFriendStep2, MixFriendStep3, RemovedFriendToast, FriendOverLimit, ReceivingFriend, FriendFullToast, LineUpOnToast, LineUpChangedToast, LineUpOffToast, AccountTitle, AccountOptional, SecAccountCap,
     SignInBrowser, CreateAccount, SignOut, SignInEllipsis, NotSignedIn, EditArrow, EnterCode, WaitingAllow,
-    CodeExpired, GetNewCode, CodeAt, OpenThePage, CopyCode, AccountPhoto, AccountPhotoCap, ChangeEllipsis,
+    CodeExpired, GettingCode, GetNewCode, CodeAt, OpenThePage, CopyCode, AccountPhoto, AccountPhotoCap, ChangeEllipsis,
     PhotoEllipsis, RemoveWord, AccountDisplayName, AccountDisplayNameCap, AccountUsername, UsernameAvailable,
     UsernameRules, UsernameTaken, UsernameFree, AccountAbout, AboutCounter, SyncAppearance, SyncAppearanceCap,
     SyncAppearanceCapShort, HideEmailOnScreen, HideEmailCap, ThisComputer, ThisComputerCap, ManageOnWeb, MoreOnWeb,

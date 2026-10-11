@@ -14,7 +14,8 @@ public:
         Compact  // Track Fine settings sheet & App Audio (narrow, 340-380px)
     };
 
-    explicit AccountPanel(Mode mode = Mode::Full);
+    // plugin: "hub" / "track" / "app", sent with the sign-in code (default: hub for Full, track for Compact)
+    explicit AccountPanel(Mode mode = Mode::Full, const char* plugin = nullptr);
     ~AccountPanel() override;
 
     void setMode(Mode m);
@@ -48,6 +49,7 @@ private:
     void onRemovePhotoClicked();
 
     Mode mode_ = Mode::Full;
+    juce::String plugin_;
     AccountManager& mgr_;
 
     // Navigation / Header
@@ -93,6 +95,11 @@ private:
     juce::Rectangle<float> syncRowArea_, hideEmailRowArea_;
     juce::Rectangle<float> benefitsBox_, errorArea_;   // signed out: the box behind the benefits, why sign-in didn't start
     void layoutBenefits(juce::Rectangle<int>& r, int rowH);
+
+    // waiting for the code: one layout for the text (paint) and the buttons below it (resized)
+    void layoutCodeBlock(juce::Rectangle<int>& r);
+    juce::Rectangle<float> codeHead_, codeBig_, codeLink_, codeStatus_;
+    bool builtExpired_ = false, builtHaveCode_ = false;
 };
 
 } // namespace hearaside

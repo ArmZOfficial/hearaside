@@ -11,6 +11,7 @@
 #include "ValueText.h"
 #include "AccountManager.h"
 #include "ui/Overlay.h"
+#include "ui/AccountPanel.h"
 #ifdef _WIN32
 #include "app/AppAudioProcessor.h"
 #include "app/AppAudioEditor.h"
@@ -460,6 +461,38 @@ int testAccount() {
             trk.processBlock(buf, midi);
         }
         expect("audio processing completely unaffected by account manager", buf.getNumChannels() == 2);
+    }
+
+    // 6. HEARASIDE_TEST_LIVE=1: ask the real server for a sign-in code (hub / track / app must all get one),
+    //    and shoot the panel while it asks and once the code is there. Signed out only; nothing is saved.
+    if (juce::SystemStats::getEnvironmentVariable("HEARASIDE_TEST_LIVE", {}).isNotEmpty() && mgr.state() == AccountManager::State::SignedOut) {
+        const auto out = juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots");
+        out.createDirectory();
+        SharedSettings st;   // the snapshot settings file, never the user's
+        st->setLanguage(juce::SystemStats::getEnvironmentVariable("HEARASIDE_TEST_LANG", {}) == "en" ? Language::English : Language::Thai);
+        st->setThemeMode(ThemeMode::Dark);
+        for (const char* plugin : { "hub", "track", "app" }) {
+            const bool full = juce::String(plugin) == "hub";
+            const int w = full ? 720 : 380;
+            AccountPanel panel(full ? AccountPanel::Mode::Full : AccountPanel::Mode::Compact, plugin);
+            mgr.startDeviceFlow(plugin);
+            pump(60);
+            panel.setSize(w, panel.idealHeight(w));
+            save(panel, out.getChildFile(juce::String("account-getting-") + plugin + ".png"), 1.0f);
+            bool got = false;
+            for (int i = 0; i < 100 && !got; ++i) {
+                pump(200);
+                got = mgr.deviceCode().userCode.isNotEmpty() && !mgr.deviceCode().expired;
+            }
+            std::printf("     %s code: %s\n", plugin, mgr.deviceCode().userCode.toRawUTF8());
+            expect((juce::String("server gives a sign-in code to ") + plugin).toRawUTF8(), got && mgr.state() == AccountManager::State::WaitingForCode);
+            expect("the code is still counting down", mgr.getCodeRemainingSeconds() > 500);
+            pump(1500);
+            panel.setSize(w, panel.idealHeight(w));
+            save(panel, out.getChildFile(juce::String("account-code-") + plugin + ".png"), 1.0f);
+            mgr.cancelDeviceFlow();
+            pump(300);
+        }
     }
 
     std::printf("%s\n", failures == 0 ? "account: all passed" : "account: FAILED");

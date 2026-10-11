@@ -682,6 +682,7 @@ Table build() {
     s(Str::EnterCode, "ใส่โค้ดนี้ในเบราว์เซอร์", "Enter this code in your browser");
     s(Str::WaitingAllow, "รอคุณกดอนุญาต… · หมดอายุใน %s", "Waiting for you to allow it… · expires in %s");
     s(Str::CodeExpired, "โค้ดหมดอายุแล้ว", "The code expired");
+    s(Str::GettingCode, "กำลังขอโค้ด…", "Getting a code…");
     s(Str::GetNewCode, "ขอโค้ดใหม่", "Get a new code");
     s(Str::CodeAt, "ที่ %s", "at %s");
     s(Str::OpenThePage, "เปิดหน้าเว็บ", "Open the page");

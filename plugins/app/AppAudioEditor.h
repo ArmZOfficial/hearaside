@@ -52,7 +52,7 @@ private:
     Body body_ { *this };
     Backdrop backdrop_;
     ScrollArea scroll_;
-    AccountPanel accountPanel_ { AccountPanel::Mode::Compact };
+    AccountPanel accountPanel_ { AccountPanel::Mode::Compact, "app" };
 
     IconButton more_ { icons::Icon::More };
     LabelledSwitch power_;

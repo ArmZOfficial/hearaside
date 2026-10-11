@@ -219,9 +219,12 @@ void AccountManager::startDeviceFlow(const juce::String& pluginName) {
     {
         const std::lock_guard<std::mutex> lk(mutex_);
         pendingPluginName_ = pluginName;
+        deviceCode_ = {};   // no code yet: the panel says "Getting a code…" and nothing counts down
         pendingAction_.store(Action::StartDeviceFlow, std::memory_order_relaxed);
     }
+    startFailed_.store(false);
     setState(State::WaitingForCode);
+    notifyDeviceCodeUpdated();
     actionEvent_.signal();
 }
 
@@ -338,6 +341,7 @@ juce::String AccountManager::getMaskedEmail() const {
 int AccountManager::getCodeRemainingSeconds() const {
     const std::lock_guard<std::mutex> lk(mutex_);
     if (deviceCode_.expired) return 0;
+    if (deviceCode_.userCode.isEmpty()) return deviceCode_.expiresInSec;   // still asking the server
     const auto rem = deviceCode_.expiresAt - juce::Time::getCurrentTime();
     return juce::jmax(0, static_cast<int>(rem.inSeconds()));
 }
@@ -393,7 +397,12 @@ void AccountManager::timerCallback() {
     }
 
     // 2. Countdown tick for device code
-    if (state() == State::WaitingForCode) {
+    bool haveCode = false;
+    {
+        const std::lock_guard<std::mutex> lk(mutex_);
+        haveCode = deviceCode_.userCode.isNotEmpty();
+    }
+    if (state() == State::WaitingForCode && haveCode) {
         const int rem = getCodeRemainingSeconds();
         if (rem <= 0) {
             bool wasExpired = false;
@@ -690,15 +699,17 @@ void AccountManager::doStartDeviceFlow() {
     juce::String pluginName;
     {
         const std::lock_guard<std::mutex> lk(mutex_);
-        pluginName = pendingPluginName_.isNotEmpty() ? pendingPluginName_ : "HEARASIDE";
+        pluginName = pendingPluginName_.toLowerCase();
     }
+    // the server takes exactly hub / track / app (and short strings): anything else is a 400 and no code
+    const juce::String plugin = pluginName.contains("hub") ? "hub" : pluginName.contains("app") ? "app" : "track";
 
     juce::DynamicObject::Ptr clientInfo = new juce::DynamicObject();
-    clientInfo->setProperty("plugin", pluginName);
-    clientInfo->setProperty("version", HEARASIDE_VERSION);
-    clientInfo->setProperty("os", juce::SystemStats::getOperatingSystemName());
-    clientInfo->setProperty("daw", juce::PluginHostType().getHostDescription());
-    clientInfo->setProperty("computer", juce::SystemStats::getComputerName());
+    clientInfo->setProperty("plugin", plugin);
+    clientInfo->setProperty("version", juce::String(HEARASIDE_VERSION).substring(0, 20));
+    clientInfo->setProperty("os", juce::SystemStats::getOperatingSystemName().substring(0, 40));
+    clientInfo->setProperty("daw", juce::String(juce::PluginHostType().getHostDescription()).substring(0, 40));
+    clientInfo->setProperty("computer", juce::SystemStats::getComputerName().substring(0, 64));
 
     juce::DynamicObject::Ptr req = new juce::DynamicObject();
     req->setProperty("client_info", juce::var(clientInfo.get()));
@@ -712,9 +723,17 @@ void AccountManager::doStartDeviceFlow() {
         notifyStateChanged();   // the panel shows why, even when the state was already SignedOut
         return;
     }
+    if (state() != State::WaitingForCode) return;   // cancelled while asking
+    const auto* o = res.getDynamicObject();
+    if (o == nullptr || o->getProperty("user_code").toString().isEmpty()) {
+        startFailed_.store(true);
+        setState(State::SignedOut);
+        notifyStateChanged();
+        return;
+    }
     startFailed_.store(false);
 
-    if (const auto* o = res.getDynamicObject()) {
+    {
         {
             const std::lock_guard<std::mutex> lk(mutex_);
             deviceCode_.deviceCode = o->getProperty("device_code").toString();

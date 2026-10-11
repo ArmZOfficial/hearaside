@@ -6,7 +6,6 @@ import { ChevronDown, Download, Play, Square, Check as CheckIcon } from 'lucide-
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
 import { AudibleToggle, Screenshot } from '../components/ui/Kit';
-import { HeroWaves } from '../motion/HeroWaves';
 import { Tilt } from '../motion/Tilt';
 import { Parallax, Reveal } from '../motion/Reveal';
 import { CountUp } from '../motion/CountUp';
@@ -124,8 +123,7 @@ export default function Home() {
               <span className="rise block" style={{ animationDelay: '80ms' }}>{t('home.h1a')}</span>
               <span className="rise block" style={{ animationDelay: '160ms' }}>{t('home.h1b')}</span>
             </h1>
-            <div className="rise" style={{ animationDelay: '240ms' }}><HeroWaves /></div>
-            <p className="lead max-w-[520px] rise" style={{ animationDelay: '300ms' }}>{t('home.lead')}</p>
+            <p className="lead max-w-[30ch] rise" style={{ animationDelay: '240ms' }}>{t('home.lead')}</p>
             <div className="flex flex-wrap gap-3 pt-1.5 rise" style={{ animationDelay: '360ms' }}>
               <Link className="btn solid big" to={path('/download')}>
                 <Download size={18} strokeWidth={1.8} aria-hidden="true" />{t('home.download')}
@@ -158,13 +156,27 @@ export default function Home() {
             <h2 id="plugins-h" className="h2 mb-7">{t('home.plugins.h2')}</h2>
           </Reveal>
           <div className="plug-grid">
-            {features.map((f, i) => (
-              <Reveal key={f.k} className={`card plug ${i === 0 ? 'plug-main' : ''} lift`} delay={i * 80}>
-                <span className="text-xs muted">{f.where}</span>
-                <span className={i === 0 ? 'h3' : 'text-xl font-semibold'}>{f.k === 'HUB' ? 'Hub' : f.k === 'TRACK' ? 'Track' : 'App Audio'}</span>
-                <p className={`m-0 leading-relaxed text-ink2 ${i === 0 ? 'text-[17px] max-w-[34ch]' : 'text-[15px]'}`}>{f.text}</p>
-              </Reveal>
-            ))}
+            <Reveal className="card plug plug-main">
+              <div className="plug-main-shot" aria-hidden="true">
+                <Screenshot name="hub" lang={lang} alt="" width={1040} height={790} />
+              </div>
+              <span className="plug-where">{features[0].where}</span>
+              <span className="h3">Hub</span>
+              <p className="m-0 text-[17px] leading-relaxed max-w-[34ch]">{features[0].text}</p>
+            </Reveal>
+            <Reveal className="card plug plug-track" delay={80}>
+              <div className="flex flex-col gap-2.5 min-w-0">
+                <span className="plug-where">{features[1].where}</span>
+                <span className="text-xl font-semibold">Track</span>
+                <p className="m-0 text-[15px] leading-relaxed text-ink2">{features[1].text}</p>
+              </div>
+              <Screenshot name="track" lang={lang} alt={t('home.how.shotAlt')} className="plug-shot" width={380} height={640} />
+            </Reveal>
+            <Reveal className="card plug plug-app" delay={160}>
+              <span className="plug-where">{features[2].where}</span>
+              <span className="text-xl font-semibold">App Audio</span>
+              <p className="m-0 text-[15px] leading-relaxed text-ink2 max-w-[44ch]">{features[2].text}</p>
+            </Reveal>
           </div>
         </section>
 
@@ -192,24 +204,19 @@ export default function Home() {
           <Reveal>
             <h2 id="how-h" className="h2 mb-7">{t('home.how.h2')}</h2>
           </Reveal>
-          <div className="flex flex-wrap gap-4 items-stretch">
-            <ol className="steps-list min-w-0" style={{ flex: '999 1 520px' }}>
-              {[1, 2, 3].map(n => (
-                <Reveal as="li" key={n} delay={n * 70}>
-                  <span className="step-n" aria-hidden="true">{n}</span>
-                  <span className="flex flex-col gap-1.5 min-w-0">
-                    <span className="text-xl font-semibold">{t(`home.how.${n}t` as 'home.how.1t')}</span>
-                    <span className="text-[15px] leading-relaxed text-ink2 max-w-[48ch]">{t(`home.how.${n}` as 'home.how.1')}</span>
-                  </span>
-                </Reveal>
-              ))}
-            </ol>
-            <Reveal className="card p-5 grid place-items-center" style={{ flex: '1 1 260px' }} delay={160}>
-              <Parallax range={16}>
-                <Screenshot name="track" lang={lang} alt={t('home.how.shotAlt')} className="track-shot" width={380} height={640} />
-              </Parallax>
-            </Reveal>
-          </div>
+          <ol className="steps">
+            {[1, 2, 3].map(n => (
+              <Reveal as="li" key={n} delay={n * 90} className="step">
+                <span className="text-xl font-semibold">{t(`home.how.${n}t` as 'home.how.1t')}</span>
+                <span className="text-[15px] leading-relaxed text-ink2 max-w-[36ch]">{t(`home.how.${n}` as 'home.how.1')}</span>
+              </Reveal>
+            ))}
+          </ol>
+          <Reveal className="pt-8" delay={300}>
+            <Link className="btn solid big" to={path('/download')}>
+              <Download size={18} strokeWidth={1.8} aria-hidden="true" />{t('home.download')}
+            </Link>
+          </Reveal>
         </section>
 
         <Reveal as="section" aria-labelledby="acct-h" className="sect">

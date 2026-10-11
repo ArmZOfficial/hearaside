@@ -13,8 +13,14 @@
     margin: 0;
     min-height: 100vh;
     background-color: var(--hs-paper);
+  }
+  /* the plug-ins' 32 px grid, only at the top of the page and fading out (fixed, so it never repaints on scroll) */
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background-image: linear-gradient(var(--hs-grid) 1px, transparent 1px), linear-gradient(90deg, var(--hs-grid) 1px, transparent 1px);
     background-size: 32px 32px;
+    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 75%);
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 75%);
   }
   a { color: var(--hs-ink2); }
   a:hover { color: var(--hs-ink); }
@@ -144,10 +150,42 @@
   .rv.rv-hide { opacity: 0; transform: translateY(16px); }
 
   /* --- nav ------------------------------------------------------------------------------------ */
-  .nav-shell { position: sticky; top: 0; z-index: 40; padding: 10px 0; transition: padding .2s ease; }
-  .nav-shell.scrolled { padding: 8px 0; }
-  .nav { display: flex; align-items: center; gap: 24px; min-height: 60px; border-radius: 18px; border: 1px solid transparent; transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease; }
-  .nav-shell.scrolled .nav { background: var(--hs-glass); border-color: var(--hs-glassEdge); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 8px 24px var(--hs-shadow); padding-left: 18px; padding-right: 12px; }
+  /* Frosted nav (a web approximation of a glass material, not an official one): mostly opaque paper, a
+     strong blur and a 1 px top highlight, so what scrolls under it is a soft shape, never readable text. */
+  .nav-shell { position: sticky; top: 0; z-index: 40; padding: 10px 0; }
+  .nav {
+    display: flex; align-items: center; gap: 24px; min-height: 60px; border-radius: 18px;
+    padding-left: 18px; padding-right: 10px;
+    background: color-mix(in srgb, var(--hs-paper) 84%, transparent);
+    border: 1px solid var(--hs-hairline2);
+    backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--hs-ink) 7%, transparent), 0 10px 30px var(--hs-shadow);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .nav { background: var(--hs-paper); } }
+  @media (prefers-reduced-transparency: reduce) { .nav, .profile-menu { background: var(--hs-paper); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+
+  /* profile menu under the avatar */
+  .acct-wrap { position: relative; margin-left: 4px; }
+  .acctbtn { display: inline-flex; padding: 2px; border: 0; background: none; border-radius: 50%; transition: transform .15s ease; }
+  .acctbtn:active { transform: scale(.96); }
+  .acctbtn[aria-expanded='true'] .avatar { box-shadow: 0 0 0 3px var(--hs-focusRing); }
+  .profile-menu {
+    position: absolute; right: 0; top: calc(100% + 12px); width: 288px; padding: 6px; box-sizing: border-box;
+    transform-origin: top right; background: var(--hs-menuBg); border: 1px solid var(--hs-hairline2); border-radius: 16px;
+    box-shadow: 0 2px 6px var(--hs-shadow), 0 24px 48px var(--hs-shadow);
+  }
+  .menu-head { display: flex; align-items: center; gap: 12px; padding: 10px 10px 12px; }
+  .menu-name { font-size: 15px; font-weight: 600; color: var(--hs-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu-sub { font-size: 13px; color: var(--hs-graphite); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu-sep { height: 1px; margin: 4px 6px; background: var(--hs-hairline2); }
+  .menu-item {
+    display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 10px; box-sizing: border-box;
+    border: 0; border-radius: 10px; background: transparent; color: var(--hs-ink2); font-size: 14px; font-weight: 500; text-align: left;
+  }
+  .menu-item svg { color: var(--hs-graphite); flex: none; }
+  .menu-item:hover, .menu-item:focus-visible { background: var(--hs-inset); color: var(--hs-ink); box-shadow: none; }
+  .menu-item:hover svg, .menu-item:focus-visible svg { color: var(--hs-ink); }
+  .menu-item.danger, .menu-item.danger svg { color: var(--hs-danger); }
   .brand { text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
   .nav-links { display: flex; gap: 22px; margin-left: 12px; }
   .nav-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
@@ -160,7 +198,6 @@
   .iconbtn:hover { background: var(--hs-offBg); border-color: var(--hs-hairline2); color: var(--hs-ink); }
   .langbtn { height: 40px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 12px; border: 1px solid var(--hs-hairline2); font-size: 13px; font-weight: 500; text-decoration: none; color: var(--hs-ink2); white-space: nowrap; }
   .langbtn:hover { background: var(--hs-offBg); }
-  .acctbtn { display: inline-flex; border-radius: 50%; margin-left: 6px; }
   .nav-menu { display: none; }
   .mobile-menu { position: fixed; inset: 0; z-index: 39; background: var(--hs-paper); padding-top: 84px; overflow-y: auto; }
   .mobile-inner { display: flex; flex-direction: column; gap: 4px; }
@@ -350,12 +387,34 @@
 
 @layer components {
   /* plug-ins: one lead card, two small ones */
-  .plug-grid { display: grid; grid-template-columns: 1.35fr 1fr; grid-template-rows: auto auto; gap: 16px; }
+  /* Hub (dark, tall) | Track (with its own screen) over App Audio (plain): three different tiles */
+  .plug-grid { display: grid; grid-template-columns: 1fr 1.3fr; grid-template-rows: auto auto; gap: 16px; }
   .plug { display: flex; flex-direction: column; gap: 10px; padding: 26px 28px; }
-  .plug-main { grid-row: span 2; justify-content: flex-end; min-height: 320px; padding: 36px; background: var(--hs-ink); color: var(--hs-onInk); border-color: var(--hs-ink); }
-  .plug-main .h3 { color: var(--hs-onInk) !important; }
-  .plug-main .muted, .plug-main p { color: color-mix(in srgb, var(--hs-onInk) 74%, transparent) !important; }
-  @media (max-width: 760px) { .plug-grid { grid-template-columns: 1fr; } .plug-main { grid-row: auto; min-height: 220px; padding: 28px; } }
+  .plug-where { font-size: 13px; color: var(--hs-graphite); }
+  .plug-main { grid-row: span 2; justify-content: flex-end; min-height: 420px; padding: 32px; position: relative; overflow: hidden; }
+  .plug-main > :not(.plug-main-shot) { position: relative; }
+  .plug-main p { color: var(--hs-ink2); }
+  /* the Hub's own track list, cropped and fading into the card */
+  .plug-main-shot { position: absolute; left: 24px; right: -40%; top: 24px; height: 62%; pointer-events: none;
+    -webkit-mask-image: linear-gradient(#000 45%, transparent 95%); mask-image: linear-gradient(#000 45%, transparent 95%); }
+  .plug-main-shot .shot { border-radius: 14px; box-shadow: none; }
+  .plug-track { flex-direction: row; align-items: flex-end; gap: 24px; padding-bottom: 0; overflow: hidden; }
+  .plug-track > div { align-self: center; padding-bottom: 26px; }
+  .plug-shot { display: block; width: 46%; max-width: 220px; flex: none; height: auto; border-radius: 16px 16px 0 0; border: 1px solid var(--hs-hairline2); border-bottom: 0; transform: translateY(1px); }
+  .plug-app { background: var(--hs-inset); backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+  @media (max-width: 760px) {
+    .plug-grid { grid-template-columns: 1fr; }
+    .plug-main { grid-row: auto; min-height: 220px; padding: 28px; }
+    .plug-track { flex-direction: column; align-items: stretch; }
+    .plug-track > div { padding-bottom: 0; }
+    .plug-shot { width: 70%; align-self: center; }
+  }
+  /* how it works: three steps in a row, a hairline above each that fills in from the left */
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
+  .step { display: flex; flex-direction: column; gap: 8px; padding-top: 20px; position: relative; }
+  .step::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--hs-hairline3); }
+  .step::after { content: ''; position: absolute; left: 0; top: -1px; height: 3px; width: 28px; border-radius: 2px; background: var(--hs-ink); }
+  @media (max-width: 760px) { .steps { grid-template-columns: 1fr; gap: 24px; } }
   /* how it works: plain rows with big numerals */
   .steps-list { list-style: none; margin: 0; padding: 0; }
   .steps-list li { display: flex; gap: 24px; align-items: baseline; padding: 26px 0; border-top: 1px solid var(--hs-hairline2); }

@@ -39,3 +39,23 @@ export function useTheme() {
   };
   return { mode, cycle };
 }
+
+/** Whether the page is dark right now (data-theme, else the OS), following every change: the theme button
+ *  in the nav, another tab, the OS switching at night. For widgets drawn outside our CSS (Google's button). */
+export function useResolvedDark() {
+  const get = () => {
+    const t = document.documentElement.getAttribute('data-theme');
+    return t ? t === 'dark' : !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  };
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const on = () => setDark(get());
+    on();
+    const mo = new MutationObserver(on);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    mq?.addEventListener('change', on);
+    return () => { mo.disconnect(); mq?.removeEventListener('change', on); };
+  }, []);
+  return dark;
+}

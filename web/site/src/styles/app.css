@@ -154,8 +154,7 @@
      strong blur and a 1 px top highlight, so what scrolls under it is a soft shape, never readable text. */
   .nav-shell { position: sticky; top: 0; z-index: 40; padding: 10px 0; }
   .nav {
-    display: flex; align-items: center; gap: 24px; min-height: 60px; border-radius: 18px;
-    padding-left: 18px; padding-right: 10px;
+    display: block; border-radius: 18px; padding-left: 0; padding-right: 0;
     background: color-mix(in srgb, var(--hs-paper) 84%, transparent);
     border: 1px solid var(--hs-hairline2);
     backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
@@ -163,6 +162,29 @@
   }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .nav { background: var(--hs-paper); } }
   @media (prefers-reduced-transparency: reduce) { .nav, .profile-menu { background: var(--hs-paper); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+
+  .nav-row { display: flex; align-items: center; gap: 24px; min-height: 60px; padding: 0 10px 0 18px; }
+
+  /* narrow windows: the nav card opens into grouped cards (after React Bits' Card Nav) */
+  .burger { position: relative; }
+  .burger i { position: absolute; left: 11px; right: 11px; height: 1.6px; border-radius: 2px; background: currentColor;
+    transition: transform .28s cubic-bezier(.2,.8,.2,1), top .28s cubic-bezier(.2,.8,.2,1); }
+  .burger i:first-child { top: 15px; }
+  .burger i:last-child { top: 23px; }
+  .burger.x i:first-child { top: 19px; transform: rotate(45deg); }
+  .burger.x i:last-child { top: 19px; transform: rotate(-45deg); }
+  .nav-cards-clip { overflow: hidden; }
+  .nav-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 2px 8px 8px;
+    max-height: calc(100dvh - 110px); overflow-y: auto; }
+  .nav-card { display: flex; flex-direction: column; gap: 2px; padding: 14px; border-radius: 14px; background: var(--hs-inset); min-width: 0; }
+  .nav-card-title { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--hs-graphite); }
+  .card-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 0 2px;
+    font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: var(--hs-ink); text-decoration: none; }
+  .card-link svg { color: var(--hs-graphite); transition: transform .2s ease, color .2s ease; }
+  .card-link:hover svg, .card-link:focus-visible svg { color: var(--hs-ink); transform: translate(2px, -2px); }
+  .nav-card-account { background: color-mix(in srgb, var(--hs-ink) 7%, var(--hs-inset)); }
+  .nav-card-tools { display: none; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; }   /* phones only: the theme button leaves the bar there */
+  @media (max-width: 640px) { .nav-cards { grid-template-columns: 1fr; } .card-link { font-size: 20px; } }
 
   /* profile menu under the avatar */
   .acct-wrap { position: relative; margin-left: 4px; }
@@ -199,9 +221,6 @@
   .langbtn { height: 40px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 12px; border: 1px solid var(--hs-hairline2); font-size: 13px; font-weight: 500; text-decoration: none; color: var(--hs-ink2); white-space: nowrap; }
   .langbtn:hover { background: var(--hs-offBg); }
   .nav-menu { display: none; }
-  .mobile-menu { position: fixed; inset: 0; z-index: 39; background: var(--hs-paper); padding-top: 84px; overflow-y: auto; }
-  .mobile-inner { display: flex; flex-direction: column; gap: 4px; }
-  .mobile-inner .navlink { font-size: 22px; padding: 14px 0; border-bottom: 1px solid var(--hs-hairline2); }
   @media (max-width: 900px) {
     .nav-links, .nav-auth { display: none; }
     .nav-menu { display: grid; }
@@ -209,10 +228,10 @@
   }
   @media (max-width: 480px) {
     .wrap { padding: 0 16px; }
-    .nav { gap: 12px; }
+    .nav-row { gap: 12px; padding-left: 14px; padding-right: 6px; }
     .nav .wordmark { letter-spacing: .24em; }
     .nav-theme { display: none; }
-    .nav-shell.scrolled .nav { padding-left: 10px; padding-right: 4px; }
+    .nav-card-tools { display: flex; }
   }
 
   /* --- footer --------------------------------------------------------------------------------- */

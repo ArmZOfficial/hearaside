@@ -4,11 +4,12 @@
 //  - the nav is a frosted card stuck to the top (opaque enough that headings never show through it);
 //    the current section is underlined
 //  - signed in: the avatar opens the profile menu (account sections, download, guides, sign out)
-//  - phones get a full-screen menu that slides down
+//  - narrow windows: the nav card itself opens downward into grouped cards (after React Bits' "Card Nav",
+//    written with Motion here), the burger turns into a cross
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { BookOpen, Download, Link2, LogOut, Menu, Monitor, Moon, Sun, User, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Download, Link2, LogOut, Monitor, Moon, Sun, User } from 'lucide-react';
 import { maskEmail } from '../../shared/schemas';
 import { otherLangPath, useT } from '../i18n';
 import { useTheme } from '../lib/theme';
@@ -156,13 +157,16 @@ export function Nav() {
   const section = useSection(home);
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
+  const shell = useRef<HTMLElement>(null);
+  const burger = useRef<HTMLButtonElement>(null);
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
     if (!open) return;
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); burger.current?.focus(); } };
+    const away = (e: PointerEvent) => { if (!shell.current?.contains(e.target as Node)) setOpen(false); };
     window.addEventListener('keydown', esc);
-    document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', esc); document.body.style.overflow = ''; };
+    document.addEventListener('pointerdown', away);
+    return () => { window.removeEventListener('keydown', esc); document.removeEventListener('pointerdown', away); };
   }, [open]);
 
   const homeHash = (h: string) => (home ? `#${h}` : `${path('/')}#${h}`);
@@ -189,44 +193,73 @@ export function Nav() {
         : <NavLink key={l.id} className="navlink" to={l.to} onClick={onClick}>{inner}</NavLink>;
     });
 
+  // the card-nav groups: where to look, how to start, the account
+  const close = () => setOpen(false);
+  const groups: { title: string; items: { label: string; to: string; hash?: boolean; icon?: typeof User }[] }[] = [
+    { title: t('nav.groupExplore'), items: [links[0], links[1]] },
+    { title: t('nav.groupStart'), items: [{ ...links[3], icon: Download }, { ...links[2], icon: BookOpen }] },
+  ];
+  const cardLink = (it: { label: string; to: string; hash?: boolean; icon?: typeof User }) => {
+    const Icon = it.icon ?? ArrowUpRight;
+    const body = <><span>{it.label}</span><Icon size={18} strokeWidth={1.8} aria-hidden="true" /></>;
+    return it.hash
+      ? <a key={it.to} className="card-link" href={it.to} onClick={close}>{body}</a>
+      : <Link key={it.to} className="card-link" to={it.to} onClick={close}>{body}</Link>;
+  };
+  const cardMotion = (i: number) => reduce
+    ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }
+    : { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: 8 },
+        transition: { type: 'spring' as const, stiffness: 420, damping: 34, delay: 0.05 + i * 0.06 } };
+
   return (
-    <header className="nav-shell">
-      <nav aria-label="Main" className="wrap nav">
-        <Link to={path('/')} className="brand" aria-label="HEARASIDE home"><Wordmark /></Link>
-        <div className="nav-links">{linkEls()}</div>
-        <div className="nav-right">
-          <LangButton />
-          <ThemeButton className="nav-theme" />
-          {status === 'signedIn' ? <AccountMenu /> : (
-            <span className="nav-auth">
-              <Link className="navlink" to={`/login${lang === 'th' ? '?lang=th' : ''}`}>{t('nav.signIn')}</Link>
-              <Link className="btn solid" to={path('/download')}>{t('nav.get')}</Link>
-            </span>
-          )}
-          <button type="button" className="iconbtn nav-menu" aria-label={open ? t('nav.close') : t('nav.menu')} aria-expanded={open}
-                  onClick={() => setOpen(v => !v)}>
-            {open ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
-          </button>
+    <header className="nav-shell" ref={shell}>
+      <nav aria-label="Main" className={`wrap nav ${open ? 'open' : ''}`}>
+        <div className="nav-row">
+          <Link to={path('/')} className="brand" aria-label="HEARASIDE home"><Wordmark /></Link>
+          <div className="nav-links">{linkEls()}</div>
+          <div className="nav-right">
+            <LangButton />
+            <ThemeButton className="nav-theme" />
+            {status === 'signedIn' ? <AccountMenu /> : (
+              <span className="nav-auth">
+                <Link className="navlink" to={`/login${lang === 'th' ? '?lang=th' : ''}`}>{t('nav.signIn')}</Link>
+                <Link className="btn solid" to={path('/download')}>{t('nav.get')}</Link>
+              </span>
+            )}
+            <button ref={burger} type="button" className={`iconbtn nav-menu burger ${open ? 'x' : ''}`} aria-label={open ? t('nav.close') : t('nav.menu')}
+                    aria-expanded={open} aria-controls="nav-cards" onClick={() => setOpen(v => !v)}>
+              <i aria-hidden="true" /><i aria-hidden="true" />
+            </button>
+          </div>
         </div>
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div id="nav-cards" className="nav-cards-clip"
+                        initial={reduce ? { opacity: 0 } : { height: 0 }} animate={reduce ? { opacity: 1 } : { height: 'auto' }}
+                        exit={reduce ? { opacity: 0 } : { height: 0 }}
+                        transition={{ type: 'spring', stiffness: 380, damping: 40 }}>
+              <div className="nav-cards">
+                {groups.map((g, i) => (
+                  <motion.section key={g.title} className="nav-card" aria-label={g.title} {...cardMotion(i)}>
+                    <h2 className="nav-card-title">{g.title}</h2>
+                    {g.items.map(cardLink)}
+                  </motion.section>
+                ))}
+                <motion.section className="nav-card nav-card-account" aria-label={t('nav.groupAccount')} {...cardMotion(2)}>
+                  <h2 className="nav-card-title">{t('nav.groupAccount')}</h2>
+                  {status === 'signedIn'
+                    ? <>{cardLink({ label: t('nav.accountSettings'), to: path('/account'), icon: User })}</>
+                    : <div className="flex flex-col gap-2">
+                        <Link className="btn solid" to={path('/download')} onClick={close}>{t('nav.get')}</Link>
+                        <Link className="btn" to={`/login${lang === 'th' ? '?lang=th' : ''}`} onClick={close}>{t('nav.signIn')}</Link>
+                      </div>}
+                  <div className="nav-card-tools"><ThemeButton /></div>
+                </motion.section>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </nav>
-      <AnimatePresence>
-        {open && (
-          <motion.div className="mobile-menu" role="dialog" aria-modal="true" aria-label={t('nav.menu')}
-                      initial={reduce ? { opacity: 0 } : { y: '-100%' }} animate={reduce ? { opacity: 1 } : { y: 0 }}
-                      exit={reduce ? { opacity: 0 } : { y: '-100%' }} transition={{ type: 'spring', stiffness: 320, damping: 34 }}>
-            <div className="wrap mobile-inner">
-              {linkEls(() => setOpen(false))}
-              <div className="flex items-center gap-3 pt-4"><LangButton /><ThemeButton /></div>
-              {status !== 'signedIn' && (
-                <div className="flex flex-col gap-3 pt-4">
-                  <Link className="btn solid big" to={path('/download')}>{t('nav.get')}</Link>
-                  <Link className="btn big" to="/login">{t('nav.signIn')}</Link>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </header>
   );
 }
@@ -236,12 +269,14 @@ export function MinimalNav({ kind }: { kind: 'signup' | 'login' | 'none' }) {
   return (
     <header className="nav-shell">
       <nav aria-label="Main" className="wrap nav">
-        <Link to={path('/')} className="brand" aria-label="HEARASIDE home"><Wordmark /></Link>
-        <div className="nav-right">
-          {kind === 'signup' && <span className="nav-hint">{t('nav.haveAccount')} <Link to="/login">{t('nav.signIn')}</Link></span>}
-          {kind === 'login' && <span className="nav-hint">{t('nav.newHere')} <Link to="/signup">{t('nav.createAccount')}</Link></span>}
-          <LangButton />
-          <ThemeButton />
+        <div className="nav-row">
+          <Link to={path('/')} className="brand" aria-label="HEARASIDE home"><Wordmark /></Link>
+          <div className="nav-right">
+            {kind === 'signup' && <span className="nav-hint">{t('nav.haveAccount')} <Link to="/login">{t('nav.signIn')}</Link></span>}
+            {kind === 'login' && <span className="nav-hint">{t('nav.newHere')} <Link to="/signup">{t('nav.createAccount')}</Link></span>}
+            <LangButton />
+            <ThemeButton />
+          </div>
         </div>
       </nav>
     </header>

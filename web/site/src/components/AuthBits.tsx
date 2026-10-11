@@ -2,7 +2,7 @@
 // Turnstile bot check and the safe "next" redirect.
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n';
-import { useTheme } from '../lib/theme';
+import { useResolvedDark } from '../lib/theme';
 import { AuthError, useAuth, authMode } from '../lib/auth';
 import { DiscordLogo, GoogleLogo } from './ui/Icons';
 
@@ -58,7 +58,7 @@ declare global {
 export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: AuthError): void }) {
   const { t, lang } = useT();
   const auth = useAuth();
-  const { mode } = useTheme();
+  const dark = useResolvedDark();
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   const ready = !!env.VITE_GOOGLE_CLIENT_ID && authMode === 'supabase';
@@ -74,7 +74,6 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
         if (!alive || !window.google) return;
         const raw = randomNonce();
         const hashed = await sha256Hex(raw);
-        const dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         window.google.accounts.id.initialize({
           client_id: env.VITE_GOOGLE_CLIENT_ID,
           nonce: hashed,
@@ -97,7 +96,7 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mode, lang]);
+  }, [ready, dark, lang]);
 
   if (!ready || failed) {
     return (

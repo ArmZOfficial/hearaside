@@ -91,6 +91,8 @@ private:
 
     juce::Rectangle<float> avatarArea_;
     juce::Rectangle<float> syncRowArea_, hideEmailRowArea_;
+    juce::Rectangle<float> benefitsBox_, errorArea_;   // signed out: the box behind the benefits, why sign-in didn't start
+    void layoutBenefits(juce::Rectangle<int>& r, int rowH);
 };
 
 } // namespace hearaside

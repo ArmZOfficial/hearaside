@@ -83,6 +83,8 @@ public:
     void setDeviceName(const juce::String& name);
 
     juce::String getMaskedEmail() const;
+    // the last "Sign in with your browser" couldn't get a code (no internet / server down)
+    bool startFailed() const noexcept { return startFailed_.load(); }
 
     // The plug-in's access token while it is good for at least 30 s more, else "" (any thread).
     // Only for this account's own server (serverBaseUrl): never send it anywhere else.
@@ -167,7 +169,8 @@ private:
     juce::String pendingDeviceName_;
 
     juce::Time lastFileModTime_;
-    std::atomic<int> pendingHideEmail_ { -1 };   // -1 = nothing to send, else 0 / 1
+    std::atomic<int> pendingHideEmail_ { -1 };
+    std::atomic<bool> startFailed_ { false };   // -1 = nothing to send, else 0 / 1
     std::atomic<juce::uint32> lastPeriodicMs_ { 0 };   // 0 = due now (set from any thread)
     // appearance sync (guarded by mutex_): what this computer has, and the newest remote copy applied
     juce::var localAppearance_;

@@ -6,12 +6,14 @@ namespace hearaside {
 void AccountPanel::BenefitTile::paint(juce::Graphics& g) {
     const auto& p = paletteOf(*this);
     const auto r = getLocalBounds().toFloat();
-    drawInset(g, r, 14.0f, p);
-    auto in = r.reduced(14.0f, 12.0f);
-    const auto iconArea = in.removeFromTop(24.0f).removeFromLeft(24.0f);
-    icons::draw(g, icon, iconArea, p.ink);
-    in.removeFromTop(8.0f);
-    drawWrapped(g, text, uiFont(12.5f, Weight::Medium), p.ink, in, 3.0f, juce::Justification::left, 3);
+    const juce::Rectangle<float> tile(r.getX(), r.getCentreY() - 17.0f, 34.0f, 34.0f);
+    g.setColour(p.ink);
+    g.fillRoundedRectangle(tile, 9.0f);
+    icons::draw(g, icon, tile.reduced(8.0f), p.onInk);
+    const auto f = uiFont(13.5f, Weight::Medium);
+    auto text = r.withTrimmedLeft(34.0f + 14.0f);
+    const float h = wrappedHeight(f, this->text, text.getWidth(), 3.0f);
+    drawWrapped(g, this->text, f, p.ink, text.withSizeKeepingCentre(text.getWidth(), h), 3.0f, juce::Justification::left, 2);
 }
 
 AccountPanel::AccountPanel(Mode mode)
@@ -335,14 +337,17 @@ void AccountPanel::paint(juce::Graphics& g) {
     }
 
     if (s == AccountManager::State::SignedOut) {
+        if (!benefitsBox_.isEmpty()) drawInset(g, benefitsBox_, 14.0f, p);
+        if (mgr_.startFailed() && !errorArea_.isEmpty()) {   // "Sign in" couldn't get a code
+            drawStatusDot(g, { errorArea_.getX() + 4.0f, errorArea_.getCentreY() }, Dot::Warn, p);
+            drawWrapped(g, tr(Str::AccountOffline), uiFont(12.5f), p.warn, errorArea_.withTrimmedLeft(16.0f), 2.0f, juce::Justification::left, 2);
+        }
         if (mode_ == Mode::Full) {
             // the Settings page above already shows "Account / Optional. Everything ... without an account."
         } else {
             // Compact subtitle
-            auto subArea = r.removeFromTop(44.0f);
-            g.setFont(uiFont(12.5f, Weight::Regular));
-            g.setColour(p.ink2);
-            drawWrapped(g, tr(Str::SignInHereAll), uiFont(12.5f, Weight::Regular), p.ink2, subArea, 2.0f, juce::Justification::left, 3);
+            auto subArea = r.reduced(18.0f, 0.0f).removeFromTop(60.0f);   // the content's own margins (resized)
+            drawWrapped(g, tr(Str::AccountOptional) + " " + tr(Str::SignInHereAll), uiFont(12.5f, Weight::Regular), p.ink2, subArea, 2.0f, juce::Justification::left, 3);
         }
     } else if (s == AccountManager::State::WaitingForCode) {
         const auto& dc = mgr_.deviceCode();
@@ -446,20 +451,14 @@ void AccountPanel::layoutFull(juce::Rectangle<int> r) {
     const auto s = mgr_.state();
     if (s == AccountManager::State::SignedOut) {
         r.removeFromTop(14);   // below the Settings page's own title and caption
-        auto tilesR = r.removeFromTop(120);
-        const int gap = 12;
-        const int tileW = (tilesR.getWidth() - 2 * gap) / 3;
-        tile1_.setBounds(tilesR.removeFromLeft(tileW));
-        tilesR.removeFromLeft(gap);
-        tile2_.setBounds(tilesR.removeFromLeft(tileW));
-        tilesR.removeFromLeft(gap);
-        tile3_.setBounds(tilesR);
-
-        r.removeFromTop(24);
+        layoutBenefits(r, 52);
+        r.removeFromTop(20);
         auto btnRow = r.removeFromTop(44);
         signInButton_.setBounds(btnRow.removeFromLeft(240));
         btnRow.removeFromLeft(16);
-        createAccountLink_.setBounds(btnRow.removeFromLeft(160));
+        createAccountLink_.setBounds(btnRow.removeFromLeft(juce::jmax(160, createAccountLink_.idealWidth())));
+        r.removeFromTop(10);
+        errorArea_ = r.removeFromTop(38).toFloat();
     } else if (s == AccountManager::State::WaitingForCode) {
         r.removeFromTop(140); // Code header, big user code, domain link, status
         const auto& dc = mgr_.deviceCode();
@@ -500,20 +499,28 @@ void AccountPanel::layoutFull(juce::Rectangle<int> r) {
     }
 }
 
+// one box, three rows: ink icon tile + text (prompt 3.12 item 1)
+void AccountPanel::layoutBenefits(juce::Rectangle<int>& r, int rowH) {
+    auto box = r.removeFromTop(3 * rowH + 2 * 4 + 2 * 12);
+    benefitsBox_ = box.toFloat();
+    auto in = box.reduced(16, 12);
+    for (auto* t : { &tile1_, &tile2_, &tile3_ }) {
+        t->setBounds(in.removeFromTop(rowH));
+        in.removeFromTop(4);
+    }
+}
+
 void AccountPanel::layoutCompact(juce::Rectangle<int> r) {
     const auto s = mgr_.state();
     if (s == AccountManager::State::SignedOut) {
-        r.removeFromTop(48); // Subtitle painted area
-        tile1_.setBounds(r.removeFromTop(68));
-        r.removeFromTop(8);
-        tile2_.setBounds(r.removeFromTop(68));
-        r.removeFromTop(8);
-        tile3_.setBounds(r.removeFromTop(68));
-
+        r.removeFromTop(62); // Subtitle painted area
+        layoutBenefits(r, 50);
         r.removeFromTop(18);
         signInButton_.setBounds(r.removeFromTop(44));
         r.removeFromTop(8);
         createAccountLink_.setBounds(r.removeFromTop(34));
+        r.removeFromTop(8);
+        errorArea_ = r.removeFromTop(38).toFloat();
     } else if (s == AccountManager::State::WaitingForCode) {
         r.removeFromTop(140);
         const auto& dc = mgr_.deviceCode();

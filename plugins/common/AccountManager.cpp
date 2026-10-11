@@ -706,14 +706,13 @@ void AccountManager::doStartDeviceFlow() {
     juce::var res;
     int status = 0;
     if (!httpPost("/api/v1/device/start", juce::var(req.get()), res, status)) {
-        if (status == 0) {
-            // Network unreachable
-            setState(State::Offline);
-        } else {
-            setState(State::SignedOut);
-        }
+        // not signed in, whatever the reason: "Offline" would mean "signed in, can't reach the server"
+        startFailed_.store(true);
+        setState(State::SignedOut);
+        notifyStateChanged();   // the panel shows why, even when the state was already SignedOut
         return;
     }
+    startFailed_.store(false);
 
     if (const auto* o = res.getDynamicObject()) {
         {

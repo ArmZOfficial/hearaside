@@ -798,7 +798,7 @@ int main(int argc, char** argv) {
                     shot(hub, "page-" + juce::String(tag) + "-" + sfx, 1040, 790, page(pg, hub.tracks().front().slot));
                     if (lang == 0 && !dark) shot(hub, "page-" + juce::String(tag) + "-compact-" + sfx, 420, 790, page(pg, hub.tracks().front().slot));
                 }
-                for (int sec = 1; sec < 4; ++sec)
+                for (int sec = 1; sec < 5; ++sec)   // Audio, Connection, Account, About
                     shot(hub, "page-settings-" + juce::String(sec) + "-" + sfx, 1040, 790, [sec](juce::AudioProcessorEditor& e) {
                         if (auto* he = dynamic_cast<HubEditor*>(&e)) he->showSettings(HubEditor::SettingsSection(sec));
                     });
@@ -807,6 +807,9 @@ int main(int argc, char** argv) {
                 shot(*tracks[1], "track-min-" + sfx, int(theme::layout::trackMinW), int(theme::layout::trackMinH));
                 shot(*tracks[1], "track-fine-" + sfx, TrackEditor::kWidth, TrackEditor::kHeight, [](juce::AudioProcessorEditor& e) {
                     if (auto* te = dynamic_cast<TrackEditor*>(&e)) te->openFineSettings(true);
+                });
+                shot(*tracks[1], "track-account-" + sfx, TrackEditor::kWidth, TrackEditor::kHeight, [](juce::AudioProcessorEditor& e) {
+                    if (auto* te = dynamic_cast<TrackEditor*>(&e)) { te->openFineSettings(true); te->openAccount(true); }
                 });
 #ifdef _WIN32
                 shot(*apps[0], "app-default-" + sfx, 440, 600);

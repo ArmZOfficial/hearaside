@@ -1,22 +1,23 @@
 // Every route of the site. Marketing pages exist in English ("/...") and Thai ("/th/..."); they are
 // prerendered to HTML at build time (scripts/prerender.mjs reads PRERENDER below). Account pages are
 // a normal SPA. Pages are code-split so the home page carries only what it needs (3.11.1 budget).
-import { lazy, Suspense, type ReactNode } from 'react';
-import { Route, Routes } from 'react-router';
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
+import { Route, Routes, useLocation } from 'react-router';
+import { loadPage, reloadIfNewer } from './lib/update';
 import Home from './routes/Home';
 
-const Download = lazy(() => import('./routes/Download'));
-const Guides = lazy(() => import('./routes/Guides'));
-const Guide = lazy(() => import('./routes/Guides').then(m => ({ default: m.GuidePage })));
-const Legal = lazy(() => import('./routes/Legal'));
-const Signup = lazy(() => import('./routes/Signup'));
-const Login = lazy(() => import('./routes/Login'));
-const Forgot = lazy(() => import('./routes/Forgot'));
-const Reset = lazy(() => import('./routes/Reset'));
-const Verify = lazy(() => import('./routes/Verify'));
-const LinkPage = lazy(() => import('./routes/Link'));
-const Account = lazy(() => import('./routes/Account'));
-const NotFound = lazy(() => import('./routes/NotFound'));
+const Download = lazy(loadPage(() => import('./routes/Download')));
+const Guides = lazy(loadPage(() => import('./routes/Guides')));
+const Guide = lazy(loadPage(() => import('./routes/Guides').then(m => ({ default: m.GuidePage }))));
+const Legal = lazy(loadPage(() => import('./routes/Legal')));
+const Signup = lazy(loadPage(() => import('./routes/Signup')));
+const Login = lazy(loadPage(() => import('./routes/Login')));
+const Forgot = lazy(loadPage(() => import('./routes/Forgot')));
+const Reset = lazy(loadPage(() => import('./routes/Reset')));
+const Verify = lazy(loadPage(() => import('./routes/Verify')));
+const LinkPage = lazy(loadPage(() => import('./routes/Link')));
+const Account = lazy(loadPage(() => import('./routes/Account')));
+const NotFound = lazy(loadPage(() => import('./routes/NotFound')));
 
 /** marketing pages, in both languages, written out as HTML by the prerender step */
 export const PRERENDER = ['/', '/download', '/guides', '/privacy', '/terms'];
@@ -31,7 +32,18 @@ function both(path: string, el: ReactNode) {
   ];
 }
 
+/** a newer build deployed while this tab was open is loaded on the next page change */
+function useNewBuildOnNavigate() {
+  const { pathname } = useLocation();
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    void reloadIfNewer();
+  }, [pathname]);
+}
+
 export default function App() {
+  useNewBuildOnNavigate();
   return (
     <Routes>
       {both('/', <Home />)}

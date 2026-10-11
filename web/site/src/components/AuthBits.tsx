@@ -49,6 +49,15 @@ declare global {
 
 const GOOGLE_KEY = 'hs-google-signin';
 
+/** "Back" from Google or Discord brings this page back exactly as it was left, button still busy */
+function useNotBusyOnReturn(setBusy: (busy: boolean) => void) {
+  useEffect(() => {
+    const back = (e: PageTransitionEvent) => { if (e.persisted) setBusy(false); };
+    window.addEventListener('pageshow', back);
+    return () => window.removeEventListener('pageshow', back);
+  }, [setBusy]);
+}
+
 /** Google sign-in by full-page redirect (same as Discord), straight to Google's OpenID endpoint so the
  *  Google page shows our domain, not Supabase's. Google sends an ID token back to /verify in the URL
  *  fragment; finishGoogleSignIn hands it to Supabase with our nonce. (Google's own rendered button
@@ -56,6 +65,7 @@ const GOOGLE_KEY = 'hs-google-signin';
 export function GoogleButton({ next, onError }: { next: string; onError(e: AuthError): void }) {
   const { t, lang } = useT();
   const [busy, setBusy] = useState(false);
+  useNotBusyOnReturn(setBusy);
   const ready = !!env.VITE_GOOGLE_CLIENT_ID && authMode === 'supabase';
   return (
     <button type="button" className="btn oauth" disabled={!ready || busy} title={ready ? undefined : t('auth.notConfigured')}
@@ -100,6 +110,7 @@ export function DiscordButton({ next, onError }: { next: string; onError(e: Auth
   const { t } = useT();
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
+  useNotBusyOnReturn(setBusy);
   const ready = authMode === 'supabase';
   return (
     <button type="button" className="btn oauth" disabled={!ready || busy} title={ready ? undefined : t('auth.notConfigured')}

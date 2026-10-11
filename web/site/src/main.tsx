@@ -3,6 +3,9 @@ import { createRoot, hydrateRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import App from './App';
 import { Providers } from './Providers';
+import { watchForUpdates } from './lib/update';
+
+watchForUpdates();
 
 const root = document.getElementById('root')!;
 const tree = (

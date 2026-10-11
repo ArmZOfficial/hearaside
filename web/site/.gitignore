@@ -10,3 +10,7 @@ playwright-report/
 
 # customer song used only to test the demo player locally
 public/demo/
+
+.vercel
+.env*.local
+supabase/.temp/

@@ -27,7 +27,8 @@ class RedisCounter implements Counter {
 let counter: Counter | null = null;
 function get(): Counter {
   if (counter) return counter;
-  const url = process.env.UPSTASH_REDIS_REST_URL, token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Upstash's own names, or the ones the Vercel Marketplace integration sets
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL, token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   counter = url && token ? new RedisCounter(new Redis({ url, token })) : new MemoryCounter();
   return counter;
 }

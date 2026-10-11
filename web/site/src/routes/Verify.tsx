@@ -1,11 +1,12 @@
-// "/verify": where the confirmation email and the Discord sign-in come back to. Supabase turns the
-// code in the URL into a session; then "Continue" goes on (to /link when a plug-in started it).
-import { useEffect, useState } from 'react';
+// "/verify": where the confirmation email and the Discord and Google sign-ins come back to. Supabase turns
+// the code in the URL into a session (Google: we hand its ID token over); then "Continue" goes on (to /link
+// when a plug-in started it).
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Check } from '../components/ui/Kit';
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
-import { safeNext } from '../components/AuthBits';
+import { finishGoogleSignIn, safeNext } from '../components/AuthBits';
 import { useAuth } from '../lib/auth';
 import { Seo } from '../lib/seo';
 
@@ -13,10 +14,19 @@ export default function Verify() {
   const { t, path } = useT();
   const auth = useAuth();
   const [params] = useSearchParams();
-  const next = safeNext(params.get('next'), path('/account'));
-  const urlError = params.get('error') || params.get('error_description')
-    || (typeof window !== 'undefined' && /error=/.test(window.location.hash));
+  const [googleNext, setGoogleNext] = useState<string | null>(null);
+  const [googleFailed, setGoogleFailed] = useState(false);
+  const next = googleNext ?? safeNext(params.get('next'), path('/account'));
+  const [urlError] = useState(() => !!(params.get('error') || params.get('error_description'))
+    || (typeof window !== 'undefined' && /error=/.test(window.location.hash)));
   const [gaveUp, setGaveUp] = useState(false);
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;   // once, even when React runs effects twice
+    started.current = true;
+    finishGoogleSignIn(auth.signInWithGoogle).then(n => { if (n) setGoogleNext(n); }, () => setGoogleFailed(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     // the code exchange takes a moment after the page opens
     const id = window.setTimeout(() => setGaveUp(true), 6000);
@@ -24,7 +34,7 @@ export default function Verify() {
   }, []);
 
   const ok = auth.status === 'signedIn';
-  const failed = !ok && (urlError || (auth.status === 'signedOut' && gaveUp));
+  const failed = !ok && (urlError || googleFailed || (auth.status === 'signedOut' && gaveUp));
 
   return (
     <PageShell nav="none">

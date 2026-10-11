@@ -13,7 +13,6 @@ import { DiscordButton, GoogleButton, OrLine, Turnstile, authErrorText, needsCap
 import { AuthError, useAuth } from '../lib/auth';
 import { Seo } from '../lib/seo';
 import { passwordScore, signupForm, type SignupForm } from '../../shared/schemas';
-import { useNavigate } from 'react-router';
 
 function Strength({ pw }: { pw: string }) {
   const { t } = useT();
@@ -39,7 +38,6 @@ function Strength({ pw }: { pw: string }) {
 export default function Signup() {
   const { t, lang, path } = useT();
   const auth = useAuth();
-  const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'));
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -105,7 +103,7 @@ export default function Signup() {
               {err && <p className="alert" role="alert">{authErrorText(t, err)}</p>}
               <SubmitButton busy={formState.isSubmitting} disabled={!canSend} className="solid big">{t('signup.submit')}</SubmitButton>
               <OrLine />
-              <GoogleButton onDone={() => navigate(next)} onError={setErr} />
+              <GoogleButton next={next} onError={setErr} />
               <DiscordButton next={next} onError={setErr} />
               <div className="auth-switch">
                 <span>{t('signup.haveAccount')}</span>

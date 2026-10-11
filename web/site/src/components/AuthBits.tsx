@@ -41,87 +41,59 @@ function randomNonce() {
   return btoa(String.fromCharCode(...a)).replace(/[+/=]/g, '');
 }
 
-interface GoogleId {
-  initialize(o: Record<string, unknown>): void;
-  renderButton(el: HTMLElement, o: Record<string, unknown>): void;
-}
 declare global {
   interface Window {
-    google?: { accounts: { id: GoogleId } };
     turnstile?: { render(el: HTMLElement, o: Record<string, unknown>): string; reset(id?: string): void; remove(id: string): void };
   }
 }
 
-/** Our own button (same look as Discord's) with Google Identity Services' button laid invisibly on top,
- *  so the click still lands on Google's: the ID token goes to Supabase with our nonce and the Google
- *  page shows our domain. Google's button can't be restyled, which is why it isn't shown. */
-export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: AuthError): void }) {
+const GOOGLE_KEY = 'hs-google-signin';
+
+/** Google sign-in by full-page redirect (same as Discord), straight to Google's OpenID endpoint so the
+ *  Google page shows our domain, not Supabase's. Google sends an ID token back to /verify in the URL
+ *  fragment; finishGoogleSignIn hands it to Supabase with our nonce. (Google's own rendered button
+ *  can't be styled, and it ignores clicks when laid invisibly over ours.) */
+export function GoogleButton({ next, onError }: { next: string; onError(e: AuthError): void }) {
   const { t, lang } = useT();
-  const auth = useAuth();
-  const box = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
   const ready = !!env.VITE_GOOGLE_CLIENT_ID && authMode === 'supabase';
-
-  useEffect(() => {
-    if (!ready || !box.current) return;
-    let alive = true;
-    const el = box.current;
-    // Google's button is at most 400 px wide and 40 tall: stretch it over the whole of ours
-    let drawn = 0;
-    const fit = () => { if (drawn) el.style.setProperty('--gsi-sx', String(el.clientWidth / drawn)); };
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    (async () => {
-      try {
-        await loadScript(`https://accounts.google.com/gsi/client?hl=${lang}`);
-        if (!alive || !window.google) return;
-        const raw = randomNonce();
-        const hashed = await sha256Hex(raw);
-        window.google.accounts.id.initialize({
-          client_id: env.VITE_GOOGLE_CLIENT_ID,
-          nonce: hashed,
-          callback: async (r: { credential: string }) => {
-            try { await auth.signInWithGoogle(r.credential, raw); onDone(); }
-            catch (e) { onError(e instanceof AuthError ? e : new AuthError('failed')); }
-          },
-        });
-        el.innerHTML = '';
-        drawn = Math.min(400, Math.max(200, el.clientWidth));
-        window.google.accounts.id.renderButton(el, {
-          theme: 'outline', shape: 'rectangular', text: 'continue_with', size: 'large', width: drawn, locale: lang,
-        });
-        fit();
-      } catch {
-        if (alive) setFailed(true);
-      }
-    })();
-    return () => { alive = false; ro.disconnect(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, lang]);
-
-  if (!ready) {
-    return (
-      <button type="button" className="btn oauth" disabled title={t('auth.notConfigured')}>
-        <GoogleLogo />{t('signup.google')}
-      </button>
-    );
-  }
-  if (failed) {   // Google's script was blocked (Brave Shields, an ad blocker): say so instead of a dead button
-    return (
-      <div className="flex flex-col gap-2">
-        <button type="button" className="btn oauth" aria-describedby="gsi-blocked" onClick={() => document.getElementById('gsi-blocked')?.focus()}>
-          <GoogleLogo />{t('signup.google')}
-        </button>
-        <p id="gsi-blocked" tabIndex={-1} className="m-0 text-[13px] leading-snug text-ink2">{t('login.googleBlocked')}</p>
-      </div>
-    );
-  }
   return (
-    <div className="gsi-wrap">
-      <button type="button" className="btn oauth" tabIndex={-1} aria-hidden="true"><GoogleLogo />{t('signup.google')}</button>
-      <div ref={box} className="gsi-overlay" aria-label={t('signup.google')} />
-    </div>
+    <button type="button" className="btn oauth" disabled={!ready || busy} title={ready ? undefined : t('auth.notConfigured')}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const raw = randomNonce();
+                const state = randomNonce();
+                sessionStorage.setItem(GOOGLE_KEY, JSON.stringify({ raw, state, next }));
+                const q = new URLSearchParams({
+                  client_id: env.VITE_GOOGLE_CLIENT_ID, redirect_uri: `${window.location.origin}/verify`,
+                  response_type: 'id_token', scope: 'openid email profile', nonce: await sha256Hex(raw),
+                  state, prompt: 'select_account', hl: lang,
+                });
+                window.location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${q}`);
+              } catch {
+                setBusy(false);
+                onError(new AuthError('failed'));
+              }
+            }}>
+      <GoogleLogo />{t('signup.google')}
+    </button>
   );
+}
+
+/** On /verify: if Google sent us back an ID token, sign in with it. Returns where to go next, null when
+ *  the page wasn't opened by Google, and throws when the sign-in failed. */
+export async function finishGoogleSignIn(signIn: (idToken: string, nonce: string) => Promise<void>): Promise<string | null> {
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  if (!hash.has('state') || !(hash.has('id_token') || hash.has('error'))) return null;
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);   // keep the token out of history
+  let saved: { raw?: string; state?: string; next?: string } = {};
+  try { saved = JSON.parse(sessionStorage.getItem(GOOGLE_KEY) || '{}'); } catch { /* none */ }
+  sessionStorage.removeItem(GOOGLE_KEY);
+  const token = hash.get('id_token');
+  if (!token || !saved.raw || hash.get('state') !== saved.state) throw new AuthError('failed');
+  await signIn(token, saved.raw);
+  return safeNext(saved.next);
 }
 
 export function DiscordButton({ next, onError }: { next: string; onError(e: AuthError): void }) {

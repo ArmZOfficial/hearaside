@@ -346,14 +346,6 @@
   /* "New to HEARASIDE? / Create an account" at the bottom of the sign-in card (and the reverse on sign-up) */
   .auth-switch { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--hs-hairline2); text-align: center; font-size: 14px; color: var(--hs-ink2); }
   .btn.accent-outline, a.btn.accent-outline { background: transparent; border: 1.5px solid var(--hs-ink); color: var(--hs-ink); font-weight: 600; }
-  /* Google sign-in: our .btn.oauth underneath, Google's own button invisible on top taking the clicks
-     (AuthBits GoogleButton). Hover and keyboard focus land on Google's, so the look is passed down. */
-  .gsi-wrap { position: relative; width: 100%; }
-  .gsi-overlay { position: absolute; inset: 0; opacity: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 12px; }
-  .gsi-overlay > div { transform: scale(var(--gsi-sx, 1), 1.2); }
-  .gsi-wrap:hover > .btn { background: var(--hs-offBg); border-color: var(--hs-sliderRail); transform: translateY(-1px); box-shadow: 0 6px 18px var(--hs-shadow); }
-  .gsi-wrap:active > .btn { transform: scale(.98); box-shadow: none; }
-  .gsi-wrap:focus-within > .btn { border-color: var(--hs-graphite); box-shadow: 0 0 0 3px var(--hs-focusRing); }
   .plugin-banner { width: 100%; max-width: 440px; box-sizing: border-box; padding: 12px 16px; border-radius: 14px; background: var(--hs-ink); color: var(--hs-onInk); font-size: 14px; font-weight: 500; text-align: center; }
   .inp-wrap { position: relative; display: flex; align-items: center; width: 100%; }
   .inp-prefix { position: absolute; left: 14px; font-size: 15px; color: var(--hs-graphite); pointer-events: none; }
@@ -407,7 +399,7 @@
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-property: opacity !important; }
   .shine::after { display: none; }
   .glow { display: none; }
-  .btn:hover, .gsi-wrap:hover > .btn { transform: none; }
+  .btn:hover { transform: none; }
 }
 
 /* plug-in screenshots: the light or dark picture follows the page theme */

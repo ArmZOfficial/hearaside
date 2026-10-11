@@ -87,7 +87,7 @@ export default function Login() {
               )}
               <SubmitButton busy={formState.isSubmitting} className={`${wrong ? '' : 'solid'} big`}>{t('login.submit')}</SubmitButton>
               <OrLine />
-              <GoogleButton onDone={() => {}} onError={setErr} />
+              <GoogleButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
               <DiscordButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
               <div className="auth-switch">
                 <span>{t('login.newHere')}</span>

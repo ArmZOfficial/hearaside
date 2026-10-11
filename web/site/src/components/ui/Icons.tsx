@@ -72,6 +72,6 @@ export function DiscordLogo({ size = 20 }: { size?: number }) {
 }
 
 export function GoogleLogo({ size = 18 }: { size?: number }) {
-  // one colour like Discord's; Google's own button sits invisibly on top of ours (AuthBits GoogleButton)
+  // one colour, like Discord's
   return <img className="mono-logo" src="/logos/google.svg" width={size} height={size} alt="" aria-hidden="true" style={{ display: 'block' }} />;
 }

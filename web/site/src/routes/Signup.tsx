@@ -47,7 +47,7 @@ export default function Signup() {
   const [captcha, setCaptcha] = useState<string | undefined>();
   const { register, handleSubmit, watch, formState, reset } = useForm<SignupForm>({
     resolver: zodResolver(signupForm), mode: 'onChange',
-    defaultValues: { displayName: '', email: '', password: '', agree: false as unknown as true },
+    defaultValues: { displayName: '', email: params.get('email')?.slice(0, 254) ?? '', password: '', agree: false as unknown as true },
   });
   const pw = watch('password') ?? '';
   const canSend = formState.isValid && (!needsCaptcha() || !!captcha);
@@ -107,6 +107,10 @@ export default function Signup() {
               <OrLine />
               <GoogleButton onDone={() => navigate(next)} onError={setErr} />
               <DiscordButton next={next} onError={setErr} />
+              <div className="auth-switch">
+                <span>{t('signup.haveAccount')}</span>
+                <Link className="btn big w-full accent-outline" to={`/login${next && next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`}>{t('signup.signInCta')}</Link>
+              </div>
             </form>
           )}
         </div>

@@ -338,6 +338,14 @@
   .orline { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--hs-graphite); }
   .orline::before, .orline::after { content: ''; flex: 1; height: 1px; background: var(--hs-hairline2); }
   .btn.oauth { width: 100%; min-height: 46px; background: transparent; gap: 10px; }
+  /* our own copies of the brand marks: one solid colour, black on light, white on dark (Google's own button keeps its colours) */
+  .mono-logo { filter: brightness(0); }
+  :root[data-theme='dark'] .mono-logo { filter: brightness(0) invert(1); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .mono-logo { filter: brightness(0) invert(1); } }
+  .btn.oauth[disabled] .mono-logo, .btn.oauth[disabled] svg { opacity: 1; }
+  /* "New to HEARASIDE? / Create an account" at the bottom of the sign-in card (and the reverse on sign-up) */
+  .auth-switch { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--hs-hairline2); text-align: center; font-size: 14px; color: var(--hs-ink2); }
+  .btn.accent-outline, a.btn.accent-outline { background: transparent; border: 1.5px solid var(--hs-ink); color: var(--hs-ink); font-weight: 600; }
   /* Google's own button (fixed 40 px) seated in a frame like .btn.oauth. The frame colours are Google's button
      backgrounds (filled_black / outline), so its edges disappear; light mode hides the button's own grey border. */
   .gsi-box { width: 100%; height: 46px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;

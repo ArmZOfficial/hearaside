@@ -98,11 +98,21 @@ export function GoogleButton({ onDone, onError }: { onDone(): void; onError(e: A
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, dark, lang]);
 
-  if (!ready || failed) {
+  if (!ready) {
     return (
       <button type="button" className="btn oauth" disabled title={t('auth.notConfigured')}>
         <GoogleLogo />{t('signup.google')}
       </button>
+    );
+  }
+  if (failed) {   // Google's script was blocked (Brave Shields, an ad blocker): say so instead of a dead button
+    return (
+      <div className="flex flex-col gap-2">
+        <button type="button" className="btn oauth" aria-describedby="gsi-blocked" onClick={() => document.getElementById('gsi-blocked')?.focus()}>
+          <GoogleLogo />{t('signup.google')}
+        </button>
+        <p id="gsi-blocked" tabIndex={-1} className="m-0 text-[13px] leading-snug text-ink2">{t('login.googleBlocked')}</p>
+      </div>
     );
   }
   return <div ref={box} className="gsi-box" aria-label={t('signup.google')} />;

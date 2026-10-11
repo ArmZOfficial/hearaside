@@ -38,7 +38,7 @@ export default function Login() {
   const banner = usePluginBanner(next);
   const me = useMe();
   const [err, setErr] = useState<AuthError | null>(null);
-  const { register, handleSubmit, formState } = useForm<LoginForm>({ resolver: zodResolver(loginForm), defaultValues: { email: '', password: '' } });
+  const { register, handleSubmit, formState, watch } = useForm<LoginForm>({ resolver: zodResolver(loginForm), defaultValues: { email: '', password: '' } });
 
   const submit = handleSubmit(async v => {
     setErr(null);
@@ -47,6 +47,11 @@ export default function Login() {
   });
 
   const done = auth.status === 'signedIn';
+  // a wrong email or password never says which (nobody can test whose email has an account here), so after a
+  // failed sign-in the card offers to create an account with that email instead
+  const wrong = err?.code === 'wrong';
+  const typed = watch('email')?.trim() ?? '';
+  const signupTo = `${path('/signup')}${typed || next ? '?' : ''}${new URLSearchParams({ ...(typed ? { email: typed } : {}), ...(next ? { next } : {}) })}`;
   const name = me.data?.displayName || me.data?.handle || '';
 
   return (
@@ -74,11 +79,20 @@ export default function Login() {
               <Field label={t('login.email')} type="email" autoComplete="email" inputMode="email" {...register('email')} />
               <Field label={t('login.password')} type="password" autoComplete="current-password"
                      right={<Link to="/forgot" className="text-[13px]">{t('login.forgot')}</Link>} {...register('password')} />
-              {err && <p className="alert" role="alert">{authErrorText(t, err)}</p>}
-              <SubmitButton busy={formState.isSubmitting} className="solid big">{t('login.submit')}</SubmitButton>
+              {err && (
+                <div className="flex flex-col gap-1" role="alert">
+                  <p className="alert">{authErrorText(t, err)}</p>
+                  {wrong && <p className="m-0 text-sm text-ink2">{t('login.wrongMaybeNew')}</p>}
+                </div>
+              )}
+              <SubmitButton busy={formState.isSubmitting} className={`${wrong ? '' : 'solid'} big`}>{t('login.submit')}</SubmitButton>
               <OrLine />
               <GoogleButton onDone={() => {}} onError={setErr} />
               <DiscordButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
+              <div className="auth-switch">
+                <span>{t('login.newHere')}</span>
+                <Link className={`btn big w-full ${wrong ? 'solid' : 'accent-outline'}`} to={signupTo}>{t('login.createCta')}</Link>
+              </div>
             </form>
           )}
         </div>

@@ -45,6 +45,16 @@ describe('device flow', () => {
     expect(devices.body.devices[0]).toMatchObject({ name: 'Test-PC · Studio One', plugin: 'hub', daw: 'Studio One' });
   });
 
+  it('two polls at once after one approval make one device', async () => {
+    const ctx = await setup();
+    const start = await ctx.api.post('/api/v1/device/start').send({ client_info: CLIENT });
+    await ctx.api.post('/api/v1/device/approve').set(ctx.auth).send({ user_code: start.body.user_code, allow: true });
+    const poll = () => ctx.api.post('/api/v1/device/token').send({ device_code: start.body.device_code });
+    const statuses = (await Promise.all([poll(), poll(), poll()])).map(r => r.status).sort();
+    expect(statuses).toEqual([200, 400, 400]);
+    expect((await ctx.api.get('/api/v1/me/devices').set(ctx.auth)).body.devices).toHaveLength(1);
+  });
+
   it('polling faster than the interval gets slow_down', async () => {
     const { api } = await setup();
     const start = await api.post('/api/v1/device/start').send({ client_info: CLIENT });

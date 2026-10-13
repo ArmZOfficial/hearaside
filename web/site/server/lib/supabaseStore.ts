@@ -137,6 +137,11 @@ export class SupabaseStore implements Store {
     check(await this.db.from('device_codes').update(toRow(patch)).eq('device_code_hash', hash));
   }
 
+  async claimDeviceCode(hash: string) {
+    const r = list(await this.db.from('device_codes').update({ status: 'used' }).eq('device_code_hash', hash).eq('status', 'approved').select('device_code_hash'));
+    return r.length > 0;
+  }
+
   async createDevice(d: DeviceRow) {
     check(await this.db.from('devices').insert(toRow({ ...d })));
   }

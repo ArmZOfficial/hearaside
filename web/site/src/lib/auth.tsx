@@ -12,7 +12,7 @@ export interface AuthApi {
   status: AuthStatus;
   token: string | null;
   signUp(a: { email: string; password: string; displayName: string; locale: string; captchaToken?: string }): Promise<void>;
-  signIn(email: string, password: string): Promise<void>;
+  signIn(email: string, password: string, captchaToken?: string): Promise<void>;
   signInWithGoogle(idToken: string, nonce: string): Promise<void>;
   signInWithDiscord(next: string): Promise<void>;
   linkDiscord(): Promise<void>;
@@ -145,9 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         if (error) mapSupabaseError(error);
       },
-      async signIn(email, password) {
+      async signIn(email, password, captchaToken) {
         const sb = await supabase();
-        const { error } = await sb.auth.signInWithPassword({ email, password });
+        // Supabase's CAPTCHA protection (Auth > Attack Protection) covers password sign-in as well as sign-up
+        const { error } = await sb.auth.signInWithPassword({ email, password, options: { captchaToken } });
         if (error) mapSupabaseError(error);
       },
       async signInWithGoogle(idToken, nonce) {

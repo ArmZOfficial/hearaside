@@ -78,6 +78,9 @@ export interface Store {
   deviceCodeByHash(hash: string): Promise<DeviceCode | null>;
   updateDeviceCode(hash: string, patch: Partial<Pick<DeviceCode, 'status' | 'userId' | 'lastPollAt'>>): Promise<void>;
 
+  /** approved -> used in one step; true for exactly one caller, so one approval makes one device */
+  claimDeviceCode(hash: string): Promise<boolean>;
+
   createDevice(d: DeviceRow): Promise<void>;
   deviceById(id: string): Promise<DeviceRow | null>;
   deviceByRefreshHash(hash: string): Promise<DeviceRow | null>;

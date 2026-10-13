@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
 import { Avatar, Field, SubmitButton } from '../components/ui/Kit';
-import { DiscordButton, GoogleButton, OrLine, authErrorText, safeNext } from '../components/AuthBits';
+import { DiscordButton, GoogleButton, OrLine, Turnstile, authErrorText, needsCaptcha, safeNext } from '../components/AuthBits';
 import { AuthError, useAuth } from '../lib/auth';
 import { call, useMe } from '../lib/api';
 import { Seo } from '../lib/seo';
@@ -38,12 +38,14 @@ export default function Login() {
   const banner = usePluginBanner(next);
   const me = useMe();
   const [err, setErr] = useState<AuthError | null>(null);
+  const [captcha, setCaptcha] = useState<string | undefined>();
+  const [challenge, setChallenge] = useState(0);   // a Turnstile token works once: a new widget after every failed try
   const { register, handleSubmit, formState, watch } = useForm<LoginForm>({ resolver: zodResolver(loginForm), defaultValues: { email: '', password: '' } });
 
   const submit = handleSubmit(async v => {
     setErr(null);
-    try { await auth.signIn(v.email, v.password); }
-    catch (e) { setErr(e instanceof AuthError ? e : new AuthError('failed')); }
+    try { await auth.signIn(v.email, v.password, captcha); }
+    catch (e) { setErr(e instanceof AuthError ? e : new AuthError('failed')); setCaptcha(undefined); setChallenge(n => n + 1); }
   });
 
   const done = auth.status === 'signedIn';
@@ -85,7 +87,8 @@ export default function Login() {
                   {wrong && <p className="m-0 text-sm text-ink2">{t('login.wrongMaybeNew')}</p>}
                 </div>
               )}
-              <SubmitButton busy={formState.isSubmitting} className={`${wrong ? '' : 'solid'} big`}>{t('login.submit')}</SubmitButton>
+              <Turnstile key={challenge} onToken={setCaptcha} />
+              <SubmitButton busy={formState.isSubmitting} disabled={needsCaptcha() && !captcha} className={`${wrong ? '' : 'solid'} big`}>{t('login.submit')}</SubmitButton>
               <OrLine />
               <GoogleButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
               <DiscordButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />

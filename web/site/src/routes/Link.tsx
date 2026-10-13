@@ -1,7 +1,7 @@
 // "/link" (3.11 Link, 3.11.1 #10): approve a plug-in's sign-in code (device flow, A4).
 //   1 enter the code (8 boxes, jumps ahead, paste the whole code) -> 2 "Sign in HEARASIDE on this
 //   computer?" -> 3 signed in / 4 not allowed. Must be signed in; otherwise /login comes first.
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { Link as RouterLink, Navigate, useLocation, useSearchParams } from 'react-router';
 import { motion, useReducedMotion } from 'motion/react';
 import { useT } from '../i18n';
@@ -86,14 +86,14 @@ export default function LinkPage() {
   const auth = useAuth();
   const api = useApi();
   const loc = useLocation();
-  const [params, setParams] = useSearchParams();
-  const fromUrl = normalizeUserCode(params.get('code') ?? '') ?? '';
-  const [code, setCode] = useState(fromUrl);
+  const [, setParams] = useSearchParams();
+  // a ?code= in the address is never trusted: anyone can start a sign-in and mail the victim that link,
+  // so the person types the code shown in their own plug-in
+  const [code, setCode] = useState('');
   const [stage, setStage] = useState<'enter' | 'confirm' | 'done' | 'denied'>('enter');
   const [pending, setPending] = useState<PendingDevice | null>(null);
   const [bad, setBad] = useState(false);
   const [busy, setBusy] = useState(false);
-  const tried = useRef(false);
 
   const lookup = async (c: string) => {
     const norm = normalizeUserCode(c);
@@ -110,13 +110,6 @@ export default function LinkPage() {
     }
   };
 
-  // "Open the page" in the plug-in fills the code in: go straight to the question
-  useEffect(() => {
-    if (auth.status !== 'signedIn' || tried.current || !fromUrl) return;
-    tried.current = true;
-    lookup(fromUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.status, fromUrl]);
 
   if (auth.status === 'signedOut') {
     return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
@@ -137,7 +130,7 @@ export default function LinkPage() {
   };
 
   const startOver = () => {
-    setCode(''); setPending(null); setBad(false); setStage('enter'); tried.current = true;
+    setCode(''); setPending(null); setBad(false); setStage('enter');
     setParams({}, { replace: true });
   };
 

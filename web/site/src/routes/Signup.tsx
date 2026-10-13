@@ -43,6 +43,7 @@ export default function Signup() {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [err, setErr] = useState<AuthError | null>(null);
   const [captcha, setCaptcha] = useState<string | undefined>();
+  const [challenge, setChallenge] = useState(0);   // a Turnstile token works once: a new widget after every failed try
   const { register, handleSubmit, watch, formState, reset } = useForm<SignupForm>({
     resolver: zodResolver(signupForm), mode: 'onChange',
     defaultValues: { displayName: '', email: params.get('email')?.slice(0, 254) ?? '', password: '', agree: false as unknown as true },
@@ -57,6 +58,8 @@ export default function Signup() {
       setSentTo(v.email);
     } catch (e) {
       setErr(e instanceof AuthError ? e : new AuthError('failed'));
+      setCaptcha(undefined);
+      setChallenge(n => n + 1);
     }
   });
 
@@ -99,7 +102,7 @@ export default function Signup() {
                   {t('signup.and')} <Link to={path('/privacy')} target="_blank">{t('signup.privacy')}</Link>
                 </span>
               </label>
-              <Turnstile onToken={setCaptcha} />
+              <Turnstile key={challenge} onToken={setCaptcha} />
               {err && <p className="alert" role="alert">{authErrorText(t, err)}</p>}
               <SubmitButton busy={formState.isSubmitting} disabled={!canSend} className="solid big">{t('signup.submit')}</SubmitButton>
               <OrLine />

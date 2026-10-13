@@ -193,7 +193,7 @@
   "verify.failed": "This link doesn’t work any more. Sign in and we’ll send a new one.",
   "verify.continue": "Continue",
   "link.h1": "Connect a plug-in",
-  "link.lead": "Type the code shown in HEARASIDE. It’s filled in for you if you pressed “Open the page”.",
+  "link.lead": "Type the code shown in HEARASIDE on your own computer. Never use a code someone else sent you.",
   "link.code": "Code",
   "link.codeDigit": "Character {n} of 8",
   "link.continue": "Continue",

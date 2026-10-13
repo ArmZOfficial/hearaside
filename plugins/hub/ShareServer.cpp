@@ -31,6 +31,10 @@ namespace {
 constexpr uint32_t kMagic = 0x31415248;   // "HRA1" little-endian: 16-byte header (magic, rate, channels, 0, frames)
 constexpr uint32_t kMagic2 = 0x32415248;  // "HRA2": 24-byte header, plus a u64 position on the Stream Mix timeline (S3)
 constexpr int kFirstPort = 47810;
+constexpr size_t kMaxConns = 40;   // plenty for a few listeners
+constexpr int kMaxListeners = int(kMaxConns) - ssbus::kMaxFriends - 2;   // listeners never take the friends' (and the send-in link's) places
+constexpr long kMaxPerPeer = 6;    // one LAN device: a few pages + their WebSockets
+constexpr long kMaxPending = 24;   // connections that have not sent a whole request head yet: the rest of the places stay free
 
 // ---- SHA-1 (WebSocket handshake only) ---------------------------------------------------------
 std::array<uint8_t, 20> sha1(const std::string& msg) {
@@ -116,7 +120,7 @@ uint8_t readMessage(juce::StreamingSocket& s, std::vector<uint8_t>& out, int tim
         uint64_t len = h[1] & 0x7F;
         if (len == 126) { uint8_t e[2]; if (!readExact(s, e, 2, timeoutMs, alive)) return 0; len = uint64_t(e[0]) << 8 | e[1]; }
         else if (len == 127) { uint8_t e[8]; if (!readExact(s, e, 8, timeoutMs, alive)) return 0; len = 0; for (uint8_t b : e) len = len << 8 | b; }
-        if (len > (1u << 22)) return 0;
+        if (len > (1u << 22) || out.size() + len > (1u << 22)) return 0;   // whole message, not per fragment: endless fragments must not fill the DAW's memory
         uint8_t mask[4] = { 0, 0, 0, 0 };
         const bool masked = (h[1] & 0x80) != 0;
         if (masked && !readExact(s, mask, 4, timeoutMs, alive)) return 0;
@@ -136,7 +140,7 @@ uint8_t readMessage(juce::StreamingSocket& s, std::vector<uint8_t>& out, int tim
 }
 
 void respond(juce::StreamingSocket& s, int code, const char* type, const void* body, size_t n) {
-    const auto head = juce::String("HTTP/1.1 ") + juce::String(code) + (code == 200 ? " OK" : code == 403 ? " Forbidden" : " Not Found")
+    const auto head = juce::String("HTTP/1.1 ") + juce::String(code) + (code == 200 ? " OK" : code == 403 ? " Forbidden" : code == 503 ? " Service Unavailable" : " Not Found")
                     + "\r\nContent-Type: " + type + "\r\nContent-Length: " + juce::String(int64_t(n))
                     + "\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
     writeAll(s, head.toRawUTF8(), head.getNumBytesAsUTF8());
@@ -214,6 +218,9 @@ struct ShareServer::Conn {
     std::unique_ptr<juce::StreamingSocket> sock;
     std::thread thread;
     std::atomic<bool> done { false };
+    juce::String peer;   // the client's address (127.0.0.1 for everything that comes through the tunnel)
+    juce::String client; // who is really asking: Cloudflare's Cf-Connecting-Ip behind the tunnel, else peer
+    std::atomic<bool> headDone { false };
 };
 
 ShareServer::ShareServer() = default;
@@ -447,9 +454,22 @@ void ShareServer::acceptLoop() {
         reap();
         auto c = std::make_unique<Conn>();
         c->sock = std::move(s);
+        c->peer = c->sock->getHostName();
         Conn* raw = c.get();
         const std::lock_guard<std::mutex> lock(connsMutex_);
-        if (conns_.size() >= 40) { raw->sock->close(); continue; }   // plenty for a few listeners
+        if (conns_.size() >= kMaxConns) { raw->sock->close(); continue; }
+        // one LAN device may not take every place; the tunnel's connections all come from 127.0.0.1
+        const bool viaTunnel = raw->peer.startsWith("127.") || raw->peer == "::1";
+        if (!viaTunnel && std::count_if(conns_.begin(), conns_.end(), [raw](const auto& o) { return !o->done.load() && o->peer == raw->peer; }) >= kMaxPerPeer) {
+            raw->sock->close();
+            continue;
+        }
+        // endless half-sent requests must not use up every place (the tunnel hides who sends them)
+        if (std::count_if(conns_.begin(), conns_.end(), [](const auto& o) { return !o->done.load() && !o->headDone.load(); }) >= kMaxPending) {
+            raw->sock->close();
+            continue;
+        }
+        raw->client = raw->peer;
         conns_.push_back(std::move(c));
         raw->thread = std::thread([this, raw] { serve(*raw); raw->sock->close(); raw->done.store(true); });
     }
@@ -460,18 +480,33 @@ void ShareServer::serve(Conn& c) {
     // request head
     std::string head;
     char ch = 0;
+    const auto headStart = juce::Time::getMillisecondCounter();
     while (head.size() < 8192 && head.find("\r\n\r\n") == std::string::npos) {
-        if (!readExact(s, &ch, 1, 5000, running_)) return;
+        // 5 s for the whole head: one byte now and then must not hold a connection for hours
+        if (juce::Time::getMillisecondCounter() - headStart > 5000 || !readExact(s, &ch, 1, 5000, running_)) return;
         head += ch;
     }
     const auto lines = juce::StringArray::fromLines(juce::String::fromUTF8(head.c_str()));
     const auto first = juce::StringArray::fromTokens(lines[0], " ", "");
     if (first.size() < 2 || first[0] != "GET") { respond(s, 404, "text/plain", "", 0); return; }
     const auto path = first[1].upToFirstOccurrenceOf("?", false, false);
-    juce::String key, origin;
+    juce::String key, origin, via;
     for (const auto& l : lines) {
+        if (l.startsWithIgnoreCase("Cf-Connecting-Ip:")) via = l.fromFirstOccurrenceOf(":", false, false).trim();
         if (l.startsWithIgnoreCase("Sec-WebSocket-Key:")) key = l.fromFirstOccurrenceOf(":", false, false).trim();
         if (l.startsWithIgnoreCase("Origin:")) origin = l.fromFirstOccurrenceOf(":", false, false).trim();
+    }
+    c.headDone.store(true);
+    if (c.peer.startsWith("127.") || c.peer == "::1") {   // through the tunnel: one visitor may not take every place either
+        if (via.isNotEmpty() && via.length() <= 45) {
+            const std::lock_guard<std::mutex> lock(connsMutex_);
+            c.client = via;
+            if (std::count_if(conns_.begin(), conns_.end(), [&c](const auto& o) { return !o->done.load() && o->headDone.load() && o->client == c.client; }) > kMaxPerPeer) {
+                static const char busy[] = "HEARASIDE: too many connections from your address.";
+                respond(s, 503, "text/plain; charset=utf-8", busy, sizeof(busy) - 1);
+                return;
+            }
+        }
     }
     // a page from another site must not open the audio (or the mic input) behind the user's back
     if (key.isNotEmpty() && !originAllowed(origin)) {
@@ -517,7 +552,15 @@ void ShareServer::serve(Conn& c) {
     const auto lt = listenToken();
     if (path == "/l/" + lt) { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::listen_html, size_t(HearasideWeb::listen_htmlSize)); return; }
     if (path == "/s/" + sendToken_)   { respond(s, 200, "text/html; charset=utf-8", HearasideWeb::send_html, size_t(HearasideWeb::send_htmlSize)); return; }
-    if (path == "/ws/l/" + lt && key.isNotEmpty()) { if (upgrade()) streamTo(c); return; }
+    if (path == "/ws/l/" + lt && key.isNotEmpty()) {
+        if (listeners_.load() >= kMaxListeners) {
+            static const char busy[] = "HEARASIDE: too many listeners right now, try again later.";
+            respond(s, 503, "text/plain; charset=utf-8", busy, sizeof(busy) - 1);
+            return;
+        }
+        if (upgrade()) streamTo(c);
+        return;
+    }
     if (path == "/ws/s/" + sendToken_ && key.isNotEmpty())   { if (upgrade()) receiveFrom(c); return; }
     static const char notFound[] = "HEARASIDE: this link is not valid (any more).";
     respond(s, 404, "text/plain; charset=utf-8", notFound, sizeof(notFound) - 1);

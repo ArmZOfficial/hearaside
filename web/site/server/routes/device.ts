@@ -88,7 +88,7 @@ export function deviceRoutes(store: Store) {
     if (c.status === 'pending') return res.status(400).json({ error: tooSoon ? 'slow_down' : 'authorization_pending' });
 
     // approved: one device row per sign-in; the code can't be used again
-    await store.updateDeviceCode(hash, { status: 'used' });
+    if (!(await store.claimDeviceCode(hash))) return res.status(400).json({ error: 'invalid_grant' });
     const refresh = randomToken();
     const id = randomUUID();
     const info = c.clientInfo;

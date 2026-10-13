@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <wincrypt.h>
 #pragma comment(lib, "crypt32.lib")
+#else
+#include <sys/stat.h>
 #endif
 
 namespace hearaside {
@@ -109,11 +111,13 @@ juce::MemoryBlock AccountManager::encryptData(const juce::String& text) {
         LocalFree(out.pbData);
         return mb;
     }
-#endif
-    // Fallback: simple copy
+    return {};   // never write the tokens unprotected: the caller keeps them in memory only
+#else
+    // no OS key store here yet; saveToDisk() makes the file readable by this user only
     juce::MemoryBlock mb;
     mb.append(text.toRawUTF8(), strlen(text.toRawUTF8()));
     return mb;
+#endif
 }
 
 juce::String AccountManager::decryptData(const juce::MemoryBlock& block) {
@@ -129,8 +133,10 @@ juce::String AccountManager::decryptData(const juce::MemoryBlock& block) {
         LocalFree(out.pbData);
         return str;
     }
-#endif
+    return {};   // not ours or not this user's: treat as signed out, never as plain text
+#else
     return juce::String::fromUTF8(static_cast<const char*>(block.getData()), static_cast<int>(block.getSize()));
+#endif
 }
 
 void AccountManager::loadFromDisk() {
@@ -203,9 +209,14 @@ void AccountManager::saveToDisk() {
 
     const auto jsonStr = juce::JSON::toString(juce::var(obj));
     const auto enc = encryptData(jsonStr);
+    if (enc.isEmpty()) return;   // could not protect the tokens: do not store them
 
     const auto f = storageFile();
     f.replaceWithData(enc.getData(), enc.getSize());
+#if !JUCE_WINDOWS
+    chmod(f.getFullPathName().toRawUTF8(), S_IRUSR | S_IWUSR);
+    chmod(f.getParentDirectory().getFullPathName().toRawUTF8(), S_IRWXU);
+#endif
     lastFileModTime_ = f.getLastModificationTime();
 }
 

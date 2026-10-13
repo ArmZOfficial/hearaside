@@ -123,6 +123,13 @@ export class MemoryStore implements Store {
     if (c) Object.assign(c, patch);
   }
 
+  async claimDeviceCode(hash: string) {
+    const c = this.codes.get(hash);
+    if (!c || c.status !== 'approved') return false;
+    c.status = 'used';
+    return true;
+  }
+
   async createDevice(d: DeviceRow) { this.devices.set(d.id, { ...d }); }
   async deviceById(id: string) {
     const d = this.devices.get(id);

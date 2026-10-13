@@ -32,6 +32,7 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['tests/setup.ts'],
     include: ['tests/server/**/*.test.ts', 'tests/web/**/*.test.{ts,tsx}'],
-    env: { STORE: 'memory', NODE_ENV: 'test' },
+    // a developer's .env.local (real Turnstile key, Supabase URL) must not change what the tests see
+    env: { STORE: 'memory', NODE_ENV: 'test', VITE_TURNSTILE_SITE_KEY: '' },
   },
 } as any);

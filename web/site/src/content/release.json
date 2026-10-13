@@ -1,31 +1,36 @@
 {
-    "version":  "1.0.3",
-    "date":  "12 Oct 2026",
-    "installer":  "/downloads/HEARASIDE-Setup-1.0.3.exe",
-    "sizeMb":  "19.3",
-    "sha256":  "8bc8a37214b5b38906a34c821cfeae47e8fb68a82b7fc6da5a6a0270c456a3da",
-    "obsMin":  "32",
-    "notes":  [
-                  {
-                      "version":  "1.0.3",
-                      "en":  "Friends hear each other while you sing together (never themselves), lower latency on the friends’ page, friends mixed in a DAW track no longer echo or come in late, and sign-in gives you permanent links with no website of your own.",
-                      "th":  "เพื่อนได้ยินกันเองตอนร้องด้วยกัน (ไม่ได้ยินเสียงตัวเอง) หน้าเว็บเพื่อนหน่วงน้อยลง เพื่อนที่มิกซ์ในแทร็ก DAW ไม่มีเสียงสะท้อนและไม่ช้ากว่าจังหวะ และเข้าสู่ระบบแล้วได้ลิงก์ถาวรโดยไม่ต้องมีเว็บของตัวเอง"
-                  },
-                  {
-                      "version":  "1.0.2",
-                      "en":  "Auto-sync vocal works when music also reaches the master another way (an FX return, a group, a channel without HEARASIDE Track), and with “Hear viewers’ mix” switched on.",
-                      "th":  "ซิงก์เสียงร้องอัตโนมัติวัดได้แม้เพลงไปถึง master ทางอื่นด้วย (ช่อง FX return, group หรือช่องที่ไม่มี HEARASIDE Track) และตอนเปิด “ฟังแบบคนดู” อยู่"
-                  },
-                  {
-                      "version":  "1.0.1",
-                      "en":  "Fixes: text in fields readable in the light theme, the OBS delay no longer cut off, the Settings › Account title no longer shows twice, friends mixed in a DAW track stay audible with large buffers, more stable latency measuring.",
-                      "th":  "แก้บั๊ก: ตัวอักษรในช่องพิมพ์อ่านได้ในธีมสว่าง ตัวเลขความหน่วง OBS ไม่ถูกตัด หัวข้อบัญชีในการตั้งค่าไม่ซ้ำ เสียงเพื่อนในแทร็ก DAW ไม่หายเมื่อใช้บัฟเฟอร์ใหญ่ และวัดความหน่วงได้นิ่งขึ้น"
-                  },
-                  {
-                      "version":  "1.0.0",
-                      "en":  "New look for every plug-in, English by default, one installer with everything included.",
-                      "th":  "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง"
-                  }
-              ],
-    "vst2":  true
+    "version": "1.0.4",
+    "date": "13 Oct 2026",
+    "installer": "/downloads/HEARASIDE-Setup-1.0.4.exe",
+    "sizeMb": "22.8",
+    "sha256": "000be07e3bba5afaa177f159c4796d37ec69e529c062c74504031614d82f6e7e",
+    "obsMin": "32",
+    "notes": [
+        {
+            "version": "1.0.4",
+            "en": "Security fixes: signing a plug-in in now needs the code typed from the plug-in itself, sign-in tokens are never saved unprotected, and the link server holds up better against a flood of connections. The website adds a bot check to sign-in and sign-up.",
+            "th": "แก้ด้านความปลอดภัย: การเชื่อมปลั๊กอินกับบัญชีต้องพิมพ์โค้ดจากปลั๊กอินเอง โทเคนเข้าสู่ระบบจะไม่ถูกบันทึกแบบไม่เข้ารหัสอีก และเซิร์ฟเวอร์ลิงก์ทนต่อการเชื่อมต่อถล่มได้ดีขึ้น เว็บเพิ่มการตรวจบอตตอนเข้าสู่ระบบและสมัครสมาชิก"
+        },
+        {
+            "version": "1.0.3",
+            "en": "Friends hear each other while you sing together (never themselves), lower latency on the friends’ page, friends mixed in a DAW track no longer echo or come in late, and sign-in gives you permanent links with no website of your own.",
+            "th": "เพื่อนได้ยินกันเองตอนร้องด้วยกัน (ไม่ได้ยินเสียงตัวเอง) หน้าเว็บเพื่อนหน่วงน้อยลง เพื่อนที่มิกซ์ในแทร็ก DAW ไม่มีเสียงสะท้อนและไม่ช้ากว่าจังหวะ และเข้าสู่ระบบแล้วได้ลิงก์ถาวรโดยไม่ต้องมีเว็บของตัวเอง"
+        },
+        {
+            "version": "1.0.2",
+            "en": "Auto-sync vocal works when music also reaches the master another way (an FX return, a group, a channel without HEARASIDE Track), and with “Hear viewers’ mix” switched on.",
+            "th": "ซิงก์เสียงร้องอัตโนมัติวัดได้แม้เพลงไปถึง master ทางอื่นด้วย (ช่อง FX return, group หรือช่องที่ไม่มี HEARASIDE Track) และตอนเปิด “ฟังแบบคนดู” อยู่"
+        },
+        {
+            "version": "1.0.1",
+            "en": "Fixes: text in fields readable in the light theme, the OBS delay no longer cut off, the Settings › Account title no longer shows twice, friends mixed in a DAW track stay audible with large buffers, more stable latency measuring.",
+            "th": "แก้บั๊ก: ตัวอักษรในช่องพิมพ์อ่านได้ในธีมสว่าง ตัวเลขความหน่วง OBS ไม่ถูกตัด หัวข้อบัญชีในการตั้งค่าไม่ซ้ำ เสียงเพื่อนในแทร็ก DAW ไม่หายเมื่อใช้บัฟเฟอร์ใหญ่ และวัดความหน่วงได้นิ่งขึ้น"
+        },
+        {
+            "version": "1.0.0",
+            "en": "New look for every plug-in, English by default, one installer with everything included.",
+            "th": "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง"
+        }
+    ],
+    "vst2": true
 }

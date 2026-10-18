@@ -20,6 +20,10 @@ namespace ssengine {
 
 constexpr int64_t kNoTime = INT64_MIN;
 
+// The sweep a friend input plays when the Hub probes it (300 ms, logarithmic, -24 dBFS peak): one definition for the
+// Track that plays it and the tests that stand in for a DAW chain.
+std::vector<float> probeSweep(double sampleRate);
+
 // =============================================================================================
 // TrackPublisher - lives in every HEARASIDE Track instance.
 
@@ -167,6 +171,15 @@ public:
     // already carries another friend). A manual pair is kept until its Track or the friend input goes away.
     bool pairWith(int feeder, uint32_t arg);
 
+    // Probe: find the Track at the end of a friend input's channel by sound. startProbe (message thread) silences the
+    // Stream Mix and what friends hear; probeStep (latency thread, every ~20 ms while probing()) then makes the feeder
+    // play the sweep, looks for it in the Tracks that carry no friend, stores the best as a manual pair and answers the
+    // feeder (reply 1 = paired, kReplyNoMatch = not found). Over after about half a second. false = refused (not a
+    // linked friend input, or a probe is already running).
+    bool startProbe(int feeder);
+    bool probing() const noexcept { return probeFeeder_.load(std::memory_order_acquire) >= 0; }
+    void probeStep();
+
     // ---- audio thread -------------------------------------------------------------------
     // io in: the master bus = Stream Mix. io out: the headphone mix. Writes Stream Mix + stems.
     void process(float* const* io, int numCh, int n, const HubParams& p,
@@ -245,6 +258,11 @@ private:
     // message thread and the measuring thread never see half of one. 0 = none. manualLi_ = Li in 0.01 ms + 1, 0 = not measured.
     std::array<std::atomic<uint64_t>, ssbus::kMaxFriends> manualPair_{};
     std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> manualLi_{};
+    std::atomic<int> probeFeeder_{ -1 };   // the feeder being probed, -1 = none; the audio thread silences the viewers and friends while >= 0
+    std::atomic<int> probeStage_{ 0 };     // 0 = starting, 1 = silenced and waiting, 2 = sweeping (probeStep only)
+    uint32_t probeFrom_ = 0;               // capWrite_ at the start of the stage
+    uint64_t probeWallNs_ = 0;
+    void endProbe(int feeder, uint32_t reply);
 
     std::vector<float> outs_[ssbus::kNumStreamOuts][2];
     std::array<bool, ssbus::kNumStreamOuts> outUsed_{};

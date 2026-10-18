@@ -127,6 +127,9 @@ private:
     // "Goes out through": which Track ends this channel (by hand, when the Hub can't tell by name)
     SourcePicker outPicker_;
     Field outField_ { {}, &outPicker_, 48 };
+    GhostButton probeBtn_;   // "Pair automatically"
+    Field probeField_ { {}, &probeBtn_, 34 };
+    juce::uint32 probeSince_ = 0;   // when it was pressed, 0 = not waiting for the answer
     Sheet sheet_ { *this };
     AccountPanel accountPanel_ { AccountPanel::Mode::Compact };
 

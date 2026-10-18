@@ -6,6 +6,7 @@
 #include "ssengine/engine.h"
 #include "ssengine/friend_reader.h"
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -54,6 +55,7 @@ struct Room {
     std::unique_ptr<TrackPublisher> carrier;
     int64_t carrierLag = 0;
     uint32_t carrierSeed = 0;
+    std::function<void(int64_t)> beforeHub;   // runs each cycle before the Hub processes (stand-in DAW tracks, a feeder)
 
     explicit Room(const char* tag) : bus(uniqueBus(tag)) {
         hub.connect(bus);
@@ -105,6 +107,7 @@ struct Room {
                 for (int i = 0; i < block; ++i) l[size_t(i)] += c[size_t(i)];
         }
         r = l;
+        if (beforeHub) beforeHub(t);
         float* io[2] = { l.data(), r.data() };
         hub.process(io, 2, block, params, t, true, false);
         phones.insert(phones.end(), l.begin(), l.end());
@@ -541,4 +544,127 @@ TEST_CASE("friends: a Track prepared for its real block starts the friend's jitt
     };
     const double small = startBufferMs(256), big = startBufferMs(2048);
     CHECK_LT(30.0, big - small);   // at least the ~37 ms between the two blocks (a 2048 pull also sees lumpier arrivals)
+}
+
+// A friend input whose channel ends in one of three Tracks: the sweep it plays goes through a small EQ, a gain and a
+// 7 ms delay into the "end" Track; the other two carry unrelated audio. Plays the part of the feeder and the DAW.
+struct ProbeRig {
+    Room r { "probe" };
+    BusLayout* b = r.hub.bus();
+    int fidx = -1, endSlot = -1;
+    TrackPublisher tracks[3];
+    std::vector<float> sweep = probeSweep(kRate), chain;
+    uint32_t cmdSeen = 0;
+    int64_t sweepFrom = -1;   // DAW frame the feeder began the sweep at
+    uint64_t tw = 0;
+    float tapAcc = 0.0f;
+    bool endHearsSweep;
+
+    explicit ProbeRig(bool endHears) : endHearsSweep(endHears) {
+        r.params.syncSafety = 0;
+        r.openFriend(0, kVoice, 40.0);
+        fidx = claimFeeder(*b);
+        setFeederIdentity(b->feeders[fidx], "Lead Vocal", 0);
+        b->feeders[fidx].friendId.store(100);
+        b->feeders[fidx].status.store(kFeederFlowing);
+        b->friends[0].feeder.store(fidx);
+        cmdSeen = b->feeders[fidx].hubCommandSeq.load();
+        // 0.8 EQ-ish: y = 0.8 x[n] + 0.2 x[n-2], gain 0.5, then 7 ms
+        chain.assign(sweep.size() + size_t(0.007 * kRate) + 4, 0.0f);
+        const size_t d = size_t(0.007 * kRate + 0.5);
+        for (size_t i = 0; i < sweep.size(); ++i)
+            chain[i + d] = 0.5f * (0.8f * sweep[i] + 0.2f * (i >= 2 ? sweep[i - 2] : 0.0f));
+        const char* names[3] = { "Track 1", "Track 2", "Track 3" };
+        for (int k = 0; k < 3; ++k) {
+            tracks[k].connect(r.bus, "", kRate, 1);
+            tracks[k].prepare(kRate, 1);
+            tracks[k].setIdentity(names[k], 0);
+        }
+        endSlot = tracks[1].slotIndex();
+        r.beforeHub = [this](int64_t t) { feederAndTracks(t); };
+    }
+
+    void feederAndTracks(int64_t t) {
+        FeederRecord& f = b->feeders[fidx];
+        f.heartbeatNs.store(nowNs());
+        if (const uint32_t cs = f.hubCommandSeq.load(); cs != cmdSeen) {   // the Hub's command: start the sweep
+            cmdSeen = cs;
+            if (f.hubCommand.load() == 2) sweepFrom = t;
+        }
+        std::vector<float> c(size_t(r.block));
+        for (int i = 0; i < r.block; ++i) {
+            const int64_t at = sweepFrom >= 0 ? t + i - sweepFrom : -1;
+            tapAcc += at >= 0 && at < int64_t(sweep.size()) ? sweep[size_t(at)] : 0.0f;
+            if ((i & 3) == 3) { b->feederTap[fidx].mono[tw++ % kTapFrames] = tapAcc * 0.25f; tapAcc = 0.0f; }
+        }
+        f.tapWrite.store(tw, std::memory_order_release);
+        for (int k = 0; k < 3; ++k) {
+            for (int i = 0; i < r.block; ++i) {
+                const int64_t at = sweepFrom >= 0 ? t + i - sweepFrom : -1;
+                c[size_t(i)] = k == 1 ? (endHearsSweep && at >= 0 && at < int64_t(chain.size()) ? chain[size_t(at)] : 0.0f)
+                                      : noiseAt(t + i, 500u + uint32_t(k));
+            }
+            const float* ch[1] = { c.data() };
+            tracks[k].process(ch, 1, r.block, t, true, false, false);
+        }
+    }
+
+    // runs the probe like the Hub's latency thread would; returns the DAW frames it took
+    int64_t probe() {
+        const uint32_t seq = b->feeders[fidx].replySeq.load();
+        if (!r.hub.startProbe(fidx)) { CHECK(false); return -1; }
+        const size_t from = r.stream.size();
+        startOut = from;
+        for (int c = 0; c < 400 && r.hub.probing(); ++c) { r.cycle(); r.hub.probeStep(); }
+        endOut = r.stream.size();
+        replied = b->feeders[fidx].replySeq.load() != seq;
+        return int64_t(endOut - from);
+    }
+    size_t startOut = 0, endOut = 0;
+    bool replied = false;
+};
+
+static float peakOf(const std::vector<float>& v, size_t from, size_t to) {
+    float p = 0;
+    for (size_t i = from; i < to && i < v.size(); ++i) p = std::max(p, std::abs(v[i]));
+    return p;
+}
+
+TEST_CASE("friends: the probe sweep finds the Track at the end of the channel and nobody hears it") {
+    ProbeRig rig(true);
+    rig.r.run(1.0);   // the tap fills; music plays
+    BusLayout* b = rig.b;
+    CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);
+    CHECK(peakOf(rig.r.friendMix, rig.r.friendMix.size() - 4800, rig.r.friendMix.size()) > 0.05f);
+
+    const int64_t took = rig.probe();
+    CHECK(rig.replied);
+    CHECK(b->feeders[rig.fidx].reply.load() == 1);
+    CHECK(b->friends[0].outSlot.load() == rig.endSlot);
+    CHECK(b->slots[rig.endSlot].fedBy.load() == 100);
+    CHECK_NEAR(bitsFloat(b->slots[rig.endSlot].fxLatencyBits.load()), 7.0f, 1.0f);
+    CHECK_LT(double(took) / kRate, 0.7);   // silent for well under a second
+    // the Stream Mix is silent after the 20 ms ramp, what friends hear at once; the sweep never reaches either
+    CHECK_LT(peakOf(rig.r.stream, rig.startOut + size_t(0.05 * kRate), rig.endOut), 1e-5f);
+    CHECK_LT(peakOf(rig.r.friendMix, rig.startOut + 512, rig.endOut), 1e-6f);
+
+    rig.r.run(0.5);   // and they come back
+    CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);
+    CHECK(peakOf(rig.r.friendMix, rig.r.friendMix.size() - 4800, rig.r.friendMix.size()) > 0.05f);
+
+    // the pair is kept like a manual one: the names differ and it stays
+    rig.r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == rig.endSlot);
+}
+
+TEST_CASE("friends: the probe says so when no Track plays the sweep, and leaves nothing paired") {
+    ProbeRig rig(false);
+    rig.r.run(1.0);
+    rig.probe();
+    CHECK(rig.replied);
+    CHECK(rig.r.hub.probing() == false);
+    CHECK(rig.b->feeders[rig.fidx].reply.load() == kReplyNoMatch);
+    CHECK(rig.b->friends[0].outSlot.load() == -1);
+    rig.r.run(0.5);
+    CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);
 }

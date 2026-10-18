@@ -220,7 +220,13 @@ private:
     // measures the plug-in latency 4x a second off the message thread
     struct LatencyMeter : juce::Thread {
         explicit LatencyMeter(HubProcessor& p) : juce::Thread("HEARASIDE latency"), proc(p) {}
-        void run() override { while (!threadShouldExit()) { proc.measureLatency(); wait(250); } }
+        void run() override {
+            while (!threadShouldExit()) {
+                const bool probing = proc.engine_.probing();   // a probe is short: step it often
+                if (probing) proc.engine_.probeStep(); else proc.measureLatency();
+                wait(probing ? 20 : 250);
+            }
+        }
         HubProcessor& proc;
     };
     void measureLatency();

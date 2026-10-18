@@ -112,7 +112,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     // so nobody gets their own voice back a round trip later (mix-minus for every friend at once).
     {
         const float* src[2] = { outs_[0][0].data(), outs_[0][1].data() };
-        ringWrite(b->friendMixAudio, b->friendMixWrite, src, 2, uint32_t(n));
+        ringWrite(b->friendMixAudio, b->friendMixWrite, probeFeeder_.load(std::memory_order_relaxed) >= 0 ? nullptr : src, 2, uint32_t(n));   // nullptr = silence: the probe sweep
     }
 
     // ---- play every friend ---------------------------------------------------------------------

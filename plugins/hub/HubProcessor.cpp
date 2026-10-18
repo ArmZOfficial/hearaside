@@ -666,6 +666,10 @@ void HubProcessor::serviceRequests() {
             case ssbus::kReqPairWith:
                 ssbus::postReply(f, engine_.pairWith(feeder, arg) ? 1u : ssbus::kReplyFailed);
                 break;
+            case ssbus::kReqProbe:   // answered by the engine when it has listened
+                if (autoSync_.phase == SyncPhase::Reference || autoSync_.phase == SyncPhase::Microphone || !engine_.startProbe(feeder))
+                    ssbus::postReply(f, ssbus::kReplyFailed);
+                break;
             case ssbus::kReqCopyLink: {
                 const juce::String link = friendLink(arg);
                 if (link.isNotEmpty()) {

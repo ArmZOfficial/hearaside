@@ -85,6 +85,7 @@ public:
     void requestCreateFriend(const juce::String& name);
     void requestReleaseFriend();
     void requestCopyLink(uint32_t friendId);
+    void requestProbe();                   // "Pair automatically"
     void requestPairWith(uint32_t slot);   // "Goes out through": a slot, or ssbus::kPairAutomatic
     uint32_t lastRequest() const noexcept { return pendingRequest_; }   // message thread
     uint32_t lastReply() const noexcept { return lastReply_.load(std::memory_order_relaxed); }
@@ -110,6 +111,7 @@ private:
     void process(juce::AudioBuffer<float>&, bool bypassed);
     void processTrack(juce::AudioBuffer<float>&, bool bypassed, int n, int numCh);
     void processFriend(juce::AudioBuffer<float>&, bool bypassed, int n, int numCh);
+    void playProbe(juce::AudioBuffer<float>&, int n) noexcept;
 
     juce::AudioProcessorValueTreeState apvts_;
     ssengine::TrackPublisher pub_;
@@ -167,6 +169,9 @@ private:
     uint32_t replySeq_ = 0;
     std::atomic<uint32_t> lastReply_{ 0 };
     uint32_t feederCmdSeq_ = 0;
+    std::vector<float> probeSig_;      // the Hub's probe sweep, made in prepareToPlay
+    int probePos_ = -1;                // next frame of it to play, -1 = not probing (audio thread)
+    uint32_t probeSeq_ = 0;            // hubCommandSeq the audio thread has seen
     uint32_t pendingRequest_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackProcessor)

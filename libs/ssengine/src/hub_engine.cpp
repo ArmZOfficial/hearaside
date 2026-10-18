@@ -11,6 +11,14 @@ using namespace ssbus;
 namespace {
 constexpr uint64_t kHubStaleNs  = 2000000000ull;   // another Hub may take over after 2 s silence
 constexpr uint64_t kSlotStaleNs = 5000000000ull;
+
+// A manual pair in one word: slot + 1 (8 bits), the slot's claim (32), the friend id (24). Valid while the slot
+// still has the same claim, so a Track that took over the index is not mistaken for the one that was chosen.
+uint64_t pairWord(const BusLayout& b, int slot, uint32_t fid) {
+    const uint64_t claim = b.slots[slot].claimNs.load(std::memory_order_relaxed);
+    return uint64_t(slot + 1) | uint64_t(uint32_t(claim ^ (claim >> 32))) << 8 | uint64_t(fid & 0xFFFFFFu) << 40;
+}
+int pairSlot(uint64_t word) { return int(word & 0xFFu) - 1; }
 }
 
 // HubEngine::HubEngine / ~HubEngine live in hub_friends.cpp (they need the friend players' full type)
@@ -231,6 +239,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 }
                 fh.outSlot.store(-1, std::memory_order_release);
             }
+            manualPair_[size_t(j)].store(0, std::memory_order_release);   // the friend input is gone: so is its choice
             continue;
         }
 
@@ -247,6 +256,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 }
                 fh.outSlot.store(-1, std::memory_order_release);
             }
+            manualPair_[size_t(j)].store(0, std::memory_order_release);
             continue;
         }
 
@@ -255,8 +265,18 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
         uint32_t feederColor = 0;
         readFeederIdentity(feeder, feederName, feederColor);
 
+        // 0. A pair chosen by hand wins, whatever the names say; it ends with its Track
+        if (const uint64_t word = manualPair_[size_t(j)].load(std::memory_order_acquire); word != 0) {
+            const int s = pairSlot(word);
+            if (s >= 0 && s < kMaxSlots && b->slots[s].state.load(std::memory_order_acquire) == kSlotActive
+                && !(b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) && pairWord(*b, s, fid) == word)
+                matchedSlot = s;
+            else if (uint64_t expected = word; manualPair_[size_t(j)].compare_exchange_strong(expected, 0, std::memory_order_acq_rel))
+                manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+        }
+
         // 1. Fast match by track name
-        if (!feederName.empty()) {
+        if (matchedSlot < 0 && !feederName.empty()) {
             for (int s = 0; s < kMaxSlots; ++s) {
                 if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
                 if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
@@ -314,6 +334,8 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
         // 3. Measure Li and publish pairing
         if (matchedSlot >= 0) {
             SlotHeader& slot = b->slots[matchedSlot];
+            const uint32_t probed = manualLi_[size_t(j)].load(std::memory_order_relaxed);
+            const double fallbackLi = probed != 0 ? double(probed - 1) * 0.01 : double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
             double li = 0.0;
             if (hasTapSound && fStart > 0 && !fTap.empty()) {
                 copyLast(capSlots_.data() + size_t(matchedSlot) * capLen_, x);
@@ -323,10 +345,10 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 if (bestLag(x.data(), fTap.data(), tapN, fStart, 0, Ktap, cumTap, eySlot, 0.5, lag, false, &score)) {
                     li = std::max(0.0, lag * msPerLag);
                 } else {
-                    li = double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
+                    li = fallbackLi;
                 }
             } else {
-                li = double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
+                li = fallbackLi;
             }
 
             const int oldS = fh.outSlot.load(std::memory_order_relaxed);
@@ -358,6 +380,30 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
     }
 
     return out;
+}
+
+bool HubEngine::pairWith(int feeder, uint32_t arg) {
+    BusLayout* b = bus();
+    if (b == nullptr || feeder < 0 || feeder >= kMaxFeeders) return false;
+    const uint32_t fid = b->feeders[feeder].friendId.load(std::memory_order_relaxed);
+    int j = -1;
+    for (int k = 0; k < kMaxFriends && fid != 0; ++k)
+        if (b->friends[k].id.load(std::memory_order_acquire) == fid) { j = k; break; }
+    if (j < 0 || b->friends[j].feeder.load(std::memory_order_acquire) != feeder) return false;   // not linked to the friend yet
+    if (arg == kPairAutomatic) {
+        manualPair_[size_t(j)].store(0, std::memory_order_release);
+        manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+        return true;
+    }
+    if (arg >= uint32_t(kMaxSlots)) return false;
+    const SlotHeader& s = b->slots[arg];
+    if (s.state.load(std::memory_order_acquire) != kSlotActive || (s.flags.load(std::memory_order_relaxed) & kFlagApp)) return false;
+    if (const uint32_t by = s.fedBy.load(std::memory_order_relaxed); by != 0 && by != fid) return false;
+    for (int k = 0; k < kMaxFriends; ++k)   // another friend input already chose it
+        if (k != j && pairSlot(manualPair_[size_t(k)].load(std::memory_order_acquire)) == int(arg)) return false;
+    manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+    manualPair_[size_t(j)].store(pairWord(*b, int(arg), fid), std::memory_order_release);
+    return true;
 }
 
 std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyPolarity, bool source, double* score, bool faint,

@@ -85,6 +85,8 @@ public:
     void requestCreateFriend(const juce::String& name);
     void requestReleaseFriend();
     void requestCopyLink(uint32_t friendId);
+    void requestPairWith(uint32_t slot);   // "Goes out through": a slot, or ssbus::kPairAutomatic
+    uint32_t lastRequest() const noexcept { return pendingRequest_; }   // message thread
     uint32_t lastReply() const noexcept { return lastReply_.load(std::memory_order_relaxed); }
     void clearReply() noexcept { lastReply_.store(0, std::memory_order_relaxed); }
 

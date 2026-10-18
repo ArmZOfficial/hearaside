@@ -427,6 +427,15 @@ void TrackProcessor::requestCopyLink(uint32_t fid) {
     }
 }
 
+void TrackProcessor::requestPairWith(uint32_t slot) {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqPairWith;
+        ssbus::postRequest(*b, idx, ssbus::kReqPairWith, slot, {});
+    }
+}
+
 uint32_t TrackProcessor::pairedFriendId() const noexcept {
     if (auto* s = pub_.slot()) return s->fedBy.load(std::memory_order_relaxed);
     return 0;

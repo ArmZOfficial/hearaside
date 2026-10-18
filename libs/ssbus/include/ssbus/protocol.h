@@ -334,7 +334,9 @@ enum RequestKind : uint32_t {
     kReqCreateFriend = 2,   // text = name for the new friend; reply = friend id
     kReqRelease      = 3,   // this feeder lets go of its friend (the Hub plays the friend directly again)
     kReqCopyLink     = 4,   // arg = friend id: the Hub puts that friend's send-in link on the clipboard
+    kReqPairWith     = 5,   // arg = slot of the Track this channel ends in, kPairAutomatic = find it by name / sound again
 };
+constexpr uint32_t kPairAutomatic = 0xFFFFFFFFu;
 constexpr uint32_t kReplyNotInRoom = 0xFFFF0001u;   // the link belongs to another room / is unknown
 constexpr uint32_t kReplyRoomFull  = 0xFFFF0002u;
 constexpr uint32_t kReplyFailed    = 0xFFFF0003u;

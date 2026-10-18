@@ -379,6 +379,82 @@ TEST_CASE("friends: S7 feeder pairing by track identity, Li measurement, and Lin
     releaseFeeder(*b, fidx);
 }
 
+TEST_CASE("friends: a pair chosen by hand wins over the names, is refused for bad Tracks, and ends with its Track") {
+    Room r("manual_pair");
+    BusLayout* b = r.hub.bus();
+    b->friends[0].id.store(101);
+    b->friends[0].state.store(kFriendLive);
+    const int fidx = claimFeeder(*b);
+    REQUIRE(fidx >= 0);
+    setFeederIdentity(b->feeders[fidx], "Friend 1", 0);   // what a host that sends no track names gives
+    b->feeders[fidx].friendId.store(101);
+    b->feeders[fidx].status.store(kFeederFlowing);
+    b->feeders[fidx].heartbeatNs.store(nowNs());
+    b->friends[0].feeder.store(fidx);
+
+    bool dup = false;
+    const int sidx = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    const int aidx = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    const int other = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    REQUIRE(sidx >= 0); REQUIRE(aidx >= 0); REQUIRE(other >= 0);
+    setSlotIdentity(b->slots[sidx], "Track 3", 0);
+    setSlotIdentity(b->slots[other], "Track 4", 0);
+    b->slots[aidx].flags.fetch_or(kFlagApp);
+    b->slots[sidx].chainLatencyBits.store(floatBits(12.5f));
+
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);   // names differ: nothing pairs
+
+    CHECK(!r.hub.pairWith(fidx, uint32_t(aidx)));          // an App Audio
+    CHECK(!r.hub.pairWith(fidx, uint32_t(kMaxSlots - 1)));  // not a Track
+    CHECK(!r.hub.pairWith(fidx + 1, uint32_t(sidx)));       // not a friend input
+    b->slots[other].fedBy.store(555);
+    CHECK(!r.hub.pairWith(fidx, uint32_t(other)));          // carries another friend
+    b->slots[other].fedBy.store(0);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+
+    REQUIRE(r.hub.pairWith(fidx, uint32_t(sidx)));
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == sidx);
+    CHECK(b->slots[sidx].fedBy.load() == 101);
+    CHECK((b->slots[sidx].flags.load() & kFlagViewersViaHub) != 0);   // so the Hub routes the friend through the DAW
+    CHECK_NEAR(bitsFloat(b->slots[sidx].fxLatencyBits.load()), 12.5f, 0.1f);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == sidx);   // the names still differ: it stays
+
+    CHECK(r.hub.pairWith(fidx, uint32_t(other)));   // changing one's mind
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == other);
+    CHECK(b->slots[sidx].fedBy.load() == 0);
+
+    releaseSlot(*b, other);   // the Track goes away: back to Direct, and a new Track on that index is not paired by mistake
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+    CHECK(b->slots[other].fedBy.load() == 0);
+    const int again = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+    CHECK(b->slots[again].fedBy.load() == 0);
+
+    REQUIRE(r.hub.pairWith(fidx, uint32_t(sidx)));
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == sidx);
+    CHECK(r.hub.pairWith(fidx, kPairAutomatic));   // back to automatic: the names differ, so unpaired
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+    CHECK(b->slots[sidx].fedBy.load() == 0);
+
+    REQUIRE(r.hub.pairWith(fidx, uint32_t(sidx)));
+    r.hub.measureLatencies();
+    b->friends[0].feeder.store(-1);   // the friend input goes away
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+    b->friends[0].feeder.store(fidx);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);   // and it does not come back by itself
+}
+
 
 TEST_CASE("friends: a friend mixed in a DAW track never hears themselves, and is delayed once, not twice") {
     Room r("s7_minus");

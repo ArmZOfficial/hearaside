@@ -723,6 +723,8 @@ Table build() {
     s(Str::AppearanceSynced, "ซิงก์หน้าตาจากบัญชีของคุณแล้ว", "Appearance synced from your account");
     s(Str::SignedInToast, "เข้าสู่ระบบเป็น %s แล้ว", "Signed in as %s");
     s(Str::SignedOutToast, "ออกจากระบบแล้ว", "Signed out");
+    s(Str::PairAutomatic, "อัตโนมัติ", "Automatic");
+    s(Str::PairRefused, "เลือก Track นั้นไม่ได้ อาจมีเพื่อนคนอื่นใช้อยู่หรือหายไปแล้ว", "Can’t use that Track. Another friend may have it, or it is gone.");
     s(Str::DawYours, "DAW ของคุณ", "your DAW");
     return t;
 }

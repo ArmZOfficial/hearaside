@@ -161,6 +161,12 @@ public:
     // The Line-up delay changed (ms): lets the Hub say so on screen. Counts changes; read lineUpMs() for the value.
     uint32_t lineUpChanges() const noexcept { return lineUpChanges_.load(std::memory_order_relaxed); }
 
+    // ---- pairing a friend input with the Track at the end of its channel (S7) --------------
+    // Message thread. By hand: arg = slot of that Track, or ssbus::kPairAutomatic to let the Hub find it by name /
+    // sound again. false = refused (no such friend input, the slot is not an active Track, an App Audio, or it
+    // already carries another friend). A manual pair is kept until its Track or the friend input goes away.
+    bool pairWith(int feeder, uint32_t arg);
+
     // ---- audio thread -------------------------------------------------------------------
     // io in: the master bus = Stream Mix. io out: the headphone mix. Writes Stream Mix + stems.
     void process(float* const* io, int numCh, int n, const HubParams& p,
@@ -235,6 +241,10 @@ private:
     int decCount_ = 0;
     std::atomic<int> lastBlock_{ 256 };   // likewise
     std::mutex measureMutex_;                       // prepare() vs measureLatencies()
+    // Pairs chosen by hand (or found by the probe), per friend: slot + that slot's claim + friend id in one word, so the
+    // message thread and the measuring thread never see half of one. 0 = none. manualLi_ = Li in 0.01 ms + 1, 0 = not measured.
+    std::array<std::atomic<uint64_t>, ssbus::kMaxFriends> manualPair_{};
+    std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> manualLi_{};
 
     std::vector<float> outs_[ssbus::kNumStreamOuts][2];
     std::array<bool, ssbus::kNumStreamOuts> outUsed_{};

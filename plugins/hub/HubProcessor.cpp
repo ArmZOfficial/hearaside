@@ -663,6 +663,9 @@ void HubProcessor::serviceRequests() {
                 ssbus::postReply(f, 1);
                 break;
             }
+            case ssbus::kReqPairWith:
+                ssbus::postReply(f, engine_.pairWith(feeder, arg) ? 1u : ssbus::kReplyFailed);
+                break;
             case ssbus::kReqCopyLink: {
                 const juce::String link = friendLink(arg);
                 if (link.isNotEmpty()) {

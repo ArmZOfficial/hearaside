@@ -123,6 +123,10 @@ private:
     std::unique_ptr<DbSliderLink> friendLink_;
     std::unique_ptr<ParamValueLink> friendValueLink_;
     void refreshFriendTexts();
+    Menu buildOutMenu();
+    // "Goes out through": which Track ends this channel (by hand, when the Hub can't tell by name)
+    SourcePicker outPicker_;
+    Field outField_ { {}, &outPicker_, 48 };
     Sheet sheet_ { *this };
     AccountPanel accountPanel_ { AccountPanel::Mode::Compact };
 

@@ -11,6 +11,7 @@
 #include "ssengine/engine.h"
 #include "ssengine/friend_reader.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -25,8 +26,17 @@ constexpr float kMaxFriendMs = 1000.0f;
 // out[i] = in[i - d] over a ring that always holds the newest input. d <= cap - n.
 inline void readTap(const std::vector<float>& ring, uint32_t endPos, uint32_t n, uint32_t d, float* out) noexcept {
     const uint32_t cap = uint32_t(ring.size());
-    uint32_t at = (endPos + cap - n - d % cap) % cap;
-    for (uint32_t i = 0; i < n; ++i) { out[i] = ring[at]; if (++at == cap) at = 0; }
+    const uint32_t at = (endPos + cap - n - d % cap) % cap;
+    const uint32_t first = std::min(n, cap - at);   // at most two contiguous pieces, no per-sample modulo
+    std::memcpy(out, ring.data() + at, size_t(first) * sizeof(float));
+    if (first < n) std::memcpy(out + first, ring.data(), size_t(n - first) * sizeof(float));
+}
+
+// ring[pos ..) = src[0..n), wrapping once
+inline void writeTap(std::vector<float>& ring, uint32_t pos, const float* src, uint32_t n) noexcept {
+    const uint32_t first = std::min(n, uint32_t(ring.size()) - pos);
+    std::memcpy(ring.data() + pos, src, size_t(first) * sizeof(float));
+    if (first < n) std::memcpy(ring.data(), src + first, size_t(n - first) * sizeof(float));
 }
 } // namespace
 
@@ -131,6 +141,9 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         if (!liveState) {
             f.reader.reset();
             info.playing.store(0, std::memory_order_relaxed);
+            info.underruns.store(0, std::memory_order_relaxed);
+            info.concealedMs.store(0, std::memory_order_relaxed);
+            info.jitterP95MsBits.store(0, std::memory_order_relaxed);
             for (int c = 0; c < 2; ++c) std::memset(f.out[c].data(), 0, size_t(n) * sizeof(float));
             f.peak *= std::exp(-float(n) / (0.3f * float(sr)));
             continue;
@@ -142,6 +155,9 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
             f.mon.snap(0.0f);
             f.str.snap(0.0f);   // no click when the voice (re)starts
         }
+        info.underruns.store(f.reader.underruns(), std::memory_order_relaxed);
+        info.concealedMs.store(uint32_t(f.reader.concealedMs()), std::memory_order_relaxed);
+        info.jitterP95MsBits.store(floatBits(float(std::max(0.0, f.reader.jitterP95Ms()))), std::memory_order_relaxed);
         if (!ok) {
             info.playing.store(0, std::memory_order_relaxed);
             continue;
@@ -207,10 +223,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     auto delayOut = [&](int o) {
         DelayLine& d = outDelay_[size_t(o)];
         const uint32_t cap = uint32_t(d.buf[0].size());
-        for (int c = 0; c < 2; ++c) {
-            float* x = outs_[size_t(o)][size_t(c)].data();
-            for (int i = 0; i < n; ++i) { d.buf[size_t(c)][(d.pos + uint32_t(i)) % cap] = x[i]; }
-        }
+        for (int c = 0; c < 2; ++c) writeTap(d.buf[size_t(c)], d.pos, outs_[size_t(o)][size_t(c)].data(), uint32_t(n));
         const uint32_t endPos = (d.pos + uint32_t(n)) % cap;
         for (int c = 0; c < 2; ++c) {
             float* x = outs_[size_t(o)][size_t(c)].data();
@@ -276,6 +289,8 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         float pk = 0.0f;
         float* vo = voice_[size_t(j)].data();
         const float gf = live ? g * 0.5f : 0.0f;   // mono: (l + r) / 2
+        float* wl = delayScratch_[0].data();   // this block's viewer side, written into the delay line in one go (readTap reuses them after)
+        float* wr = delayScratch_[1].data();
         if (!silentNow) {
             for (int i = 0; i < n; ++i) {
                 const float dg = f.direct.next();
@@ -285,13 +300,15 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
                 phoneL[i] += l * gm;
                 phoneR[i] += r * gm;
                 const float vl = l * gs * f.panL.next(), vr = r * gs * f.panR.next();
-                d.buf[0][(d.pos + uint32_t(i)) % cap] = vl;
-                d.buf[1][(d.pos + uint32_t(i)) % cap] = vr;
+                wl[i] = vl;
+                wr[i] = vr;
                 pk = std::max(pk, std::max(std::abs(vl), std::abs(vr)));
             }
         } else {
-            for (int i = 0; i < n; ++i) { d.buf[0][(d.pos + uint32_t(i)) % cap] = 0.0f; d.buf[1][(d.pos + uint32_t(i)) % cap] = 0.0f; f.direct.next(); f.panL.next(); f.panR.next(); }
+            for (int i = 0; i < n; ++i) { wl[i] = 0.0f; wr[i] = 0.0f; f.direct.next(); f.panL.next(); f.panR.next(); }
         }
+        writeTap(d.buf[0], d.pos, wl, uint32_t(n));
+        writeTap(d.buf[1], d.pos, wr, uint32_t(n));
         const uint32_t endPos = (d.pos + uint32_t(n)) % cap;
         const uint32_t dNew = lineD_ > usedTot_[size_t(j)] ? lineD_ - usedTot_[size_t(j)] : 0u;
         const uint32_t dOld = lineOldD_ > oldTot_[size_t(j)] ? lineOldD_ - oldTot_[size_t(j)] : 0u;

@@ -148,6 +148,9 @@ public:
         std::atomic<uint32_t> totalMsBits{ 0 };   // how late this friend is against the music, all included (ms)
         std::atomic<uint32_t> lineMsBits{ 0 };    // extra delay the Hub gives this friend so they line up (ms)
         std::atomic<uint32_t> overLimit{ 0 };     // slower than the Line-up limit: not counted in D
+        std::atomic<uint32_t> underruns{ 0 };     // short gaps the jitter buffer had to hide since this friend joined
+        std::atomic<uint32_t> concealedMs{ 0 };   // silence played for them (gaps + restarts), ms
+        std::atomic<uint32_t> jitterP95MsBits{ 0 }; // how late packets arrive over the last ~5 s, p95 (ms, 0 = not measured yet)
     };
     FriendControl& friendControl(int i) noexcept { return friendCtl_[size_t(i)]; }
     const FriendInfo& friendInfo(int i) const noexcept { return friendInfo_[size_t(i)]; }

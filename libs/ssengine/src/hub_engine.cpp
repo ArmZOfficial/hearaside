@@ -92,6 +92,7 @@ void HubEngine::maintain() {
     role_.store(owner ? Role::Owner : Role::Secondary, std::memory_order_release);
     if (owner) {
         reclaimDeadSlots(*b, kSlotStaleNs);
+        applyMemory(*b);
         if (beacon_) beaconPublish(beacon_->header());
     }
 }
@@ -419,6 +420,11 @@ bool HubEngine::pairWith(int feeder, uint32_t arg) {
     if (arg == kPairAutomatic) {
         manualPair_[size_t(j)].store(0, std::memory_order_release);
         manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+        std::string name;
+        uint32_t colour = 0;
+        readFeederIdentity(b->feeders[feeder], name, colour);
+        const std::lock_guard<std::mutex> lock(memoryMutex_);
+        std::erase_if(memory_, [&](const PairMemory& m) { return m.feeder == name; });
         return true;
     }
     if (arg >= uint32_t(kMaxSlots)) return false;
@@ -429,7 +435,54 @@ bool HubEngine::pairWith(int feeder, uint32_t arg) {
         if (k != j && pairSlot(manualPair_[size_t(k)].load(std::memory_order_acquire)) == int(arg)) return false;
     manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
     manualPair_[size_t(j)].store(pairWord(*b, int(arg), fid), std::memory_order_release);
+    remember(feeder, int(arg));
     return true;
+}
+
+void HubEngine::remember(int feeder, int slot) {
+    BusLayout* b = bus();
+    if (b == nullptr) return;
+    PairMemory m;
+    uint32_t colour = 0;
+    std::string slotName;
+    if (!readFeederIdentity(b->feeders[feeder], m.feeder, colour) || !readSlotIdentity(b->slots[slot], slotName, m.slotUuid, colour) || m.slotUuid.empty()) return;
+    const std::lock_guard<std::mutex> lock(memoryMutex_);
+    std::erase_if(memory_, [&](const PairMemory& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });
+    memory_.push_back(std::move(m));
+}
+
+std::vector<HubEngine::PairMemory> HubEngine::pairMemory() const {
+    const std::lock_guard<std::mutex> lock(memoryMutex_);
+    return memory_;
+}
+
+void HubEngine::setPairMemory(std::vector<PairMemory> memory) {
+    const std::lock_guard<std::mutex> lock(memoryMutex_);
+    memory_ = std::move(memory);
+}
+
+void HubEngine::applyMemory(BusLayout& b) {
+    std::vector<PairMemory> memory = pairMemory();
+    const uint64_t now = nowNs();
+    for (const PairMemory& m : memory) {
+        for (int k = 0; k < kMaxFeeders; ++k) {
+            FeederRecord& f = b.feeders[k];
+            std::string name;
+            uint32_t colour = 0;
+            if (f.state.load(std::memory_order_acquire) != kSlotActive || now - f.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull
+                || !readFeederIdentity(f, name, colour) || name != m.feeder) continue;
+            const uint32_t fid = f.friendId.load(std::memory_order_relaxed);
+            int j = -1;
+            for (int q = 0; q < kMaxFriends && fid != 0; ++q)
+                if (b.friends[q].id.load(std::memory_order_acquire) == fid && b.friends[q].feeder.load(std::memory_order_acquire) == k) j = q;
+            if (j < 0 || manualPair_[size_t(j)].load(std::memory_order_acquire) != 0) continue;
+            for (int s = 0; s < kMaxSlots; ++s) {
+                std::string slotName, uuid;
+                if (b.slots[s].state.load(std::memory_order_acquire) != kSlotActive || !readSlotIdentity(b.slots[s], slotName, uuid, colour) || uuid != m.slotUuid) continue;
+                if (pairWith(k, uint32_t(s))) break;   // the same checks as by hand
+            }
+        }
+    }
 }
 
 bool HubEngine::startProbe(int feeder) {
@@ -529,6 +582,7 @@ void HubEngine::probeStep() {
     manualLi_[size_t(j)].store(uint32_t(std::lround(li * 100.0)) + 1u, std::memory_order_relaxed);
     manualPair_[size_t(j)].store(pairWord(*b, best, fid), std::memory_order_release);
     publishPair(*b, fh, fid, best, li);
+    remember(fidx, best);
     endProbe(fidx, 1);
 }
 

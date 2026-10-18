@@ -458,6 +458,58 @@ TEST_CASE("friends: a pair chosen by hand wins over the names, is refused for ba
     CHECK(b->friends[0].outSlot.load() == -1);   // and it does not come back by itself
 }
 
+TEST_CASE("friends: a remembered pair is applied again when the friend input and the Track are both back") {
+    Room r("pair_memory");
+    BusLayout* b = r.hub.bus();
+    b->friends[0].id.store(101);
+    b->friends[0].state.store(kFriendLive);
+    const int fidx = claimFeeder(*b);
+    REQUIRE(fidx >= 0);
+    setFeederIdentity(b->feeders[fidx], "Friend 1", 0);
+    b->feeders[fidx].friendId.store(101);
+    b->feeders[fidx].heartbeatNs.store(nowNs());
+    b->friends[0].feeder.store(fidx);
+    bool dup = false;
+    const std::string uuid = makeUuid();
+    int sidx = claimSlot(*b, uuid, kRate, 2, dup);
+    REQUIRE(sidx >= 0);
+    setSlotIdentity(b->slots[sidx], "Track 3", 0);
+
+    CHECK(r.hub.pairMemory().empty());
+    REQUIRE(r.hub.pairWith(fidx, uint32_t(sidx)));
+    const auto saved = r.hub.pairMemory();   // what the project would store
+    REQUIRE(saved.size() == 1);
+    CHECK(saved[0].feeder == "Friend 1");
+    CHECK(saved[0].slotUuid == uuid);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == sidx);
+
+    // the project is closed and opened again: the Track comes back first on another index, the friend input later
+    releaseSlot(*b, sidx);
+    b->friends[0].feeder.store(-1);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+    const int filler = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    sidx = claimSlot(*b, uuid, kRate, 2, dup);
+    REQUIRE(sidx >= 0);
+    setSlotIdentity(b->slots[sidx], "Track 3", 0);
+    b->friends[0].feeder.store(fidx);
+    r.hub.maintain();
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == sidx);
+    CHECK(b->slots[filler].fedBy.load() == 0);
+
+    // a new Hub gets the saved pairs from the project
+    r.hub.pairWith(fidx, kPairAutomatic);
+    CHECK(r.hub.pairMemory().empty());   // choosing Automatic forgets it
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
+    r.hub.setPairMemory(saved);
+    r.hub.maintain();
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == sidx);
+}
+
 
 TEST_CASE("friends: a friend mixed in a DAW track never hears themselves, and is delayed once, not twice") {
     Room r("s7_minus");

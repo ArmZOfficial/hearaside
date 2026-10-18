@@ -170,6 +170,12 @@ public:
     // sound again. false = refused (no such friend input, the slot is not an active Track, an App Audio, or it
     // already carries another friend). A manual pair is kept until its Track or the friend input goes away.
     bool pairWith(int feeder, uint32_t arg);
+    // Pairs chosen by hand or found by the probe are remembered by the friend input's track name and the Track's uuid,
+    // so the project can keep them: pairMemory() is what to save, setPairMemory() gives it back on load, and
+    // maintain() pairs again whenever both are there (the DAW loads its plug-ins one by one, or wakes a resting track).
+    struct PairMemory { std::string feeder, slotUuid; };
+    std::vector<PairMemory> pairMemory() const;
+    void setPairMemory(std::vector<PairMemory> memory);
 
     // Probe: find the Track at the end of a friend input's channel by sound. startProbe (message thread) silences the
     // Stream Mix and what friends hear; probeStep (latency thread, every ~20 ms while probing()) then makes the feeder
@@ -263,6 +269,10 @@ private:
     uint32_t probeFrom_ = 0;               // capWrite_ at the start of the stage
     uint64_t probeWallNs_ = 0;
     void endProbe(int feeder, uint32_t reply);
+    mutable std::mutex memoryMutex_;       // message thread (save, load, maintain) vs the measuring thread (probe)
+    std::vector<PairMemory> memory_;
+    void remember(int feeder, int slot);
+    void applyMemory(ssbus::BusLayout& b);
 
     std::vector<float> outs_[ssbus::kNumStreamOuts][2];
     std::array<bool, ssbus::kNumStreamOuts> outUsed_{};

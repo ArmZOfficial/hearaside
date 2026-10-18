@@ -4,6 +4,7 @@
 #include "testing.h"
 
 #include "ssengine/engine.h"
+#include "ssengine/friend_reader.h"
 
 #include <memory>
 #include <vector>
@@ -438,4 +439,30 @@ TEST_CASE("friends: friends hear each other as soon as each voice arrives (Jamul
     CHECK(r.hub.lineUpMs() > 250.0);
     // the base mix still carries no friend (the share server adds everyone but the listener)
     CHECK(Room::bestLag(r.friendMix, 0, size_t(3.0 * kRate), size_t(0.06 * kRate), kVoice, 0, int64_t(0.6 * kRate)) < 0);
+}
+
+TEST_CASE("friends: a Track prepared for its real block starts the friend's jitter buffer ~30 ms lower than for 2048") {
+    auto startBufferMs = [](int block) {
+        auto ring = std::make_unique<ChannelRing>();
+        std::atomic<uint64_t> wp{ 0 };
+        FriendReader rd;
+        rd.prepare(kRate, block);
+        std::vector<float> o0(static_cast<size_t>(block)), o1(static_cast<size_t>(block));
+        float* out[2] = { o0.data(), o1.data() };
+        std::vector<float> pk(960);
+        int64_t sent = 0;
+        for (int cycle = 0; cycle < 2 * kRate / block; ++cycle) {   // 2 s: the reader primes, then plays
+            while (sent + 960 <= int64_t(cycle) * block) {
+                for (int i = 0; i < 960; ++i) pk[size_t(i)] = noiseAt(sent + i, kVoice);
+                const float* src[1] = { pk.data() };
+                ringWrite(*ring, wp, src, 1, 960);
+                sent += 960;
+            }
+            rd.pull(*ring, wp, kRate, out, block);
+        }
+        CHECK(rd.primed());
+        return rd.bufferMs();
+    };
+    const double small = startBufferMs(256), big = startBufferMs(2048);
+    CHECK_LT(30.0, big - small);   // at least the ~37 ms between the two blocks (a 2048 pull also sees lumpier arrivals)
 }

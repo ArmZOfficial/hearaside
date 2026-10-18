@@ -81,7 +81,9 @@ void TrackProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     delayLine_.clear();
     delayWrite_ = 0;
     pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
-    friendChunk_ = juce::jmax(2048, samplesPerBlock);
+    // the real block size: the reader starts its jitter buffer at one block + network headroom, so a
+    // fixed 2048 here cost ~30 ms at block 256. Bigger blocks than announced are pulled in chunks.
+    friendChunk_ = juce::jmax(16, samplesPerBlock);
     reader_.prepare(sampleRate_, friendChunk_);
     for (auto& v : friendScratch_) v.assign(size_t(friendChunk_), 0.0f);
     friendGain_.reset(sampleRate_, 0.020);

@@ -376,7 +376,16 @@ juce::String HubProcessor::diagnostics() const {
     r << "auto sync: phase " << int(autoSync_.phase) << ", " << juce::String(autoSync_.deltaMs, 1) << " ms\n"
       << "sharing: " << (shareWanted_ ? "on" : "off") << ", tunnel " << int(share_.tunnel()) << ", permanent link "
       << (permanentLinksSet() ? juce::String(int(directory_.state())) : juce::String("not set")) << ", listeners " << share_.listeners() << "\n"
-      << "REST API: " << (control_.running() ? "on, port " + juce::String(control_.port()) : juce::String("off")) << "\n";
+      << "friends live: " << share_.friendsConnected() << "\n";
+    if (const auto* bus = engine_.bus())
+        for (const auto& e : friendRoom_.entries()) {   // the line to each friend who is connected (no names)
+            if (e.slot < 0 || bus->friends[e.slot].state.load() != ssbus::kFriendLive) continue;
+            const auto f = share_.friendStats(e.slot);
+            r << "  [" << e.slot << "] round trip " << (f.rttMs < 0.0f ? juce::String("unknown (older page)") : juce::String(f.rttMs, 0) + " ms")
+              << ", up " << juce::String(f.upKbps, 0) << " kbps, down " << juce::String(f.downKbps, 0) << " kbps, longest mic gap " << juce::String(f.micGapMaxMs, 0)
+              << " ms, most audio waiting " << juce::String(f.downLagMaxMs, 0) << " ms, skipped ahead " << int(f.downSkips) << "x\n";
+        }
+    r << "REST API: " << (control_.running() ? "on, port " + juce::String(control_.port()) : juce::String("off")) << "\n";
     return r;   // track names, links, tokens and keys stay out on purpose
 }
 

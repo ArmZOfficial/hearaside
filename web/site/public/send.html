@@ -425,6 +425,7 @@ async function connect() {
       if (!m) return;
       if (m.v === 2) { duplex = true; room = { name: m.name || "", host: m.host || "" }; applyLang(); }
       if (m.delay !== undefined) { behindMs = m.delay >= 0 ? m.delay : null; showBehind(); }
+      if (m.ping !== undefined) ws.send(JSON.stringify({ pong: m.ping }));   // the Hub measures the round trip (an older Hub never asks)
       return;
     }
     const d = new DataView(e.data);

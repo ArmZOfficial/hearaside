@@ -130,6 +130,18 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
         f->blockCount.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // the Hub asks for its probe sweep: read here, not in the timer, so it starts at once and the Hub can time its listening.
+    // Read before every early return: a command that waited out a bypass would play the sweep unmuted later.
+    const bool canProbe = !(bypassed || offline) && f != nullptr && b != nullptr && friendId_.load(std::memory_order_relaxed) != 0;
+    if (f != nullptr) {
+        const uint32_t cs = f->hubCommandSeq.load(std::memory_order_acquire);
+        if (cs != probeSeq_.load(std::memory_order_relaxed)) {
+            probeSeq_.store(cs, std::memory_order_relaxed);
+            if (canProbe && f->hubCommand.load(std::memory_order_relaxed) == 2 && !probeSig_.empty()) probePos_ = 0;
+        }
+    }
+    if (!canProbe) probePos_ = -1;
+
     // Silence on bypass or offline render
     if (bypassed || offline) {
         if (f != nullptr) {
@@ -139,15 +151,6 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
         buffer.clear();
         for (int c = 0; c < 2; ++c) peak_[c].store(0.0f, std::memory_order_relaxed);
         return;
-    }
-
-    // the Hub asks for its probe sweep: read here, not in the timer, so it starts at once and the Hub can time its listening
-    if (f != nullptr) {
-        const uint32_t cs = f->hubCommandSeq.load(std::memory_order_acquire);
-        if (cs != probeSeq_) {
-            probeSeq_ = cs;
-            if (f->hubCommand.load(std::memory_order_relaxed) == 2 && !probeSig_.empty()) probePos_ = 0;
-        }
     }
 
     const uint32_t fid = friendId_.load(std::memory_order_relaxed);
@@ -168,7 +171,8 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
         }
     }
 
-    if (probePos_ >= 0 && friendSlot >= 0) {   // the voice waits: the tap must hold the sweep alone
+    if (friendSlot < 0) probePos_ = -1;   // the friend left: the rest of the sweep would play later, unmuted
+    if (probePos_ >= 0) {   // the voice waits: the tap must hold the sweep alone
         reader_.reset();
         if (!keepOwn) buffer.clear();
         f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
@@ -381,7 +385,7 @@ void TrackProcessor::connectFeeder() {
     f->friendId.store(fid, std::memory_order_relaxed);
     f->sampleRate.store(uint32_t(sampleRate_ + 0.5), std::memory_order_relaxed);
     f->status.store(fid == 0 ? ssbus::kFeederNoFriend : ssbus::kFeederFlowing, std::memory_order_relaxed);
-    probeSeq_ = f->hubCommandSeq.load(std::memory_order_relaxed);   // a probe asked of the last owner is not ours
+    probeSeq_.store(f->hubCommandSeq.load(std::memory_order_relaxed), std::memory_order_relaxed);   // a probe asked of the last owner is not ours
     feeder_.store(f, std::memory_order_release);
     pushFeederIdentity();
     stateChanged.sendChangeMessage();

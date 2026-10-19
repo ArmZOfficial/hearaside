@@ -171,7 +171,7 @@ private:
     uint32_t feederCmdSeq_ = 0;
     std::vector<float> probeSig_;      // the Hub's probe sweep, made in prepareToPlay
     int probePos_ = -1;                // next frame of it to play, -1 = not probing (audio thread)
-    uint32_t probeSeq_ = 0;            // hubCommandSeq the audio thread has seen
+    std::atomic<uint32_t> probeSeq_{ 0 };   // hubCommandSeq the audio thread has seen
     uint32_t pendingRequest_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackProcessor)

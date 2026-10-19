@@ -73,3 +73,22 @@ TEST_CASE("catch up: a line that falls behind jumps near the newest audio, a hea
     CHECK(ssbus::catchUp(w + 5, w, rate, 150, 30) == w + 5);            // Hub restarted: not our business here
     CHECK(ssbus::catchUp(0, 500, rate, 1, 1000) == 0);                  // keep is longer than all there is: from the start
 }
+
+TEST_CASE("send queue: pongs behind a stuck line stop at the cap, however many pings come") {
+    SendQueue q;
+    FakeSocket s;   // takes nothing: the line is stuck
+    const std::string audio(2000, 'a'), pong(127, 'p');
+    q.offer(audio.data(), audio.size());
+    int kept = 0;
+    for (int i = 0; i < 1000; ++i) {
+        kept += q.appendIfRoom(pong.data(), pong.size(), 1024) ? 1 : 0;
+        CHECK(q.flush(std::ref(s)));
+    }
+    CHECK(kept == 0);                       // the packet alone is already over the cap: no pong waits behind it
+    CHECK(q.pending() == audio.size());
+    s.room = 1 << 20;
+    CHECK(q.flush(std::ref(s)));
+    for (int i = 0; i < 1000; ++i) q.appendIfRoom(pong.data(), pong.size(), 1024);   // empty again, still stuck now
+    s.room = 0;
+    CHECK(q.pending() <= 1024 + pong.size());
+}

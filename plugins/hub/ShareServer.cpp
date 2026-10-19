@@ -2,7 +2,6 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <winsock2.h>   // setsockopt; before anything that pulls in windows.h
 #endif
 
 #include "ShareServer.h"
@@ -11,6 +10,7 @@
 #include "ssbus/paced_send.h"
 
 #ifdef _WIN32
+#include <winsock2.h>   // setsockopt, send, WSAPoll: after juce_core (as everywhere), before windows.h
 #include <windows.h>
 #include <bcrypt.h>
 #pragma comment(lib, "bcrypt.lib")
@@ -47,7 +47,8 @@ constexpr int kMaxListeners = int(kMaxConns) - ssbus::kMaxFriends - 2;   // list
 constexpr long kMaxPerPeer = 6;    // one LAN device: a few pages + their WebSockets
 constexpr long kMaxPending = 24;   // connections that have not sent a whole request head yet: the rest of the places stay free
 // A slow line must not make the music later and later: what the socket cannot take is not queued, the Hub jumps ahead.
-constexpr int kSendBufferBytes = 16 * 1024;   // the kernel's queue per connection (Windows would grow it to MBs)
+constexpr int kSendBufferBytes = 64 * 1024;   // the kernel's queue per connection (Windows would grow it to MBs; Linux doubles this). Less caps a 100 ms line below PCM stereo
+constexpr size_t kMaxControlQueue = 1024;     // bytes of pongs that may wait behind a stuck line
 constexpr uint32_t kFriendMaxLagMs = 150;     // friend: the page buffers ~60 ms itself, so no more than this waits at the Hub
 constexpr uint32_t kListenMaxLagMs = 300;     // listener: the page may buffer up to 0.8 s itself
 
@@ -195,6 +196,7 @@ uint8_t readMessage(juce::StreamingSocket& s, std::vector<uint8_t>& out, int tim
         uint64_t len = h[1] & 0x7F;
         if (len == 126) { uint8_t e[2]; if (!readExact(s, e, 2, timeoutMs, alive)) return 0; len = uint64_t(e[0]) << 8 | e[1]; }
         else if (len == 127) { uint8_t e[8]; if (!readExact(s, e, 8, timeoutMs, alive)) return 0; len = 0; for (uint8_t b : e) len = len << 8 | b; }
+        if (op >= 8 && len > 125) return 0;   // RFC 6455 5.5: a control frame is 125 bytes at most (a 4 MB ping must not be answered, again and again)
         if (len > (1u << 22) || out.size() + len > (1u << 22)) return 0;   // whole message, not per fragment: endless fragments must not fill the DAW's memory
         uint8_t mask[4] = { 0, 0, 0, 0 };
         const bool masked = (h[1] & 0x80) != 0;
@@ -672,7 +674,7 @@ void ShareServer::streamTo(Conn& c) {
             const uint8_t op = readMessage(s, incoming, 1000, running_, [&out](const uint8_t* p, size_t n) {
                 std::vector<uint8_t> pong;
                 frameInto(pong, 0xA, p, n);
-                out.append(pong.data(), pong.size());
+                out.appendIfRoom(pong.data(), pong.size(), kMaxControlQueue);
             });
             if (op == 8 || op == 0) break;
         }
@@ -815,7 +817,7 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
         std::vector<uint8_t> pong;
         frameInto(pong, 0xA, p, n);
         const std::lock_guard<std::mutex> lock(out.lock);
-        out.q.append(pong.data(), pong.size());
+        out.q.appendIfRoom(pong.data(), pong.size(), kMaxControlQueue);
     };
     while (!closing && !out.over.load() && running_.load() && friendGen_[idx].load() == gen && !friendKick_[idx].load()) {
         const auto now = juce::Time::getMillisecondCounter();
@@ -925,32 +927,36 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
         if (w > 0) net.downBytes.fetch_add(uint64_t(w), std::memory_order_relaxed);
         return w;
     };
-    auto lastInfo = juce::Time::getMillisecondCounter();
+    auto lastStat = juce::Time::getMillisecondCounter(), lastInfo = lastStat;
     uint64_t prevUp = 0, prevDown = 0;
+    bool controlDue = false;   // delay + ping wait for an empty queue, and are only counted as sent when they were queued
     bool blocked = false;   // the socket still holds a packet
     while (!out.over.load() && running_.load() && friendGen_[idx].load() == gen && !friendKick_[idx].load()) {
         const auto now = juce::Time::getMillisecondCounter();
-        if (now - lastInfo >= 1000) {   // once a second: kbps, how late the friend is (their screen), ping (round trip)
-            const float secs = float(now - lastInfo) / 1000.0f;
-            lastInfo = now;
+        if (now - lastStat >= 1000) {   // once a second: kbps
+            const float secs = float(now - lastStat) / 1000.0f;
+            lastStat = now;
             const uint64_t up = net.upBytes.load(std::memory_order_relaxed), down = net.downBytes.load(std::memory_order_relaxed);
             net.up.store(float(up - prevUp) * 8.0f / 1000.0f / secs, std::memory_order_relaxed);
             net.down.store(float(down - prevDown) * 8.0f / 1000.0f / secs, std::memory_order_relaxed);
             prevUp = up;
             prevDown = down;
-            const auto delay = "{\"delay\":" + juce::String(ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed)), 1) + "}";
-            const auto ping = "{\"ping\":" + juce::String(now) + "}";
+        }
+        if (now - lastInfo >= 1000) controlDue = true;   // how late the friend is (their screen) and the ping (round trip)
+        {
             const std::lock_guard<std::mutex> lock(out.lock);
-            if (out.q.idle()) {   // a line that is stuck gets no pile of these either
+            if (!out.q.flush(sendNow)) break;
+            if (controlDue && out.q.idle()) {   // as soon as the queue is empty, before the next audio packet: a bad line needs these most
+                const auto delay = "{\"delay\":" + juce::String(ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed)), 1) + "}";
+                const auto ping = "{\"ping\":" + juce::String(now) + "}";
                 frameInto(framed, 1, delay.toRawUTF8(), delay.getNumBytesAsUTF8());
                 out.q.append(framed.data(), framed.size());
                 frameInto(framed, 1, ping.toRawUTF8(), ping.getNumBytesAsUTF8());
                 out.q.append(framed.data(), framed.size());
+                controlDue = false;
+                lastInfo = now;
+                if (!out.q.flush(sendNow)) break;
             }
-        }
-        {
-            const std::lock_guard<std::mutex> lock(out.lock);
-            if (!out.q.flush(sendNow)) break;
             blocked = !out.q.idle();
         }
 

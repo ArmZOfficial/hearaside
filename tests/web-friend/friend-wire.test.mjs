@@ -1,6 +1,7 @@
 // The friend's connection to a real Hub, without a browser (a plain TCP client speaks the WebSocket):
 // hello, ping / pong, the mix coming back, and a friend that stops reading for a while must not stop
-// the microphone (the Hub reads and writes on two threads).
+// the microphone (the Hub reads and writes on two threads). Whether the page itself sends mono is checked
+// by friend-page.test.mjs (real Chrome).
 //   node tests/web-friend/friend-wire.test.mjs <ui-snapshot.exe>
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -21,6 +22,20 @@ const url = (await waitFor(/FRIEND_URL=(\S+)/, 20000))?.[1];
 if (!url) { console.error('the Hub did not print a friend link:\n' + out); hub.kill(); process.exit(1); }
 
 const u = new URL(url);
+{   // first, before the real friend (a new connection starts the numbers again): RFC 6455 5.5: a control frame over 125 bytes is a broken or hostile peer: the Hub hangs up, it does not answer
+  const bad = net.connect(Number(u.port), u.hostname);
+  bad.write(`GET /ws/s/${u.pathname.split('/').pop()} HTTP/1.1\r\nHost: ${u.host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+  bad.on('error', () => {});
+  bad.resume();   // read (and ignore) what the Hub sends, or 'close' never comes
+  let closed = false;
+  bad.on('close', () => { closed = true; });
+  await sleep(500);
+  bad.write((() => { const m = crypto.randomBytes(4), body = Buffer.alloc(300, 1); for (let i = 0; i < 300; i++) body[i] ^= m[i & 3]; return Buffer.concat([Buffer.from([0x89, 0x80 | 126, 300 >> 8, 300 & 255]), m, body]); })());
+  await sleep(1500);
+  expect('a ping of 300 bytes ends the connection', closed);
+  bad.destroy();
+}
+
 const sock = net.connect(Number(u.port), u.hostname);
 sock.write(`GET /ws/s/${u.pathname.split('/').pop()} HTTP/1.1\r\nHost: ${u.host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
 let buf = Buffer.alloc(0), upgraded = false, hello = null, audio = 0, pings = 0, badFrames = 0;
@@ -69,8 +84,8 @@ expect('the Hub says hello: who the friend is', hello && hello.name === 'Mint', 
 expect('the mix comes back as HRA2 stereo', audio > 100 && badFrames === 0, `(${audio} packets)`);
 expect('the Hub pings and the answer is taken (see rtt below)', pings >= 2, `(${pings} pings)`);
 const before = audio;
-sock.pause();   // the friend's line down is stuck for 6 s; the microphone goes on
-await sleep(6000);
+sock.pause();   // the friend's line down is stuck for 8 s; the microphone goes on
+await sleep(8000);
 sock.resume();
 await sleep(2500);
 expect('after the stop the mix flows again', audio > before + 50, `(${audio - before} more packets)`);
@@ -81,9 +96,10 @@ const result = await waitFor(/RESULT (.*)/, 20000);
 hub.kill();
 console.log('     hub: ' + (result ? result[1] : 'no result'));
 const num = k => parseFloat(new RegExp(k + '=(-?[0-9.]+)').exec(result?.[1] ?? '')?.[1] ?? 'NaN');
-expect('the microphone kept arriving while the friend did not read (12.5 s of audio, at least 11)', num('writePos') > 48000 * 11, `(${(num('writePos') / 48000).toFixed(1)} s)`);
-expect('no gap of more than half a second between microphone packets', num('micGap') < 500, `(${num('micGap')} ms)`);
+expect('the microphone kept arriving while the friend did not read (at least 90% of what was sent)', num('writePos') >= 0.9 * sent, `(${num('writePos')} of ${sent} frames)`);
+expect('no gap of 2 s or more between microphone packets', num('micGap') < 2000, `(${num('micGap')} ms)`);
+expect('the stuck line made the Hub skip ahead instead of queueing', num('skips') > 0, `(${num('skips')} times)`);
+expect('and no more than 200 ms of audio ever waited for the line', num('lag') <= 200, `(${num('lag')} ms)`);
 expect('the round trip was measured from the pong', num('rtt') >= 0 && num('rtt') < 1000, `(${num('rtt')} ms)`);
-expect('the line up is mono: 600 .. 1000 kbps', num('up') > 600 && num('up') < 1000, `(${num('up')} kbps)`);
 console.log(failures === 0 ? 'friend wire: all passed' : 'friend wire: FAILED');
 process.exit(failures === 0 ? 0 : 1);

@@ -23,6 +23,13 @@ public:
         const auto* b = static_cast<const uint8_t*>(p);
         buf_.insert(buf_.end(), b, b + n);
     }
+    // The same, but only while less than `cap` bytes wait: a peer that keeps asking for answers and never reads
+    // them must not make this grow. false = not kept.
+    bool appendIfRoom(const void* p, size_t n, size_t cap) {
+        if (pending() >= cap) return false;
+        append(p, n);
+        return true;
+    }
     // Audio: kept only when nothing waits. false = dropped.
     bool offer(const void* p, size_t n) {
         if (!idle()) return false;

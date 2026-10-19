@@ -258,6 +258,59 @@ std::vector<uint8_t> pcmPacket(int frames, int64_t t0, float amp) {
     return p;
 }
 
+// The Hub's saved state as XML. VST3 hosts keep the plug-in's own binary state, base64, inside an <IComponent> element.
+struct HubState {
+    std::unique_ptr<juce::XmlElement> outer, plugin;
+    juce::XmlElement* comp = nullptr;
+
+    explicit HubState(juce::AudioPluginInstance& hub) {
+        juce::MemoryBlock mb;
+        hub.getStateInformation(mb);
+        outer = juce::AudioProcessor::getXmlFromBinary(mb.getData(), int(mb.getSize()));
+        comp = outer ? outer->getChildByName("IComponent") : nullptr;
+        if (comp == nullptr) { plugin = std::move(outer); return; }
+        juce::MemoryBlock inner;
+        if (inner.fromBase64Encoding(comp->getAllSubText().trim())) plugin = juce::AudioProcessor::getXmlFromBinary(inner.getData(), int(inner.getSize()));
+    }
+    void load(juce::AudioPluginInstance& hub) {
+        juce::MemoryBlock out;
+        juce::AudioProcessor::copyXmlToBinary(*plugin, out);
+        if (comp != nullptr) {
+            const auto b64 = out.toBase64Encoding();
+            comp->deleteAllTextElements();
+            comp->addTextElement(b64);
+            out.reset();
+            juce::AudioProcessor::copyXmlToBinary(*outer, out);
+        }
+        hub.setStateInformation(out.getData(), int(out.getSize()));
+    }
+};
+
+void testPairState(Rig& rig) {
+    HubState in(*rig.hub);
+    check(in.plugin != nullptr, "the Hub's saved state can be read");
+    if (in.plugin == nullptr) return;
+    in.plugin->deleteAllChildElementsWithTagName("PAIRS");
+    auto* pairs = in.plugin->createNewChildElement("PAIRS");
+    const char* rows[][2] = { { "Lead Vocal", "uuid-a" }, { "", "uuid-b" }, { "Harmony", "" }, { "Backing", "uuid-c" } };
+    for (auto& r : rows) {
+        auto* p = pairs->createNewChildElement("PAIR");
+        p->setAttribute("feeder", r[0]);
+        p->setAttribute("slot", r[1]);
+    }
+    in.load(*rig.hub);
+    pump(50);
+    HubState out(*rig.hub);
+    const auto* saved = out.plugin ? out.plugin->getChildByName("PAIRS") : nullptr;
+    check(saved != nullptr && saved->getNumChildElements() == 2, "pairs of the project survive save / restore, empty ones are dropped");
+    if (saved != nullptr && saved->getNumChildElements() == 2) {
+        const auto* a = saved->getChildElement(0);
+        const auto* c = saved->getChildElement(1);
+        check(a->getStringAttribute("feeder") == "Lead Vocal" && a->getStringAttribute("slot") == "uuid-a"
+              && c->getStringAttribute("feeder") == "Backing" && c->getStringAttribute("slot") == "uuid-c", "...with the same feeder and Track");
+    }
+}
+
 void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm, const char* appPath) {
     ssbus::postRemote(L, ssbus::RemoteParam::Share, 1.0f);
     pump(400);
@@ -661,6 +714,7 @@ int main(int argc, char** argv) {
         if (slotB >= 0) testAutoSyncApp(rig, L, slotB);
         if (slotB >= 0) testAutoSyncApp(rig, L, slotB, -1488);   // 31 ms early (the Track delay has 1 ms steps)
     }
+    testPairState(rig);
     testShare(rig, L, fm, argc > 3 ? argv[3] : nullptr);
     if (argc > 3) testAppAudio(fm, argv[3], L);
 

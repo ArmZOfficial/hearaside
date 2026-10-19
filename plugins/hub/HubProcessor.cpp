@@ -1015,8 +1015,10 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     state.removeChild(state.getChildWithName("SCENES"), nullptr);
     state.removeProperty("mastering", nullptr);
     std::vector<HubEngine::PairMemory> pairs;
-    for (const auto& p : state.getChildWithName("PAIRS"))
-        pairs.push_back({ p.getProperty("feeder").toString().toStdString(), p.getProperty("slot").toString().toStdString() });
+    for (const auto& p : state.getChildWithName("PAIRS")) {
+        HubEngine::PairMemory m { p.getProperty("feeder").toString().toStdString(), p.getProperty("slot").toString().toStdString() };
+        if (!m.feeder.empty() && !m.slotUuid.empty()) pairs.push_back(std::move(m));   // an empty one would match any Track or feeder
+    }
     engine_.setPairMemory(std::move(pairs));
     friendRoom_.fromState(state.getChildWithName("FRIENDS"));
     lineUp_ = bool(state.getProperty("lineUp", true));

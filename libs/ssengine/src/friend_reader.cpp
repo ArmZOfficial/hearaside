@@ -61,7 +61,7 @@ void FriendReader::observe(uint64_t w, double fr, double dt) noexcept {
 double FriendReader::halfPacket(double fr) const noexcept {
     double pkt = 1.0e18;
     for (double a : advMin_) pkt = std::min(pkt, a);
-    return pkt < 1.0e17 ? std::min(pkt * 0.5, fr * 0.005) : 0.0;
+    return pkt < 1.0e17 && pkt > blockFr_ ? pkt * 0.5 : 0.0;
 }
 
 // block + measured jitter + 2 ms + half a packet; until there is a measurement a modest guess
@@ -119,6 +119,7 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
         primed_ = played_ = true;
         muted_ = false;
         fadeLeft_ = fadeFrames;
+        fadeFrom_[0] = lastOut_[0]; fadeFrom_[1] = lastOut_[1];   // a fade longer than a block must keep fading from this, not from the mixed block end
         fill = target_;
         fillAvg_ = target_;
         minMargin_ = 1.0e9;
@@ -144,6 +145,7 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
         holdSec_ = 5.0;
         muted_ = false;
         fadeLeft_ = fadeFrames;
+        fadeFrom_[0] = lastOut_[0]; fadeFrom_[1] = lastOut_[1];   // a fade longer than a block must keep fading from this, not from the mixed block end
     } else if (fill < need) {
         startMute = true;
     } else {
@@ -184,12 +186,12 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
     }
     for (int c2 = 0; c2 < 2; ++c2)
         if (made < uint32_t(n)) std::memset(out[c2] + made, 0, (uint32_t(n) - made) * sizeof(float));
-    if (fadeLeft_ > 0) {   // no click when the voice (re)starts: the old last sample (0 after silence) fades out as the new data fades in
+    if (fadeLeft_ > 0) {   // no click when the voice (re)starts: the last sample before it (0 after silence) fades out as the new data fades in
         const int m = std::min(n, fadeLeft_);
         for (int c2 = 0; c2 < 2; ++c2)
             for (int j = 0; j < m; ++j) {
                 const float g = float(fadeFrames - fadeLeft_ + j + 1) / float(fadeFrames);
-                out[c2][j] = out[c2][j] * g + lastOut_[c2] * (1.0f - g);
+                out[c2][j] = out[c2][j] * g + fadeFrom_[c2] * (1.0f - g);
             }
         fadeLeft_ -= m;
     }

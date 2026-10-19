@@ -53,7 +53,7 @@ private:
     // a short gap: cursor_ stays put, the output is silence (faded in / out) until a whole block is there again
     double mutedOut_ = 0, missing_ = 0;   // silent output frames so far / input frames missing when it began
     int fadeLeft_ = 0;
-    float lastOut_[2] = { 0, 0 };
+    float lastOut_[2] = { 0, 0 }, fadeFrom_[2] = { 0, 0 };   // last sample played / where the running fade-in started
     uint32_t underruns_ = 0, reprimes_ = 0;
     double concealedMs_ = 0;
     // arrival jitter: lateness of each writePos advance against the earliest in the window, 1 ms bins, 10 x 0.5 s

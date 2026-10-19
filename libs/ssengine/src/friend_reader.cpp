@@ -61,7 +61,7 @@ void FriendReader::observe(uint64_t w, double fr, double dt) noexcept {
 double FriendReader::halfPacket(double fr) const noexcept {
     double pkt = 1.0e18;
     for (double a : advMin_) pkt = std::min(pkt, a);
-    return pkt < 1.0e17 ? std::min(pkt * 0.5, fr * 0.01) : 0.0;
+    return pkt < 1.0e17 ? std::min(pkt * 0.5, fr * 0.005) : 0.0;
 }
 
 // block + measured jitter + 2 ms + half a packet; until there is a measurement a modest guess
@@ -98,10 +98,20 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
     }
     observe(w, fr, dt);
     auto lost = [&](double frames) { if (played_) concealedMs_ += frames * 1000.0 / sampleRate_; };   // silence we play after the first sound
-    auto reprime = [&] { primed_ = false; muted_ = false; starvedAt_ = w; lost(n); silence(); return false; };
+    const int fadeLen = std::min(fadeFrames, n);
+    // silence for this block, after a short decay from the last sample played (no step in the output)
+    auto decayThenSilence = [&] {
+        for (int c = 0; c < 2; ++c) {
+            std::memset(out[c], 0, size_t(n) * sizeof(float));
+            for (int j = 0; j < fadeLen; ++j) out[c][j] = lastOut_[c] * float(fadeLen - 1 - j) / float(fadeLen);
+        }
+        lastOut_[0] = lastOut_[1] = 0.0f;
+    };
+    auto reprime = [&] { primed_ = false; muted_ = false; starvedAt_ = w; ++reprimes_; lost(n); decayThenSilence(); return false; };
     double fill = double(int64_t(w - cursor_));
     const double maxFill = double(kRingFrames - kGuardFrames);
     if (!primed_ || fill < 0.0 || fill > std::min(maxFill, target_ * 2.0 + fr * 0.05)) {
+        if (primed_ && played_) ++reprimes_;   // too much data or a nonsense position while playing: jump to the newest
         if (double(w) < double(starvedAt_) + target_ + double(n)) { lost(n); silence(); return false; }
         cursor_ = w - uint64_t(target_ + halfPacket(fr));   // w is at the top of a step now, the controller wants the mean
         drift_.reset(target_);
@@ -118,7 +128,11 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
     bool startMute = false;
     if (muted_) {
         if (fill < need) {   // still waiting: a short gap keeps its place, a long one starts over
-            if (mutedOut_ >= sampleRate_ * 0.03) return reprime();
+            if (mutedOut_ >= sampleRate_ * 0.03) {   // long gap: learn from it as well, or a stall every few seconds repeats forever
+                target_ = std::min(target_ + missing_ + mutedOut_ * fr / sampleRate_, blockFr_ + fr * 0.4);
+                holdSec_ = 5.0;
+                return reprime();
+            }
             mutedOut_ += n;
             lost(n);
             silence();
@@ -170,26 +184,32 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
     }
     for (int c2 = 0; c2 < 2; ++c2)
         if (made < uint32_t(n)) std::memset(out[c2] + made, 0, (uint32_t(n) - made) * sizeof(float));
-    if (startMute && made < uint32_t(n)) {   // short gap: fade out what we have (or the last sample), then wait for data
-        const int m = int(std::min<uint32_t>(made > 0 ? made : uint32_t(n), uint32_t(fadeFrames)));
+    if (fadeLeft_ > 0) {   // no click when the voice (re)starts: the old last sample (0 after silence) fades out as the new data fades in
+        const int m = std::min(n, fadeLeft_);
         for (int c2 = 0; c2 < 2; ++c2)
             for (int j = 0; j < m; ++j) {
-                if (made > 0) out[c2][int(made) - m + j] *= float(m - 1 - j) / float(m);
-                else out[c2][j] = lastOut_[c2] * float(m - 1 - j) / float(m);
+                const float g = float(fadeFrames - fadeLeft_ + j + 1) / float(fadeFrames);
+                out[c2][j] = out[c2][j] * g + lastOut_[c2] * (1.0f - g);
             }
+        fadeLeft_ -= m;
+    }
+    if (startMute && made < uint32_t(n)) {   // short gap: fade out what we have, then hold the last sample's decay, then wait for data
+        const int start = made >= uint32_t(fadeLen) ? int(made) - fadeLen : 0;
+        for (int c2 = 0; c2 < 2; ++c2) {
+            const float hold = made > 0 ? out[c2][made - 1] : lastOut_[c2];
+            for (int j = 0; j < fadeLen; ++j) {
+                const int i = start + j;
+                out[c2][i] = (uint32_t(i) < made ? out[c2][i] : hold) * float(fadeLen - 1 - j) / float(fadeLen);
+            }
+        }
         muted_ = true;
+        fadeLeft_ = 0;
         ++underruns_;
         mutedOut_ = double(n) - double(made);
         missing_ = need - fill;
         lost(mutedOut_);
         lastOut_[0] = lastOut_[1] = 0.0f;
         return true;
-    }
-    if (fadeLeft_ > 0) {   // no click when the voice (re)starts after silence
-        const int m = std::min(n, fadeLeft_);
-        for (int c2 = 0; c2 < 2; ++c2)
-            for (int j = 0; j < m; ++j) out[c2][j] *= float(fadeFrames - fadeLeft_ + j + 1) / float(fadeFrames);
-        fadeLeft_ -= m;
     }
     lastOut_[0] = out[0][n - 1];
     lastOut_[1] = out[1][n - 1];

@@ -655,7 +655,7 @@ void TrackEditor::timerCallback() {
         layout();   // the summary sentence changes length
         content_.repaint();
     }
-    if (probeSince_ != 0 && juce::Time::getMillisecondCounter() - probeSince_ > 6000) {   // no answer (an older Hub); the Hub itself gives up after 3 s + Line up
+    if (probeSince_ != 0 && juce::Time::getMillisecondCounter() - probeSince_ > 6000) {   // no answer (an older Hub); a current one answers in 1-2 s, at the very worst in 10
         probeSince_ = 0;
         overlay().toast(tr(Str::PairHubOld));
         refreshFriendTexts();

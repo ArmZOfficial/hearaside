@@ -1015,11 +1015,14 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     state.removeChild(state.getChildWithName("SCENES"), nullptr);
     state.removeProperty("mastering", nullptr);
     std::vector<HubEngine::PairMemory> pairs;
-    for (const auto& p : state.getChildWithName("PAIRS")) {
+    const auto saved = state.getChildWithName("PAIRS");
+    for (int i = saved.getNumChildren(); --i >= 0;) {   // newest first (remember() appends): the newest of a clash and the first 256 stay
+        const auto p = saved.getChild(i);
         HubEngine::PairMemory m { p.getProperty("feeder").toString().toStdString(), p.getProperty("slot").toString().toStdString() };
-        const bool twice = std::any_of(pairs.begin(), pairs.end(), [&](const auto& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });   // as remember() keeps them
+        const bool twice = std::any_of(pairs.begin(), pairs.end(), [&](const auto& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });
         if (!m.feeder.empty() && !m.slotUuid.empty() && !twice && pairs.size() < 256) pairs.push_back(std::move(m));   // an empty one would match any Track or feeder
     }
+    std::reverse(pairs.begin(), pairs.end());
     engine_.setPairMemory(std::move(pairs));
     friendRoom_.fromState(state.getChildWithName("FRIENDS"));
     lineUp_ = bool(state.getProperty("lineUp", true));

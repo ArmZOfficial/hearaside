@@ -302,13 +302,12 @@ void testPairState(Rig& rig) {
     pump(50);
     HubState out(*rig.hub);
     const auto* saved = out.plugin ? out.plugin->getChildByName("PAIRS") : nullptr;
-    check(saved != nullptr && saved->getNumChildElements() == 2, "pairs of the project survive save / restore, empty ones are dropped");
-    if (saved != nullptr && saved->getNumChildElements() == 2) {
-        const auto* a = saved->getChildElement(0);
-        const auto* c = saved->getChildElement(1);
-        check(a->getStringAttribute("feeder") == "Lead Vocal" && a->getStringAttribute("slot") == "uuid-a"
-              && c->getStringAttribute("feeder") == "Backing" && c->getStringAttribute("slot") == "uuid-c", "...with the same feeder and Track");
-    }
+    // the newest of two rows that share a feeder or a Track stays; empty rows go
+    const char* want[][2] = { { "Backing", "uuid-c" }, { "Lead Vocal", "uuid-d" }, { "Pad", "uuid-a" } };
+    bool same = saved != nullptr && saved->getNumChildElements() == 3;
+    for (int i = 0; same && i < 3; ++i)
+        same = saved->getChildElement(i)->getStringAttribute("feeder") == want[i][0] && saved->getChildElement(i)->getStringAttribute("slot") == want[i][1];
+    check(same, "pairs of the project survive save / restore: empty and older clashing rows are dropped, the newest stay");
 }
 
 void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm, const char* appPath) {

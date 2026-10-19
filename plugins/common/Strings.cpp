@@ -728,7 +728,7 @@ Table build() {
     s(Str::PairNow, "จับคู่อัตโนมัติ", "Pair automatically");
     s(Str::PairListening, "กำลังฟัง…", "Listening…");
     s(Str::PairNotFound, "หา Track ท้ายช่องนี้ไม่เจอ", "Couldn’t find the Track at the end of this channel");
-    s(Str::PairNowCap, "เล่นเสียงสั้น ๆ แล้วเงียบประมาณ 1 วินาที ระหว่างนี้คนดูและเพื่อนจะไม่ได้ยินอะไร", "Plays a short sweep. Viewers and friends hear nothing for about a second.");
+    s(Str::PairNowCap, "เล่นเสียงสั้น ๆ แล้วเงียบประมาณ 1–2 วินาที ระหว่างนี้คนดูและเพื่อนจะไม่ได้ยินอะไร", "Plays a short sweep. Viewers and friends hear nothing for a second or two.");
     s(Str::PairedWith, "จับคู่กับ “%s” แล้ว · ปลั๊กอินของคุณเพิ่ม %d ms", "Paired with “%s” · your plug-ins add %d ms");
     s(Str::PairHubOld, "Hub ไม่ตอบ อัปเดต Hub เป็นเวอร์ชันล่าสุดแล้วลองใหม่", "The Hub didn’t answer. Update the Hub and try again.");
     s(Str::PairBusy, "Hub ยังไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่", "The Hub is busy. Try again in a moment.");

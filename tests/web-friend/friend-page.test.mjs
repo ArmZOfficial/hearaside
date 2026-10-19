@@ -68,6 +68,8 @@ const num = k => parseFloat(new RegExp(k + '=(-?[0-9.]+)').exec(result?.[1] ?? '
 expect('the Hub saw the friend live', num('live') === 1);
 expect('the microphone reached the Hub (the fake mic beeps)', num('peak') > 0.01);
 expect('audio was written to the friend ring', num('writePos') > 48000);
+expect('the page answers the Hub\'s ping: a round trip was measured (0.2)', num('rtt') >= 0 && num('rtt') < 5000, `(${num('rtt')} ms)`);
+expect('the microphone goes up as mono: about 790 kbps, not 1.5 Mbps (1.8)', num('up') > 500 && num('up') < 1100, `(${num('up')} kbps)`);
 const d = num('delay');
 expect('the Hub measured a plausible delay from the echo (5 .. 600 ms)', d > 5 && d < 600, `(${d} ms)`);
 expect('no errors in the page', errors.length === 0, errors.join(' | '));

@@ -187,6 +187,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     {
         const uint32_t tol = std::max<uint32_t>(uint32_t(0.008 * sampleRate_), target / 20u);   // 8 ms or 5 %
         bool changed = (target > lineD_ ? target - lineD_ : lineD_ - target) > tol;
+        if (probeFeeder_.load(std::memory_order_relaxed) >= 0) changed = false;   // the probe holds the mute for the D it started with
         if (!lineOn && lineD_ != 0) changed = true;   // switched off: back to live
         for (int j = 0; j < kMaxFriends && !changed; ++j) {
             if (!have[size_t(j)]) continue;

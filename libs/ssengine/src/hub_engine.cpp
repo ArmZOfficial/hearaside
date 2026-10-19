@@ -76,8 +76,12 @@ bool HubEngine::connect(const std::string& busName) {
 }
 
 void HubEngine::disconnect() {
-    probeFeeder_.store(-1, std::memory_order_release);
-    probeStage_.store(0, std::memory_order_relaxed);
+    {
+        const std::lock_guard<std::mutex> lock(measureMutex_);   // a late probeStep must not write the stage after this
+        probeFeeder_.store(-1, std::memory_order_release);
+        probeStage_.store(0, std::memory_order_relaxed);
+        slotToMasterMs_.store(200.0f, std::memory_order_relaxed);
+    }
     BusLayout* b = bus_.exchange(nullptr, std::memory_order_acq_rel);
     if (b) releaseHub(*b, token_);
     if (shm_) retired_.push_back(std::move(shm_));
@@ -242,6 +246,11 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             if (bestLag(y.data(), x.data(), N, yStart, -Kneg, K, cum, ey, 0.3, lag)) { lagMs[size_t(i)] = std::max(0.0, (lag + lead) * msPerLag); ++measured; }
         }
 
+        if (measured > 0) {   // how long a sound takes from a Track to the master: the probe waits that long for its sweep
+            double slowestLag = 0.0;
+            for (double v : lagMs) slowestLag = std::max(slowestLag, v);
+            slotToMasterMs_.store(float(std::min(slowestLag, 500.0)), std::memory_order_relaxed);
+        }
         // two or more tracks: the latest one has no plug-in latency, the others are that much earlier
         if (measured >= 2) {
             double latest = 0;
@@ -518,7 +527,8 @@ void HubEngine::probeStep() {
     const int fidx = probeFeeder_.load(std::memory_order_acquire);
     BusLayout* b = bus();
     if (fidx < 0) return;
-    if (b == nullptr || capLen_ == 0) { probeFeeder_.store(-1, std::memory_order_release); return; }
+    if (b == nullptr) { probeFeeder_.store(-1, std::memory_order_release); return; }
+    if (capLen_ == 0) { endProbe(fidx, kReplyFailed); return; }   // the Hub is not ready: say so, it is not an old Hub
     FeederRecord& feeder = b->feeders[fidx];
     const uint32_t fid = feeder.friendId.load(std::memory_order_relaxed);
     int j = -1;
@@ -526,14 +536,27 @@ void HubEngine::probeStep() {
         if (b->friends[k].id.load(std::memory_order_acquire) == fid) { j = k; break; }
     const uint64_t now = nowNs();
     const uint32_t w = capWrite_.load(std::memory_order_acquire);
+    const double rate = sampleRate_ / 4.0;
     int stage = probeStage_.load(std::memory_order_relaxed);
     if (stage == 0) { probeWallNs_ = now; probeFrom_ = w; }
-    if (j < 0 || feeder.state.load(std::memory_order_acquire) != kSlotActive || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull
-        || now - probeWallNs_ > 3'000'000'000ull + uint64_t(std::max(0.0, double(lineUpMs())) * 1e6)) {
-        endProbe(fidx, kReplyNoMatch);   // the feeder left, or the DAW stopped processing audio
+    // Stay silent until the sweep has left the Stream Mix: its way is (what is still to come of the sweep) + the Track's
+    // way to the master bus + the Line-up delay (frozen during a probe) + a margin. `pending` = frames of the sweep not yet heard.
+    auto hold = [&](int slot, double li, uint32_t pending) {
+        probeBest_ = slot;
+        probeLi_ = li;
+        probeWord_ = slot >= 0 ? pairWord(*b, slot, fid) : 0;
+        probeHoldTo_ = w + pending + uint32_t((double(slotToMasterMs_.load(std::memory_order_relaxed)) + lineUpMs()) * rate / 1000.0) + kProbeLeadIn;
+        probeStage_.store(3, std::memory_order_relaxed);
+    };
+    const bool lost = j < 0 || feeder.state.load(std::memory_order_acquire) != kSlotActive
+        || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull;   // the feeder left, or the DAW stopped processing audio
+    if (stage < 3 && (lost || now - probeWallNs_ > 3'000'000'000ull + uint64_t(std::max(0.0, double(lineUpMs())) * 1e6))) {
+        if (stage < 2) endProbe(fidx, kReplyNoMatch);   // no sweep was asked for yet
+        else hold(-1, 0.0, kProbeListen);               // it may be on its way: wait for it, then say no
         return;
     }
-    FriendHeader& fh = b->friends[j];
+    if (stage == 3 && now - probeWallNs_ > 10'000'000'000ull) { endProbe(fidx, kReplyNoMatch); return; }   // audio stuck: never stay silent for good
+    FriendHeader& fh = b->friends[std::max(j, 0)];
     if (stage == 0) {
         // a Track that carries this friend now would play the sweep to the other friends and the viewers
         const int old = fh.outSlot.load(std::memory_order_relaxed);
@@ -550,12 +573,13 @@ void HubEngine::probeStep() {
         probeStage_.store(2, std::memory_order_relaxed);
         return;
     }
-    if (stage == 3) {   // everything is known; stay silent until the sweep has left the Stream Mix (Line up holds it back by D)
+    if (stage == 3) {
         if (int32_t(w - probeHoldTo_) < 0) return;
         const int s = probeBest_;
-        if (s < 0 || b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) { endProbe(fidx, kReplyNoMatch); return; }
+        // the answer only counts while the same Track holds the slot and the same feeder is still there
+        if (lost || s < 0 || b->slots[s].state.load(std::memory_order_acquire) != kSlotActive || pairWord(*b, s, fid) != probeWord_) { endProbe(fidx, kReplyNoMatch); return; }
         manualLi_[size_t(j)].store(uint32_t(std::lround(probeLi_ * 100.0)) + 1u, std::memory_order_relaxed);
-        manualPair_[size_t(j)].store(pairWord(*b, s, fid), std::memory_order_release);
+        manualPair_[size_t(j)].store(probeWord_, std::memory_order_release);
         publishPair(*b, fh, fid, s, probeLi_);
         remember(fidx, s);
         endProbe(fidx, 1);
@@ -564,19 +588,12 @@ void HubEngine::probeStep() {
     if (w - probeFrom_ < kProbeListen) return;
 
     // The sweep is in the feeder's tap and, if a chain leads to a Track, in that Track's history Li later.
-    const double rate = sampleRate_ / 4.0;
     const double msPerLag = 4000.0 / sampleRate_;
     const int lead = int(std::lround(double(syncSafety_.load(std::memory_order_relaxed)) * lastBlock_.load(std::memory_order_relaxed) / 4.0));
     const int N = 4200, K = std::min(1700, int(rate * 0.2)), Kneg = lead + 8;
     const int M = N + K + Kneg;
     const uint64_t tapW = feeder.tapWrite.load(std::memory_order_acquire);
-    auto hold = [&](int slot, double li) {
-        probeBest_ = slot;
-        probeLi_ = li;
-        probeHoldTo_ = w + uint32_t(lineUpMs() * rate / 1000.0) + kProbeLeadIn;
-        probeStage_.store(3, std::memory_order_relaxed);
-    };
-    if (M > kTapFrames || tapW < uint64_t(M) || w < uint32_t(M) || uint32_t(M) + 4096u > capLen_) { hold(-1, 0.0); return; }
+    if (M > kTapFrames || tapW < uint64_t(M) || w < uint32_t(M) || uint32_t(M) + 4096u > capLen_) { hold(-1, 0.0, 0); return; }
     std::vector<float> tap(static_cast<size_t>(M)), x(static_cast<size_t>(M));
     std::vector<double> cumTap(size_t(M) + 1, 0.0);
     for (int k = 0; k < M; ++k) {
@@ -602,7 +619,7 @@ void HubEngine::probeStep() {
         double lag = 0.0, score = 0.0;
         if (bestLag(x.data(), tap.data(), N, yStart, 0, K, cumTap, ey, bestScore, lag, false, &score, 1)) { best = s; bestScore = score; bestLagFrames = lag; }
     }
-    hold(best, best < 0 ? 0.0 : std::max(0.0, bestLagFrames * msPerLag));
+    hold(best, best < 0 ? 0.0 : std::max(0.0, bestLagFrames * msPerLag), 0);
 }
 
 std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyPolarity, bool source, double* score, bool faint,

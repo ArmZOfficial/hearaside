@@ -36,6 +36,7 @@ struct Room {
     int64_t t = 0;              // global frame counter (the DAW clock; friends use it too)
     int block = 256;
     bool music = true;
+    std::vector<float> masterIn;         // what the DAW's master bus carried into the Hub
     std::vector<float> phones, stream;   // what came out (headphones L, Stream Mix L), one entry per frame
     std::vector<float> friendMix;        // what friends hear
     uint64_t streamRead = 0, mixRead = 0;
@@ -108,6 +109,7 @@ struct Room {
         }
         if (beforeHub) beforeHub(t, l);
         r = l;
+        masterIn.insert(masterIn.end(), l.begin(), l.end());
         float* io[2] = { l.data(), r.data() };
         hub.process(io, 2, block, params, t, true, false);
         phones.insert(phones.end(), l.begin(), l.end());
@@ -641,8 +643,12 @@ struct ProbeRig {
     uint64_t tw = 0;
     float tapAcc = 0.0f;
     bool endHearsSweep;
+    size_t lagFrames = 0, lagPos = 0;
+    std::vector<float> lagRing[3];
 
-    explicit ProbeRig(bool endHears, double friendMs = 40.0, float lineUpLimit = 0.0f) : endHearsSweep(endHears) {
+    // masterLagMs: how late the DAW brings every Track's sound to the master bus (plug-in delay compensation)
+    explicit ProbeRig(bool endHears, double friendMs = 40.0, float lineUpLimit = 0.0f, double masterLagMs = 0.0) : endHearsSweep(endHears) {
+        lagFrames = size_t(masterLagMs * kRate / 1000.0 + 0.5);
         r.params.syncSafety = 0;
         r.openFriend(0, kVoice, friendMs);
         if (lineUpLimit > 0.0f) r.hub.setLineUp(true, lineUpLimit);
@@ -691,18 +697,31 @@ struct ProbeRig {
             tracks[k].process(ch, 1, r.block, t, true, false, false);
             // the DAW plays each Track into the master bus, unless that Track sends the viewers' side to the Hub:
             // before a pair is made the sweep leaves the end Track by this road, through the Line-up delay, to the viewers
-            if (!(tracks[k].slot()->flags.load() & kFlagViewersViaHub))
-                for (int i = 0; i < r.block; ++i) master[size_t(i)] += c[size_t(i)];
+            if (!(tracks[k].slot()->flags.load() & kFlagViewersViaHub)) {
+                if (lagRing[k].size() != lagFrames) lagRing[k].assign(lagFrames, 0.0f);
+                for (int i = 0; i < r.block; ++i) {
+                    if (lagFrames == 0) { master[size_t(i)] += c[size_t(i)]; continue; }
+                    float& slotted = lagRing[k][(lagPos + size_t(i)) % lagFrames];
+                    master[size_t(i)] += slotted;
+                    slotted = c[size_t(i)];
+                }
+            }
         }
+        lagPos = lagFrames == 0 ? 0 : (lagPos + size_t(r.block)) % lagFrames;
     }
 
     // runs the probe like the Hub's latency thread would; returns the DAW frames it took
-    int64_t probe() {
+    // `during` runs every cycle, with the DAW frames since the sweep began (-1 before)
+    int64_t probe(const std::function<void(int64_t)>& during = {}) {
         const uint32_t seq = b->feeders[fidx].replySeq.load();
         if (!r.hub.startProbe(fidx)) { CHECK(false); return -1; }
         const size_t from = r.stream.size();
         startOut = from;
-        for (int c = 0; c < 400 && r.hub.probing(); ++c) { r.cycle(); r.hub.probeStep(); }
+        for (int c = 0; c < 1000 && r.hub.probing(); ++c) {
+            r.cycle();
+            r.hub.probeStep();
+            if (during) during(sweepFrom >= 0 ? r.t - sweepFrom : -1);
+        }
         endOut = r.stream.size();
         replied = b->feeders[fidx].replySeq.load() != seq;
         return int64_t(endOut - from);
@@ -753,13 +772,14 @@ TEST_CASE("friends: the probe sweep finds the Track at the end of the channel an
     CHECK(b->friends[0].outSlot.load() == rig.endSlot);
     CHECK(b->slots[rig.endSlot].fedBy.load() == 100);
     CHECK_NEAR(bitsFloat(b->slots[rig.endSlot].fxLatencyBits.load()), 7.0f, 1.0f);
-    CHECK_LT(double(took) / kRate, 0.7 + D / 1000.0);   // silent for about a second
+    CHECK_LT(double(took) / kRate, 0.9 + D / 1000.0);   // silent for about a second plus Line up D (and 200 ms for a Track to reach the master, not measured here)
     // the Stream Mix is silent after the 20 ms ramp, and so is what friends hear; the sweep never reaches either
     CHECK_LT(peakOf(rig.r.stream, rig.startOut + size_t(0.05 * kRate), rig.endOut), 1e-5f);
     CHECK_LT(peakOf(rig.r.friendMix, rig.startOut + size_t(0.05 * kRate), rig.endOut), 1e-6f);
 
     b->friends[0].route.store(kRouteDaw);   // the Hub does this once paired: the friend's own voice is no noise under the sweep
     rig.r.run(1.0);   // and the sweep is not late either: it left the Stream Mix while the mute still held
+    CHECK(sweepIn(rig.r.masterIn, rig.startOut, rig.r.masterIn.size(), rig.sweep) > 0.3);   // it was there to be heard
     CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
     CHECK_LT(sweepIn(rig.r.friendMix, rig.startOut, rig.r.friendMix.size(), rig.sweep), 0.05);
     rig.r.music = true;   // they come back
@@ -782,4 +802,71 @@ TEST_CASE("friends: the probe says so when no Track plays the sweep, and leaves 
     CHECK(rig.b->friends[0].outSlot.load() == -1);
     rig.r.run(0.5);
     CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);
+}
+
+// The same, in the abnormal cases: the sweep is still in the DAW and in the Line-up delay after the Hub stopped listening.
+static void checkSweepNeverHeard(ProbeRig& rig) {
+    rig.b->friends[0].route.store(kRouteDaw);
+    rig.r.run(1.5);
+    CHECK(sweepIn(rig.r.masterIn, rig.startOut, rig.r.masterIn.size(), rig.sweep) > 0.3);
+    CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
+    CHECK_LT(sweepIn(rig.r.friendMix, rig.startOut, rig.r.friendMix.size(), rig.sweep), 0.05);
+}
+
+TEST_CASE("friends: the probe sweep is held back for a DAW that brings the Tracks to the master 350 ms late") {
+    ProbeRig rig(true, 290.0, 600.0f, 350.0);
+    rig.r.run(1.5);
+    rig.r.hub.measureLatencies();   // learns how late the Tracks reach the master
+    rig.r.music = false;
+    rig.r.run(0.5);
+    rig.probe();
+    CHECK(rig.b->feeders[rig.fidx].reply.load() == 1);
+    CHECK(rig.b->friends[0].outSlot.load() == rig.endSlot);
+    checkSweepNeverHeard(rig);
+}
+
+TEST_CASE("friends: the probe stays silent for the sweep that is already out when the feeder disappears") {
+    ProbeRig rig(true, 290.0, 600.0f);
+    rig.r.run(1.5);
+    rig.r.music = false;
+    rig.r.run(0.5);
+    bool gone = false;
+    rig.probe([&](int64_t sinceSweep) {
+        if (sinceSweep >= int64_t(0.1 * kRate) && !gone) { gone = true; rig.b->feeders[rig.fidx].state.store(kSlotFree); }
+    });
+    CHECK(gone);
+    CHECK(rig.b->feeders[rig.fidx].reply.load() == kReplyNoMatch);
+    CHECK(rig.b->friends[0].outSlot.load() == -1);
+    checkSweepNeverHeard(rig);
+}
+
+TEST_CASE("friends: a Track that took over the slot while the Hub waited is not paired") {
+    ProbeRig rig(true, 290.0, 600.0f);
+    rig.r.run(1.5);
+    rig.r.music = false;
+    rig.r.run(0.5);
+    bool swapped = false;
+    rig.probe([&](int64_t sinceSweep) {
+        if (sinceSweep >= int64_t(0.6 * kRate) && !swapped) { swapped = true; rig.b->slots[rig.endSlot].claimNs.fetch_add(12345); }   // after the answer, before the unmute
+    });
+    CHECK(swapped);
+    CHECK(rig.b->feeders[rig.fidx].reply.load() == kReplyNoMatch);
+    CHECK(rig.b->friends[0].outSlot.load() == -1);
+    CHECK(rig.r.hub.pairMemory().empty());
+}
+
+TEST_CASE("friends: Line up that starts during a probe waits until the probe is over") {
+    ProbeRig rig(true, 290.0);   // Line up is off
+    rig.r.run(1.5);
+    rig.r.music = false;
+    rig.r.run(0.5);
+    rig.r.hub.setLineUp(true, 600.0f);
+    const double before = rig.r.hub.lineUpMs();
+    rig.probe();
+    CHECK_NEAR(before, 0.0, 0.01);
+    CHECK_NEAR(rig.r.hub.lineUpMs(), 0.0, 0.01);   // not while the sweep may sit in the delay line
+    rig.b->friends[0].route.store(kRouteDaw);
+    rig.r.run(1.5);
+    CHECK(rig.r.hub.lineUpMs() > 250.0);           // and then it does
+    CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
 }

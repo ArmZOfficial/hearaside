@@ -269,6 +269,8 @@ private:
     int probeBest_ = -1;                   // stage 3: the Track found (-1 = none), its Li, and when to stop being silent
     double probeLi_ = 0.0;
     uint32_t probeHoldTo_ = 0;
+    uint64_t probeWord_ = 0;               // stage 3: the pair word of that Track when it was found
+    std::atomic<float> slotToMasterMs_{ 200.0f };   // the longest a Track's sound took to reach the master at the last measuring (200 = not measured yet)
     uint32_t probeFrom_ = 0;               // capWrite_ at the start of the stage
     uint64_t probeWallNs_ = 0;
     void endProbe(int feeder, uint32_t reply);

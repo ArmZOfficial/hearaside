@@ -584,7 +584,7 @@ void TrackEditor::refreshStatus() {
             std::string n, u;
             uint32_t c = 0;
             ssbus::readSlotIdentity(bus->slots[fi.outSlot], n, u, c);
-            banner_.set(Banner::Style::Info, icons::Icon::Check, trf(Str::PairedWith, { juce::String::fromUTF8(n.c_str()), juce::String(juce::roundToInt(fxMs)) }));
+            banner_.set(Banner::Style::Info, icons::Icon::Check, trf(Str::PairedWith, { n.empty() ? juce::String(fi.outSlot + 1) : juce::String::fromUTF8(n.c_str()), juce::String(juce::roundToInt(fxMs)) }));
         } else {
             banner_.set(Banner::Style::Warning, icons::Icon::Warning, trf(Str::FriendNotPaired, { friendName }));
         }
@@ -655,8 +655,9 @@ void TrackEditor::timerCallback() {
         layout();   // the summary sentence changes length
         content_.repaint();
     }
-    if (probeSince_ != 0 && juce::Time::getMillisecondCounter() - probeSince_ > 4000) {   // no answer (an older Hub)
+    if (probeSince_ != 0 && juce::Time::getMillisecondCounter() - probeSince_ > 6000) {   // no answer (an older Hub); the Hub itself gives up after 3 s + Line up
         probeSince_ = 0;
+        overlay().toast(tr(Str::PairHubOld));
         refreshFriendTexts();
     }
     if (isFriend) {

@@ -117,7 +117,7 @@ enum class Str {
     SignOutConfirm, AccountOffline, SignInHereAll, BenefitLinks, BenefitFriends, BenefitAppearance,
     BenefitLinksShort, BenefitFriendsShort, BenefitAppearanceShort, InvitedYou, AppearanceSynced, SignedInToast,
     SignedOutToast,
-    PairAutomatic, PairRefused, PairNow, PairListening, PairNotFound, PairNowCap, PairedWith,
+    PairAutomatic, PairRefused, PairNow, PairListening, PairNotFound, PairNowCap, PairedWith, PairHubOld,
     DawYours,
     Count
 };

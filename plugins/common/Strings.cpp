@@ -730,6 +730,7 @@ Table build() {
     s(Str::PairNotFound, "หา Track ท้ายช่องนี้ไม่เจอ", "Couldn’t find the Track at the end of this channel");
     s(Str::PairNowCap, "เล่นเสียงสั้น ๆ ครึ่งวินาที ระหว่างนี้คนดูและเพื่อนจะไม่ได้ยินอะไร", "Plays a short sweep for half a second. Viewers and friends hear nothing meanwhile.");
     s(Str::PairedWith, "จับคู่กับ “%s” แล้ว · ปลั๊กอินของคุณเพิ่ม %d ms", "Paired with “%s” · your plug-ins add %d ms");
+    s(Str::PairHubOld, "Hub ไม่ตอบ อัปเดต Hub เป็นเวอร์ชันล่าสุดแล้วลองใหม่", "The Hub didn’t answer. Update the Hub and try again.");
     s(Str::DawYours, "DAW ของคุณ", "your DAW");
     return t;
 }

@@ -18,6 +18,7 @@ find_program(NODE_EXECUTABLE node)
 if(NODE_EXECUTABLE)
     add_test(NAME share_web_in_sync COMMAND ${NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/web/share-vercel/scripts/sync-web.mjs --check)
     add_test(NAME share_api COMMAND ${NODE_EXECUTABLE} --test ${CMAKE_SOURCE_DIR}/web/share-vercel/test/directory.test.js)
+    add_test(NAME net_sim COMMAND ${NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/net-sim/net-sim.test.mjs)   # the bad-line proxy for the friend page tests
     add_test(NAME web_worklet COMMAND ${NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/web-friend/worklet.test.mjs)   # the friend page's audio worklet, no browser
 endif()
 

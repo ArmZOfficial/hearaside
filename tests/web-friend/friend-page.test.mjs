@@ -2,6 +2,8 @@
 // microphone reaches the Hub, the Hub's mix comes back, and the Hub measures the delay from the
 // echo the page stamps on every packet.
 //   node tests/web-friend/friend-page.test.mjs <ui-snapshot.exe>
+//   NET_SIM="--delay 30 --jitter 20 --kbps 800" node tests/web-friend/friend-page.test.mjs <ui-snapshot.exe>
+//     the same through a bad line (tools/net-sim: delay, jitter, stalls, kbps cap)
 // Needs Google Chrome (Playwright's "chrome" channel) and web/site's node_modules (@playwright/test).
 // Skips (exit 0, says so) when either is missing.
 import { spawn } from 'node:child_process';
@@ -9,6 +11,7 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs, start as startNetSim } from '../../tools/net-sim/net-sim.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const exe = process.argv[2];
@@ -24,7 +27,12 @@ const hub = spawn(exe, ['--serve-friend', '14'], { env: { ...process.env, HEARAS
 let out = '';
 hub.stdout.on('data', d => { out += d; });
 const waitFor = async (re, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const m = re.exec(out); if (m) return m; await new Promise(r => setTimeout(r, 100)); } return null; };
-const url = (await waitFor(/FRIEND_URL=(\S+)/, 20000))?.[1];
+let url = (await waitFor(/FRIEND_URL=(\S+)/, 20000))?.[1];
+if (url && process.env.NET_SIM) {   // the page reaches the Hub through the simulated line
+  const sim = await startNetSim({ ...parseArgs(process.env.NET_SIM.trim().split(/\s+/)), target: Number(new URL(url).port), listen: 0 });
+  url = url.replace(':' + new URL(url).port + '/', ':' + sim.port + '/');
+  console.log('     through net-sim: ' + process.env.NET_SIM);
+}
 if (!url) { console.error('the Hub did not print a friend link:\n' + out); hub.kill(); process.exit(1); }
 
 let browser;

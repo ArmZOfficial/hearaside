@@ -39,9 +39,9 @@ void publishPair(BusLayout& b, FriendHeader& fh, uint32_t fid, int slot, double 
     b.slots[slot].flags.fetch_or(kFlagViewersViaHub, std::memory_order_release);
 }
 
-// probe timing, in history frames (sample rate / 4)
-constexpr uint32_t kProbeLeadIn = 480;    // 40 ms of silence before the sweep starts (the mute needs ~20 ms), and after it has left
-constexpr uint32_t kProbeListen = 5700;   // sweep (3600) + the longest chain latency we look for (1700) + the Hub's read
+// probe timing, in history frames (rate = sample rate / 4): by time, so it holds at 44.1 / 96 kHz too
+uint32_t probeLeadIn(double rate) { return uint32_t(0.04 * rate); }    // silence before the sweep starts (the mute needs ~20 ms), and after it has left
+uint32_t probeListen(double rate) { return uint32_t(0.475 * rate); }   // the 300 ms sweep + the longest chain latency we look for + the Hub's read
 }
 
 std::vector<float> probeSweep(double sampleRate) {
@@ -517,7 +517,11 @@ bool HubEngine::startProbe(int feeder) {
 }
 
 void HubEngine::endProbe(int feeder, uint32_t reply) {
-    if (BusLayout* b = bus()) postReply(b->feeders[feeder], reply);
+    if (BusLayout* b = bus()) {
+        uint32_t sweep = 2;
+        b->feeders[feeder].hubCommand.compare_exchange_strong(sweep, 0, std::memory_order_relaxed);   // a Track that wakes up later must not play it (1 = "bring back" stays)
+        postReply(b->feeders[feeder], reply);
+    }
     probeStage_.store(0, std::memory_order_relaxed);
     probeFeeder_.store(-1, std::memory_order_release);
 }
@@ -545,14 +549,16 @@ void HubEngine::probeStep() {
         probeBest_ = slot;
         probeLi_ = li;
         probeWord_ = slot >= 0 ? pairWord(*b, slot, fid) : 0;
-        probeHoldTo_ = w + pending + uint32_t((double(slotToMasterMs_.load(std::memory_order_relaxed)) + lineUpMs()) * rate / 1000.0) + kProbeLeadIn;
+        probeHoldTo_ = w + pending + uint32_t((double(slotToMasterMs_.load(std::memory_order_relaxed)) + lineUpMs()) * rate / 1000.0) + probeLeadIn(rate);
         probeStage_.store(3, std::memory_order_relaxed);
+        uint32_t sweep = 2;
+        feeder.hubCommand.compare_exchange_strong(sweep, 0, std::memory_order_relaxed);   // no Track may start or go on with the sweep from now on
     };
     const bool lost = j < 0 || feeder.state.load(std::memory_order_acquire) != kSlotActive
         || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull;   // the feeder left, or the DAW stopped processing audio
     if (stage < 3 && (lost || now - probeWallNs_ > 3'000'000'000ull + uint64_t(std::max(0.0, double(lineUpMs())) * 1e6))) {
         if (stage < 2) endProbe(fidx, kReplyNoMatch);   // no sweep was asked for yet
-        else hold(-1, 0.0, kProbeListen);               // it may be on its way: wait for it, then say no
+        else hold(-1, 0.0, probeListen(rate));               // it may be on its way: wait for it, then say no
         return;
     }
     if (stage == 3 && now - probeWallNs_ > 10'000'000'000ull) { endProbe(fidx, kReplyNoMatch); return; }   // audio stuck: never stay silent for good
@@ -566,7 +572,7 @@ void HubEngine::probeStep() {
         return;
     }
     if (stage == 1) {
-        if (w - probeFrom_ < kProbeLeadIn) return;
+        if (w - probeFrom_ < probeLeadIn(rate)) return;
         feeder.hubCommand.store(2, std::memory_order_relaxed);
         feeder.hubCommandSeq.fetch_add(1, std::memory_order_release);
         probeFrom_ = w;
@@ -585,7 +591,7 @@ void HubEngine::probeStep() {
         endProbe(fidx, 1);
         return;
     }
-    if (w - probeFrom_ < kProbeListen) return;
+    if (w - probeFrom_ < probeListen(rate)) return;
 
     // The sweep is in the feeder's tap and, if a chain leads to a Track, in that Track's history Li later.
     const double msPerLag = 4000.0 / sampleRate_;

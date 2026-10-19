@@ -31,6 +31,7 @@ constexpr int kRate = 48000;
 // A DAW cycle by cycle: the master bus carries `music`, friends write packets like a browser does.
 struct Room {
     std::string bus;
+    int sr;                     // sample rate of the DAW
     HubEngine hub;
     HubParams params;
     int64_t t = 0;              // global frame counter (the DAW clock; friends use it too)
@@ -49,7 +50,7 @@ struct Room {
                                       // (network + half a packet); < 0 = not measured
         int64_t sent = 0;             // friend frames written so far
         bool open = false;
-        uint32_t rate = kRate;
+        uint32_t rate = kRate;   // (set by openFriend)
     };
     Friend friends[kMaxFriends];
     // a HEARASIDE Track at the end of a DAW channel that carries a friend (S7): content = noise(t - lag, seed)
@@ -58,18 +59,18 @@ struct Room {
     uint32_t carrierSeed = 0;
     std::function<void(int64_t, std::vector<float>&)> beforeHub;   // runs each cycle before the Hub processes: stand-in DAW tracks add to the master bus, a feeder
 
-    explicit Room(const char* tag) : bus(uniqueBus(tag)) {
+    explicit Room(const char* tag, int rate = kRate) : bus(uniqueBus(tag)), sr(rate) {
         hub.connect(bus);
-        hub.prepare(kRate, 1024);
+        hub.prepare(sr, 1024);
         hub.maintain();
         BusLayout* b = hub.bus();
-        b->streamHeader.sampleRate.store(kRate);
+        b->streamHeader.sampleRate.store(uint32_t(sr));
     }
 
     // the friend sings along with the music: the voice at friend time i belongs to music time i
     void openFriend(int j, uint32_t seed, double netMs, bool measured = true) {
         Friend& f = friends[j];
-        f.id = uint32_t(100 + j); f.seed = seed; f.netFrames = int64_t(netMs * kRate / 1000.0 + 0.5);
+        f.id = uint32_t(100 + j); f.seed = seed; f.netFrames = int64_t(netMs * sr / 1000.0 + 0.5); f.rate = uint32_t(sr);
         f.measuredMs = measured ? netMs + 10.0 : -1.0; f.open = true; f.sent = (t / 960) * 960;
         FriendHeader& h = hub.bus()->friends[j];
         h.id.store(f.id);
@@ -129,7 +130,7 @@ struct Room {
         friendMix.insert(friendMix.end(), m.begin(), m.end());
         t += block;
     }
-    void run(double seconds) { for (int c = 0, n = int(seconds * kRate / block); c < n; ++c) cycle(); }
+    void run(double seconds) { for (int c = 0, n = int(seconds * sr / block); c < n; ++c) cycle(); }
 
     // normalised correlation of x[from, from+len) with noise(seed) delayed by `lag` frames
     static double corr(const std::vector<float>& x, int64_t offset, size_t from, size_t len, uint32_t seed, int64_t lag) {
@@ -633,11 +634,11 @@ TEST_CASE("friends: a Track prepared for its real block starts the friend's jitt
 // A friend input whose channel ends in one of three Tracks: the sweep it plays goes through a small EQ, a gain and a
 // 7 ms delay into the "end" Track; the other two carry unrelated audio. Plays the part of the feeder and the DAW.
 struct ProbeRig {
-    Room r { "probe" };
+    Room r;
     BusLayout* b = r.hub.bus();
     int fidx = -1, endSlot = -1;
     TrackPublisher tracks[3];
-    std::vector<float> sweep = probeSweep(kRate), chain;
+    std::vector<float> sweep, chain;
     uint32_t cmdSeen = 0;
     int64_t sweepFrom = -1;   // DAW frame the feeder began the sweep at
     uint64_t tw = 0;
@@ -647,8 +648,9 @@ struct ProbeRig {
     std::vector<float> lagRing[3];
 
     // masterLagMs: how late the DAW brings every Track's sound to the master bus (plug-in delay compensation)
-    explicit ProbeRig(bool endHears, double friendMs = 40.0, float lineUpLimit = 0.0f, double masterLagMs = 0.0) : endHearsSweep(endHears) {
-        lagFrames = size_t(masterLagMs * kRate / 1000.0 + 0.5);
+    explicit ProbeRig(bool endHears, double friendMs = 40.0, float lineUpLimit = 0.0f, double masterLagMs = 0.0, int rate = kRate)
+        : r("probe", rate), sweep(probeSweep(rate)), endHearsSweep(endHears) {
+        lagFrames = size_t(masterLagMs * rate / 1000.0 + 0.5);
         r.params.syncSafety = 0;
         r.openFriend(0, kVoice, friendMs);
         if (lineUpLimit > 0.0f) r.hub.setLineUp(true, lineUpLimit);
@@ -659,14 +661,14 @@ struct ProbeRig {
         b->friends[0].feeder.store(fidx);
         cmdSeen = b->feeders[fidx].hubCommandSeq.load();
         // 0.8 EQ-ish: y = 0.8 x[n] + 0.2 x[n-2], gain 0.5, then 7 ms
-        chain.assign(sweep.size() + size_t(0.007 * kRate) + 4, 0.0f);
-        const size_t d = size_t(0.007 * kRate + 0.5);
+        chain.assign(sweep.size() + size_t(0.007 * rate) + 4, 0.0f);
+        const size_t d = size_t(0.007 * rate + 0.5);
         for (size_t i = 0; i < sweep.size(); ++i)
             chain[i + d] = 0.5f * (0.8f * sweep[i] + 0.2f * (i >= 2 ? sweep[i - 2] : 0.0f));
         const char* names[3] = { "Track 1", "Track 2", "Track 3" };
         for (int k = 0; k < 3; ++k) {
-            tracks[k].connect(r.bus, "", kRate, 1);
-            tracks[k].prepare(kRate, 1);
+            tracks[k].connect(r.bus, "", rate, 1);
+            tracks[k].prepare(rate, 1);
             tracks[k].setIdentity(names[k], 0);
         }
         endSlot = tracks[1].slotIndex();
@@ -813,8 +815,8 @@ static void checkSweepNeverHeard(ProbeRig& rig) {
     CHECK_LT(sweepIn(rig.r.friendMix, rig.startOut, rig.r.friendMix.size(), rig.sweep), 0.05);
 }
 
-TEST_CASE("friends: the probe sweep is held back for a DAW that brings the Tracks to the master 350 ms late") {
-    ProbeRig rig(true, 290.0, 600.0f, 350.0);
+TEST_CASE("friends: the probe sweep is held back for a DAW that brings the Tracks to the master 450 ms late") {
+    ProbeRig rig(true, 290.0, 600.0f, 450.0);
     rig.r.run(1.5);
     rig.r.hub.measureLatencies();   // learns how late the Tracks reach the master
     rig.r.music = false;
@@ -869,4 +871,45 @@ TEST_CASE("friends: Line up that starts during a probe waits until the probe is 
     rig.r.run(1.5);
     CHECK(rig.r.hub.lineUpMs() > 250.0);           // and then it does
     CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
+}
+
+TEST_CASE("friends: Line up does not grow during a probe when a friend's delay grows") {
+    ProbeRig rig(true, 290.0, 600.0f);
+    rig.r.run(1.5);
+    rig.r.music = false;
+    rig.r.run(0.5);
+    const double D = rig.r.hub.lineUpMs();
+    CHECK(D > 250.0);
+    bool grown = false;
+    rig.probe([&](int64_t sinceSweep) {
+        if (sinceSweep >= int64_t(0.1 * kRate) && !grown) { grown = true; rig.b->friends[0].delayBits.store(floatBits(float(290.0 + 10.0 + 300.0))); }   // a worse network, measured now
+        CHECK_NEAR(rig.r.hub.lineUpMs(), D, 0.01);
+    });
+    CHECK(grown);
+    checkSweepNeverHeard(rig);
+}
+
+// the probe's times are by the clock, not by frame counts made for 48 kHz
+static void probeAtRate(int rate) {
+    ProbeRig rig(true, 290.0, 600.0f, 0.0, rate);
+    rig.r.run(1.5);
+    rig.r.music = false;
+    rig.r.run(0.5);
+    rig.probe();
+    CHECK(rig.replied);
+    CHECK(rig.b->feeders[rig.fidx].reply.load() == 1);
+    rig.b->friends[0].route.store(kRouteDaw);
+    rig.r.run(1.5);
+    CHECK(sweepIn(rig.r.masterIn, rig.startOut, rig.r.masterIn.size(), rig.sweep) > 0.3);
+    CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
+    CHECK_LT(sweepIn(rig.r.friendMix, rig.startOut, rig.r.friendMix.size(), rig.sweep), 0.05);
+}
+TEST_CASE("friends: nobody hears the probe sweep at 96 kHz") { probeAtRate(96000); }
+TEST_CASE("friends: nobody hears the probe sweep at 44.1 kHz") { probeAtRate(44100); }
+
+TEST_CASE("friends: a probe the Hub ended takes the sweep command back") {
+    ProbeRig rig(true, 290.0, 600.0f);
+    rig.r.run(1.5);
+    rig.probe();
+    CHECK(rig.b->feeders[rig.fidx].hubCommand.load() == 0);
 }

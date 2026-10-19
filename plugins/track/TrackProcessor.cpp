@@ -140,7 +140,7 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
             if (canProbe && f->hubCommand.load(std::memory_order_relaxed) == 2 && !probeSig_.empty()) probePos_ = 0;
         }
     }
-    if (!canProbe) probePos_ = -1;
+    if (!canProbe || (probePos_ >= 0 && f->hubCommand.load(std::memory_order_relaxed) != 2)) probePos_ = -1;   // the Hub called the sweep off
 
     // Silence on bypass or offline render
     if (bypassed || offline) {

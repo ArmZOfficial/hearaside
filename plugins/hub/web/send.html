@@ -316,7 +316,7 @@ class Duplex extends AudioWorkletProcessor {
     }
     if (this.primed) {
       const err = (fill - want) / want;   // follow the Hub's clock: a hair faster or slower keeps the buffer at the target (a bit more slowing when it ran low)
-      this.adj += (Math.max(-0.01, Math.min(0.004, err * (err < 0 ? 0.02 : 0.01))) - this.adj) * 0.02;
+      this.adj += (Math.max(-0.005, Math.min(0.004, err * (err < 0 ? 0.02 : 0.01))) - this.adj) * 0.02;
       step = this.rate / sampleRate * (1 + this.adj);
       const need = n * step + 2;
       if (this.muted) {
@@ -333,8 +333,11 @@ class Duplex extends AudioWorkletProcessor {
         if (fill < need) {   // gap: what is left fades out (no click), then wait with the cursor where it is
           const m = Math.max(0, Math.floor((fill - 2) / step));
           this.play(L, R, m, step);
-          for (let i = 0; i < m; i++) { const g = (m - i) / m; L[i] *= g; if (R !== L) R[i] *= g; }
-          if (m === 0) for (let i = 0; i < Math.min(n, 96); i++) { const g = 1 - (i + 1) / 96; L[i] = this.lastL * g; if (R !== L) R[i] = this.lastR * g; }   // nothing left: the last sample dies away
+          if (m >= 32) for (let i = 0; i < m; i++) { const g = (m - i) / m; L[i] *= g; if (R !== L) R[i] *= g; }   // what is left fades out
+          else {   // (almost) nothing left: the last sample dies away over 96 frames instead of a click
+            const a = m > 0 ? L[m - 1] : this.lastL, b = m > 0 ? R[m - 1] : this.lastR;
+            for (let i = m; i < Math.min(n, m + 96); i++) { const g = 1 - (i - m + 1) / 96; L[i] = a * g; if (R !== L) R[i] = b * g; }
+          }
           this.muted = true; this.mutedFor = 0; this.missing = (need - fill) / this.rate;
         } else {
           // every second: follow the line (see ideal): up at once, down by half of what was never needed

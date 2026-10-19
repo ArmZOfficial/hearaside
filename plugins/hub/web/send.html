@@ -122,6 +122,10 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
       <div><div class="label" data-t="clean"></div><div class="cap" data-t="cleanCap"></div></div>
       <label class="switch"><input type="checkbox" id="clean"><span></span></label>
     </div>
+    <div class="row">
+      <div><div class="label" data-t="stereo"></div><div class="cap" data-t="stereoCap"></div></div>
+      <label class="switch"><input type="checkbox" id="stereo"><span></span></label>
+    </div>
     <div id="hearPanel">
       <div class="row">
         <div><div class="label" data-t="hear"></div><div class="cap" data-t="hearCap"></div></div>
@@ -141,6 +145,7 @@ const T = {
         subtitle: "เสียงไมค์ของคุณจะเข้าไปในแทร็กของคนที่ส่งลิงก์นี้ให้ แบบสด ๆ",
         subtitleRoom: "ได้ยินเพลงของเจ้าของลิงก์ ร้องตามได้เลย เสียงคุณจะถูกจัดให้ตรงจังหวะเอง",
         device: "ไมค์ที่ใช้", clean: "ตัดเสียงรบกวน", cleanCap: "เปิดถ้าอยู่ในที่เสียงดัง (คุยมากกว่าร้องเพลง)",
+        stereo: "สเตอริโอ (เครื่องดนตรี)", stereoCap: "ปิด = โมโน ใช้เน็ตน้อยลงครึ่งหนึ่ง เปิดเมื่อส่งคีย์บอร์ดหรือกีตาร์ที่มี 2 ช่อง",
         hear: "ฟังเพลง", hearCap: "ได้ยินเพลงที่เจ้าของลิงก์เล่นอยู่ ใช้หูฟังเพื่อไม่ให้เสียงเพลงเข้าไมค์",
         tap: "แตะเพื่อเริ่มส่งเสียง", stopHint: "แตะเพื่อหยุดส่ง", idle: "ยังไม่ได้ส่ง", connecting: "กำลังเชื่อมต่อ...",
         live: "กำลังส่งเสียงสด", lost: "หลุด กำลังต่อใหม่...", denied: "เบราว์เซอร์ไม่อนุญาตให้ใช้ไมค์",
@@ -153,6 +158,7 @@ const T = {
         subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
         subtitleRoom: "You hear their music and sing along. Your voice is lined up with the beat for you.",
         device: "Microphone", clean: "Noise suppression", cleanCap: "Turn on in noisy places (talking rather than singing)",
+        stereo: "Stereo (instrument)", stereoCap: "Off = mono, half the data. Turn on for a keyboard or guitar with two channels.",
         hear: "Hear the music", hearCap: "Plays what the host plays. Use headphones so the music doesn't leak into your mic.",
         tap: "Tap to start sending", stopHint: "Tap to stop", idle: "Not sending", connecting: "Connecting...",
         live: "Sending live", lost: "Connection lost, retrying...", denied: "The browser blocked the microphone",
@@ -243,10 +249,11 @@ class Duplex extends AudioWorkletProcessor {
     this.w = 0; this.rd = 0; this.rate = 48000; this.target = 0.06; this.primed = false; this.adj = 0;
     this.pkt = 0.02; this.margin = 1e9; this.win = 0; this.hold = 0;   // adaptive jitter buffer (seconds)
     this.posOff = 0; this.havePos = false; this.expect = -1;
-    this.lat = 0.03; this.buf = new Float32Array(1920); this.n = 0; this.pk = 0; this.t = 0; this.echo = 0;
+    this.lat = 0.03; this.chans = 1; this.buf = new Float32Array(960); this.n = 0; this.pk = 0; this.t = 0; this.echo = 0;
     this.port.onmessage = e => {
       const m = e.data;
       if (m.lat !== undefined) { this.lat = m.lat; return; }
+      if (m.chans !== undefined) { this.chans = m.chans; this.n = 0; return; }   // 1 = mono (a voice), 2 = stereo (an instrument)
       this.down(m);
     };
   }
@@ -307,9 +314,9 @@ class Duplex extends AudioWorkletProcessor {
       const l = ch[0], r = ch[1] || ch[0];
       for (let i = 0; i < l.length; i++) {
         if (this.n === 0) this.echo = posNow >= 0 ? Math.max(0, Math.round(posNow + i * step - this.lat * this.rate)) : 0;
-        this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i];
+        if (this.chans === 2) { this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i]; } else this.buf[this.n] = l[i];
         this.pk = Math.max(this.pk, Math.abs(l[i]), Math.abs(r[i]));
-        if (++this.n === 480) { this.port.postMessage({ pcm: this.buf.slice(0, 960), echo: this.echo }); this.n = 0; }   // 10 ms at 48 kHz
+        if (++this.n === 480) { this.port.postMessage({ pcm: this.buf.slice(0, 480 * this.chans), echo: this.echo, chans: this.chans }); this.n = 0; }   // 10 ms at 48 kHz
       }
       if (++this.t % 8 === 0) { this.port.postMessage({ peak: this.pk }); this.pk = 0; }
     }
@@ -341,7 +348,8 @@ async function openMic() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = await navigator.mediaDevices.getUserMedia({ audio: {
     deviceId: $("device").value ? { exact: $("device").value } : undefined,
-    echoCancellation: false, noiseSuppression: clean, autoGainControl: false, channelCount: 2 } });
+    echoCancellation: false, noiseSuppression: clean, autoGainControl: false, channelCount: $("stereo").checked ? 2 : 1 } });
+  if (node) node.port.postMessage({ chans: $("stereo").checked ? 2 : 1 });
   const src = ctx.createMediaStreamSource(stream);
   src.connect(node);
   setLatency();
@@ -390,7 +398,7 @@ async function start() {
     outGain = ctx.createGain();
     node.connect(outGain).connect(ctx.destination);
     setVolume();
-    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data.pcm, e.data.echo);
+    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data.pcm, e.data.echo, e.data.chans);
     await openMic();
     await ctx.resume();
   } catch (e) {
@@ -439,11 +447,11 @@ async function connect() {
   ws.onclose = () => { if (!running) return; clearTimeout(legacyTimer); behindMs = null; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
 }
 
-function send(f, echo) {
+function send(f, echo, chans) {
   if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 40000) return;   // a slow line: drop rather than sing 200 ms+ late
-  const v2 = duplex, hdr = v2 ? 24 : 16, n = f.length / 2;
+  const v2 = duplex, hdr = v2 ? 24 : 16, n = f.length / chans;
   const buf = new ArrayBuffer(hdr + f.length * 2), d = new DataView(buf), s = new Int16Array(buf, hdr);
-  d.setUint32(0, v2 ? 0x32415248 : 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, 2, true);
+  d.setUint32(0, v2 ? 0x32415248 : 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, chans, true);
   d.setUint16(10, latencyKnown ? 1 : 0, true); d.setUint32(12, n, true);
   if (v2) d.setBigUint64(16, BigInt(Math.max(0, Math.round(echo || 0))), true);
   for (let i = 0; i < f.length; i++) s[i] = muted ? 0 : Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767)));
@@ -484,6 +492,11 @@ $("mute").onclick = () => {
 $("mute").textContent = L.mute;
 $("device").onchange = () => { if (running) openMic(); };
 $("clean").onchange = () => { if (running) openMic(); };
+$("stereo").onchange = () => {
+  try { localStorage.setItem("hearaside-stereo", $("stereo").checked ? "1" : "0"); } catch (e) {}
+  if (running) openMic();
+};
+try { $("stereo").checked = localStorage.getItem("hearaside-stereo") === "1"; } catch (e) {}
 $("hear").onchange = setVolume;
 $("vol").oninput = setVolume;
 setVolume();

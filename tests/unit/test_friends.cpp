@@ -55,7 +55,7 @@ struct Room {
     std::unique_ptr<TrackPublisher> carrier;
     int64_t carrierLag = 0;
     uint32_t carrierSeed = 0;
-    std::function<void(int64_t)> beforeHub;   // runs each cycle before the Hub processes (stand-in DAW tracks, a feeder)
+    std::function<void(int64_t, std::vector<float>&)> beforeHub;   // runs each cycle before the Hub processes: stand-in DAW tracks add to the master bus, a feeder
 
     explicit Room(const char* tag) : bus(uniqueBus(tag)) {
         hub.connect(bus);
@@ -106,8 +106,8 @@ struct Room {
             if (!(carrier->slot()->flags.load() & kFlagViewersViaHub))
                 for (int i = 0; i < block; ++i) l[size_t(i)] += c[size_t(i)];
         }
+        if (beforeHub) beforeHub(t, l);
         r = l;
-        if (beforeHub) beforeHub(t);
         float* io[2] = { l.data(), r.data() };
         hub.process(io, 2, block, params, t, true, false);
         phones.insert(phones.end(), l.begin(), l.end());
@@ -431,14 +431,15 @@ TEST_CASE("friends: a pair chosen by hand wins over the names, is refused for ba
     CHECK(b->friends[0].outSlot.load() == other);
     CHECK(b->slots[sidx].fedBy.load() == 0);
 
-    releaseSlot(*b, other);   // the Track goes away: back to Direct, and a new Track on that index is not paired by mistake
-    r.hub.measureLatencies();
-    CHECK(b->friends[0].outSlot.load() == -1);
-    CHECK(b->slots[other].fedBy.load() == 0);
+    // the Track goes away and another one takes its index before the Hub looks again: the new one is not paired by mistake
+    releaseSlot(*b, other);
     const int again = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    REQUIRE(again == other);
     r.hub.measureLatencies();
     CHECK(b->friends[0].outSlot.load() == -1);
     CHECK(b->slots[again].fedBy.load() == 0);
+    r.hub.measureLatencies();
+    CHECK(b->friends[0].outSlot.load() == -1);
 
     REQUIRE(r.hub.pairWith(fidx, uint32_t(sidx)));
     r.hub.measureLatencies();
@@ -456,6 +457,35 @@ TEST_CASE("friends: a pair chosen by hand wins over the names, is refused for ba
     b->friends[0].feeder.store(fidx);
     r.hub.measureLatencies();
     CHECK(b->friends[0].outSlot.load() == -1);   // and it does not come back by itself
+}
+
+TEST_CASE("friends: a Track chosen by hand for one friend input is not taken by another with the same name") {
+    Room r("reserved");
+    BusLayout* b = r.hub.bus();
+    int fidx[2];
+    for (int j = 0; j < 2; ++j) {
+        b->friends[j].id.store(uint32_t(101 + j));
+        b->friends[j].state.store(kFriendLive);
+        fidx[j] = claimFeeder(*b);
+        REQUIRE(fidx[j] >= 0);
+        setFeederIdentity(b->feeders[fidx[j]], "Lead", 0);   // both channels are called the same
+        b->feeders[fidx[j]].friendId.store(uint32_t(101 + j));
+        b->feeders[fidx[j]].status.store(kFeederFlowing);
+        b->feeders[fidx[j]].heartbeatNs.store(nowNs());
+        b->friends[j].feeder.store(fidx[j]);
+    }
+    bool dup = false;
+    const int lead = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    REQUIRE(lead >= 0);
+    setSlotIdentity(b->slots[lead], "Lead", 0);
+
+    REQUIRE(r.hub.pairWith(fidx[1], uint32_t(lead)));   // the second input is the one that was chosen by hand
+    for (int round = 0; round < 3; ++round) {
+        r.hub.measureLatencies();
+        CHECK(b->friends[1].outSlot.load() == lead);
+        CHECK(b->friends[0].outSlot.load() == -1);      // the same name is not enough
+        CHECK(b->slots[lead].fedBy.load() == 102);
+    }
 }
 
 TEST_CASE("friends: a remembered pair is applied again when the friend input and the Track are both back") {
@@ -612,9 +642,10 @@ struct ProbeRig {
     float tapAcc = 0.0f;
     bool endHearsSweep;
 
-    explicit ProbeRig(bool endHears) : endHearsSweep(endHears) {
+    explicit ProbeRig(bool endHears, double friendMs = 40.0, float lineUpLimit = 0.0f) : endHearsSweep(endHears) {
         r.params.syncSafety = 0;
-        r.openFriend(0, kVoice, 40.0);
+        r.openFriend(0, kVoice, friendMs);
+        if (lineUpLimit > 0.0f) r.hub.setLineUp(true, lineUpLimit);
         fidx = claimFeeder(*b);
         setFeederIdentity(b->feeders[fidx], "Lead Vocal", 0);
         b->feeders[fidx].friendId.store(100);
@@ -633,10 +664,10 @@ struct ProbeRig {
             tracks[k].setIdentity(names[k], 0);
         }
         endSlot = tracks[1].slotIndex();
-        r.beforeHub = [this](int64_t t) { feederAndTracks(t); };
+        r.beforeHub = [this](int64_t t, std::vector<float>& master) { feederAndTracks(t, master); };
     }
 
-    void feederAndTracks(int64_t t) {
+    void feederAndTracks(int64_t t, std::vector<float>& master) {
         FeederRecord& f = b->feeders[fidx];
         f.heartbeatNs.store(nowNs());
         if (const uint32_t cs = f.hubCommandSeq.load(); cs != cmdSeen) {   // the Hub's command: start the sweep
@@ -654,10 +685,14 @@ struct ProbeRig {
             for (int i = 0; i < r.block; ++i) {
                 const int64_t at = sweepFrom >= 0 ? t + i - sweepFrom : -1;
                 c[size_t(i)] = k == 1 ? (endHearsSweep && at >= 0 && at < int64_t(chain.size()) ? chain[size_t(at)] : 0.0f)
-                                      : noiseAt(t + i, 500u + uint32_t(k));
+                                      : 0.1f * noiseAt(t + i, 500u + uint32_t(k));
             }
             const float* ch[1] = { c.data() };
             tracks[k].process(ch, 1, r.block, t, true, false, false);
+            // the DAW plays each Track into the master bus, unless that Track sends the viewers' side to the Hub:
+            // before a pair is made the sweep leaves the end Track by this road, through the Line-up delay, to the viewers
+            if (!(tracks[k].slot()->flags.load() & kFlagViewersViaHub))
+                for (int i = 0; i < r.block; ++i) master[size_t(i)] += c[size_t(i)];
         }
     }
 
@@ -682,12 +717,35 @@ static float peakOf(const std::vector<float>& v, size_t from, size_t to) {
     return p;
 }
 
+// How loud, as a fraction of the sweep itself, the sweep is anywhere in x[from, to): a matched filter at a quarter of the rate.
+static double sweepIn(const std::vector<float>& x, size_t from, size_t to, const std::vector<float>& sweep) {
+    const size_t S = sweep.size() / 4, D = (to - from) / 4;
+    if (D <= S) return 0.0;
+    std::vector<float> s(S), d(D);
+    for (size_t k = 0; k < S; ++k) s[k] = 0.25f * (sweep[4 * k] + sweep[4 * k + 1] + sweep[4 * k + 2] + sweep[4 * k + 3]);
+    for (size_t k = 0; k < D; ++k) d[k] = 0.25f * (x[from + 4 * k] + x[from + 4 * k + 1] + x[from + 4 * k + 2] + x[from + 4 * k + 3]);
+    double es = 0.0, best = 0.0;
+    for (const float v : s) es += double(v) * v;
+    for (size_t lag = 0; lag + S <= D; ++lag) {
+        double dot = 0.0;
+        for (size_t k = 0; k < S; ++k) dot += double(s[k]) * d[lag + k];
+        best = std::max(best, std::abs(dot) / es);
+    }
+    return best;
+}
+
 TEST_CASE("friends: the probe sweep finds the Track at the end of the channel and nobody hears it") {
-    ProbeRig rig(true);
-    rig.r.run(1.0);   // the tap fills; music plays
+    // Line up on and ~300 ms late: the sweep that goes out through the end Track's own DAW channel reaches the Stream Mix
+    // D later, and the mute has to cover that too
+    ProbeRig rig(true, 290.0, 600.0f);
+    rig.r.run(1.5);   // the tap fills; music plays
     BusLayout* b = rig.b;
+    const double D = rig.r.hub.lineUpMs();
+    CHECK(D > 250.0);
     CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);
     CHECK(peakOf(rig.r.friendMix, rig.r.friendMix.size() - 4800, rig.r.friendMix.size()) > 0.05f);
+    rig.r.music = false;   // so the only thing that could be heard is the sweep
+    rig.r.run(0.5);
 
     const int64_t took = rig.probe();
     CHECK(rig.replied);
@@ -695,12 +753,17 @@ TEST_CASE("friends: the probe sweep finds the Track at the end of the channel an
     CHECK(b->friends[0].outSlot.load() == rig.endSlot);
     CHECK(b->slots[rig.endSlot].fedBy.load() == 100);
     CHECK_NEAR(bitsFloat(b->slots[rig.endSlot].fxLatencyBits.load()), 7.0f, 1.0f);
-    CHECK_LT(double(took) / kRate, 0.7);   // silent for well under a second
-    // the Stream Mix is silent after the 20 ms ramp, what friends hear at once; the sweep never reaches either
+    CHECK_LT(double(took) / kRate, 0.7 + D / 1000.0);   // silent for about a second
+    // the Stream Mix is silent after the 20 ms ramp, and so is what friends hear; the sweep never reaches either
     CHECK_LT(peakOf(rig.r.stream, rig.startOut + size_t(0.05 * kRate), rig.endOut), 1e-5f);
-    CHECK_LT(peakOf(rig.r.friendMix, rig.startOut + 512, rig.endOut), 1e-6f);
+    CHECK_LT(peakOf(rig.r.friendMix, rig.startOut + size_t(0.05 * kRate), rig.endOut), 1e-6f);
 
-    rig.r.run(0.5);   // and they come back
+    b->friends[0].route.store(kRouteDaw);   // the Hub does this once paired: the friend's own voice is no noise under the sweep
+    rig.r.run(1.0);   // and the sweep is not late either: it left the Stream Mix while the mute still held
+    CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
+    CHECK_LT(sweepIn(rig.r.friendMix, rig.startOut, rig.r.friendMix.size(), rig.sweep), 0.05);
+    rig.r.music = true;   // they come back
+    rig.r.run(0.5);
     CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);
     CHECK(peakOf(rig.r.friendMix, rig.r.friendMix.size() - 4800, rig.r.friendMix.size()) > 0.05f);
 

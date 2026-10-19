@@ -265,7 +265,10 @@ private:
     std::array<std::atomic<uint64_t>, ssbus::kMaxFriends> manualPair_{};
     std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> manualLi_{};
     std::atomic<int> probeFeeder_{ -1 };   // the feeder being probed, -1 = none; the audio thread silences the viewers and friends while >= 0
-    std::atomic<int> probeStage_{ 0 };     // 0 = starting, 1 = silenced and waiting, 2 = sweeping (probeStep only)
+    std::atomic<int> probeStage_{ 0 };     // 0 = starting, 1 = silenced and waiting, 2 = sweeping, 3 = answer known, waiting for the sweep to leave (probeStep only)
+    int probeBest_ = -1;                   // stage 3: the Track found (-1 = none), its Li, and when to stop being silent
+    double probeLi_ = 0.0;
+    uint32_t probeHoldTo_ = 0;
     uint32_t probeFrom_ = 0;               // capWrite_ at the start of the stage
     uint64_t probeWallNs_ = 0;
     void endProbe(int feeder, uint32_t reply);
@@ -278,7 +281,7 @@ private:
     std::array<bool, ssbus::kNumStreamOuts> outUsed_{};
     std::array<ssdsp::Limiter, ssbus::kNumStreamOuts> limiters_;
     ssdsp::LoudnessMeter loudness_;
-    ssdsp::Smoother master_, preview_;
+    ssdsp::Smoother master_, preview_, friendMixGain_;   // friendMixGain_: what friends hear fades out and in around a probe
     float outPeak_[ssbus::kNumStreamOuts][2]{};
 
     // ---- friends (hub_friends.cpp) ----

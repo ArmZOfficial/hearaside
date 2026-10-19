@@ -40,7 +40,7 @@ void publishPair(BusLayout& b, FriendHeader& fh, uint32_t fid, int slot, double 
 }
 
 // probe timing, in history frames (sample rate / 4)
-constexpr uint32_t kProbeLeadIn = 480;    // 40 ms of silence before the sweep starts (the mute needs ~20 ms)
+constexpr uint32_t kProbeLeadIn = 480;    // 40 ms of silence before the sweep starts (the mute needs ~20 ms), and after it has left
 constexpr uint32_t kProbeListen = 5700;   // sweep (3600) + the longest chain latency we look for (1700) + the Hub's read
 }
 
@@ -129,6 +129,8 @@ void HubEngine::prepare(double sampleRate, int maxBlock) {
     for (auto& l : limiters_) l.prepare(sampleRate_, 1.0, 120.0);
     loudness_.prepare(sampleRate_);
     master_.prepare(sampleRate_, 20.0);
+    friendMixGain_.prepare(sampleRate_, 20.0);
+    friendMixGain_.snap(1.0f);
     preview_.prepare(sampleRate_, 20.0);
     xfLen_ = uint32_t(std::max(16.0, sampleRate_ * 0.010));
     friendsPrepare();
@@ -316,10 +318,17 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
         }
 
+        // a Track another friend input chose by hand is theirs: matching it by name or sound would flip fedBy between two friends
+        auto reserved = [&](int s) {
+            for (int k = 0; k < kMaxFriends; ++k)
+                if (k != j && pairSlot(manualPair_[size_t(k)].load(std::memory_order_acquire)) == s) return true;
+            return false;
+        };
+
         // 1. Fast match by track name
         if (matchedSlot < 0 && !feederName.empty()) {
             for (int s = 0; s < kMaxSlots; ++s) {
-                if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
+                if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive || reserved(s)) continue;
                 if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
                 std::string sName, sUuid;
                 uint32_t sColor = 0;
@@ -354,7 +363,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             if (matchedSlot < 0 && hasTapSound && fStart > 0) {
                 int tried = 0;
                 for (int s = 0; s < kMaxSlots && tried < 8; ++s) {
-                    if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
+                    if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive || reserved(s)) continue;
                     if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
                     ++tried;
 
@@ -494,7 +503,6 @@ bool HubEngine::startProbe(int feeder) {
     for (int j = 0; j < kMaxFriends && fid != 0; ++j)
         linked = linked || (b->friends[j].id.load(std::memory_order_acquire) == fid && b->friends[j].feeder.load(std::memory_order_acquire) == feeder);
     if (!linked || f.state.load(std::memory_order_acquire) != kSlotActive || nowNs() - f.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull) return false;
-    probeStage_.store(0, std::memory_order_relaxed);
     int none = -1;
     return probeFeeder_.compare_exchange_strong(none, feeder, std::memory_order_acq_rel);
 }
@@ -521,7 +529,7 @@ void HubEngine::probeStep() {
     int stage = probeStage_.load(std::memory_order_relaxed);
     if (stage == 0) { probeWallNs_ = now; probeFrom_ = w; }
     if (j < 0 || feeder.state.load(std::memory_order_acquire) != kSlotActive || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull
-        || now - probeWallNs_ > 3'000'000'000ull) {
+        || now - probeWallNs_ > 3'000'000'000ull + uint64_t(std::max(0.0, double(lineUpMs())) * 1e6)) {
         endProbe(fidx, kReplyNoMatch);   // the feeder left, or the DAW stopped processing audio
         return;
     }
@@ -542,6 +550,17 @@ void HubEngine::probeStep() {
         probeStage_.store(2, std::memory_order_relaxed);
         return;
     }
+    if (stage == 3) {   // everything is known; stay silent until the sweep has left the Stream Mix (Line up holds it back by D)
+        if (int32_t(w - probeHoldTo_) < 0) return;
+        const int s = probeBest_;
+        if (s < 0 || b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) { endProbe(fidx, kReplyNoMatch); return; }
+        manualLi_[size_t(j)].store(uint32_t(std::lround(probeLi_ * 100.0)) + 1u, std::memory_order_relaxed);
+        manualPair_[size_t(j)].store(pairWord(*b, s, fid), std::memory_order_release);
+        publishPair(*b, fh, fid, s, probeLi_);
+        remember(fidx, s);
+        endProbe(fidx, 1);
+        return;
+    }
     if (w - probeFrom_ < kProbeListen) return;
 
     // The sweep is in the feeder's tap and, if a chain leads to a Track, in that Track's history Li later.
@@ -551,7 +570,13 @@ void HubEngine::probeStep() {
     const int N = 4200, K = std::min(1700, int(rate * 0.2)), Kneg = lead + 8;
     const int M = N + K + Kneg;
     const uint64_t tapW = feeder.tapWrite.load(std::memory_order_acquire);
-    if (M > kTapFrames || tapW < uint64_t(M) || w < uint32_t(M) || uint32_t(M) + 4096u > capLen_) { endProbe(fidx, kReplyNoMatch); return; }
+    auto hold = [&](int slot, double li) {
+        probeBest_ = slot;
+        probeLi_ = li;
+        probeHoldTo_ = w + uint32_t(lineUpMs() * rate / 1000.0) + kProbeLeadIn;
+        probeStage_.store(3, std::memory_order_relaxed);
+    };
+    if (M > kTapFrames || tapW < uint64_t(M) || w < uint32_t(M) || uint32_t(M) + 4096u > capLen_) { hold(-1, 0.0); return; }
     std::vector<float> tap(static_cast<size_t>(M)), x(static_cast<size_t>(M));
     std::vector<double> cumTap(size_t(M) + 1, 0.0);
     for (int k = 0; k < M; ++k) {
@@ -577,13 +602,7 @@ void HubEngine::probeStep() {
         double lag = 0.0, score = 0.0;
         if (bestLag(x.data(), tap.data(), N, yStart, 0, K, cumTap, ey, bestScore, lag, false, &score, 1)) { best = s; bestScore = score; bestLagFrames = lag; }
     }
-    if (best < 0) { endProbe(fidx, kReplyNoMatch); return; }
-    const double li = std::max(0.0, bestLagFrames * msPerLag);
-    manualLi_[size_t(j)].store(uint32_t(std::lround(li * 100.0)) + 1u, std::memory_order_relaxed);
-    manualPair_[size_t(j)].store(pairWord(*b, best, fid), std::memory_order_release);
-    publishPair(*b, fh, fid, best, li);
-    remember(fidx, best);
-    endProbe(fidx, 1);
+    hold(best, best < 0 ? 0.0 : std::max(0.0, bestLagFrames * msPerLag));
 }
 
 std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyPolarity, bool source, double* score, bool faint,

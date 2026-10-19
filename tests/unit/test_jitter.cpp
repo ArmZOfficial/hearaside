@@ -33,8 +33,8 @@ struct Result {
 
 // arrive(i) = arrival time (ms) of packet i; sig(frame) = what the friend sends. Packets keep their order (TCP).
 Result simulate(double seconds, const std::function<double(int)>& arrive, const std::function<float(uint64_t, uint32_t)>& sig, bool keep = false,
-                int kBlock = ::kBlock, uint32_t rate = 48000) {
-    const int kPkt = int(rate / 100);   // 10 ms packets
+                int kBlock = ::kBlock, uint32_t rate = 48000, int pktFrames = 0) {
+    const int kPkt = pktFrames > 0 ? pktFrames : int(rate / 100);   // 10 ms packets unless asked
     auto ring = std::make_unique<ChannelRing>();
     std::atomic<uint64_t> wp{ 0 };
     FriendReader r;
@@ -46,7 +46,6 @@ Result simulate(double seconds, const std::function<double(int)>& arrive, const 
     const int blocks = int(seconds * 1000.0 / blockMs);
     int nextPkt = 0, drawn = -1;
     double lastArrival = 0, bufSum = 0, rawNow = 0;
-    double bufSum0 = 0;
     int bufN = 0, quiet = 0;
     bool started = false, wasPrimed = false;
     float prev = 0;
@@ -144,9 +143,11 @@ TEST_CASE("jitter: stalls of 60-80 ms on 2 % of the packets (longer than a short
     auto s = std::make_shared<uint32_t>(5);
     auto stalls = [s](int i) { return 40.0 + i * 10.0 + (rnd(*s) < 0.02 ? 60.0 + rnd(*s) * 20.0 : 0.0); };
     const Result r = simulate(600.0, stalls, dc);
-    std::printf("    stalls 10 min: gaps>=10ms %d, short gaps hidden %d, re-primes counted %d, concealed %.0f ms, avg buffer %.1f ms\n",
-                r.gaps10, r.underruns, r.reprimesCounted, r.concealedMs, r.avgBufMs);
+    std::printf("    stalls 10 min: gaps>=10ms %d, short gaps hidden %d, re-primes counted %d, concealed %.0f ms, avg buffer %.1f ms, p95 %.1f ms\n",
+                r.gaps10, r.underruns, r.reprimesCounted, r.concealedMs, r.avgBufMs, r.p95);
     CHECK(r.gaps10 <= 10);
+    CHECK(r.p95 <= 30.0);
+    CHECK(r.reprimesCounted >= 1);   // the long-gap path really ran
     CHECK(r.reprimesCounted <= 10);
     CHECK(r.playingAtEnd);
 }
@@ -168,8 +169,10 @@ TEST_CASE("jitter: a cold start on a line with +-20 ms jitter gaps at most twice
     auto s = std::make_shared<uint32_t>(11);
     auto cold = [s](int i) { return 40.0 + i * 10.0 + (rnd(*s) * 2.0 - 1.0) * 20.0; };
     const Result r = simulate(5.0, cold, dc);
-    std::printf("    cold start +-20 ms, 5 s: gaps>=10ms %d, short gaps hidden %d, concealed %.0f ms\n", r.gaps10, r.underruns, r.concealedMs);
+    std::printf("    cold start +-20 ms, 5 s: gaps>=10ms %d, short gaps hidden %d, re-primes counted %d, concealed %.0f ms\n", r.gaps10, r.underruns, r.reprimesCounted, r.concealedMs);
     CHECK(r.gaps10 <= 2);
+    CHECK(r.reprimesCounted <= 1);
+    CHECK(r.playingAtEnd);
 }
 
 TEST_CASE("jitter: a single 15 ms late packet is faded over, not re-primed, and does not click") {
@@ -180,6 +183,30 @@ TEST_CASE("jitter: a single 15 ms late packet is faded over, not re-primed, and 
     CHECK(r.reprimes == 0);
     CHECK(r.maxStep <= 0.1);
     CHECK(r.concealedMs < 30.0);
+    CHECK(r.playingAtEnd);
+}
+
+// DC at block 32 / 64: a fade-in longer than a block must not step between blocks (two late packets, the second right after the first)
+void doubleLate(int block) {
+    auto late = [](int i) { return 40.0 + i * 10.0 + (i == 1500 || i == 1502 ? 15.0 : 0.0); };
+    const Result r = simulate(25.0, late, dc, false, block);
+    std::printf("    late packets, block %d: short gaps %d, re-primes %d, max step %.4f, concealed %.1f ms\n", block, r.underruns, r.reprimes, r.maxStep, r.concealedMs);
+    CHECK(r.maxStep <= 0.03);
+    CHECK(r.reprimes == 0);
+    CHECK(r.playingAtEnd);
+}
+TEST_CASE("jitter: two late packets in a row do not click at block 32") { doubleLate(32); }
+TEST_CASE("jitter: two late packets in a row do not click at block 64") { doubleLate(64); }
+
+TEST_CASE("jitter: 2048-frame packets (43 ms) with +-5 ms jitter at block 256 do not gap") {
+    auto s = std::make_shared<uint32_t>(13);
+    const double step = 2048.0 * 1000.0 / 48000.0;
+    auto big = [s, step](int i) { return 100.0 + i * step + (rnd(*s) * 2.0 - 1.0) * 5.0; };
+    const Result r = simulate(60.0, big, dc, false, kBlock, 48000, 2048);
+    std::printf("    43 ms packets, 60 s: gaps>=10ms %d, short gaps hidden %d, re-primes counted %d, concealed %.0f ms, avg buffer %.1f ms, p95 %.1f ms\n",
+                r.gaps10, r.underruns, r.reprimesCounted, r.concealedMs, r.avgBufMs, r.p95);
+    CHECK(r.gaps10 == 0);
+    CHECK(r.underruns <= 2);
     CHECK(r.playingAtEnd);
 }
 

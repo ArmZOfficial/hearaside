@@ -1017,7 +1017,8 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     std::vector<HubEngine::PairMemory> pairs;
     for (const auto& p : state.getChildWithName("PAIRS")) {
         HubEngine::PairMemory m { p.getProperty("feeder").toString().toStdString(), p.getProperty("slot").toString().toStdString() };
-        if (!m.feeder.empty() && !m.slotUuid.empty()) pairs.push_back(std::move(m));   // an empty one would match any Track or feeder
+        const bool twice = std::any_of(pairs.begin(), pairs.end(), [&](const auto& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });   // as remember() keeps them
+        if (!m.feeder.empty() && !m.slotUuid.empty() && !twice && pairs.size() < 256) pairs.push_back(std::move(m));   // an empty one would match any Track or feeder
     }
     engine_.setPairMemory(std::move(pairs));
     friendRoom_.fromState(state.getChildWithName("FRIENDS"));

@@ -292,7 +292,7 @@ void testPairState(Rig& rig) {
     if (in.plugin == nullptr) return;
     in.plugin->deleteAllChildElementsWithTagName("PAIRS");
     auto* pairs = in.plugin->createNewChildElement("PAIRS");
-    const char* rows[][2] = { { "Lead Vocal", "uuid-a" }, { "", "uuid-b" }, { "Harmony", "" }, { "Backing", "uuid-c" } };
+    const char* rows[][2] = { { "Lead Vocal", "uuid-a" }, { "", "uuid-b" }, { "Harmony", "" }, { "Backing", "uuid-c" }, { "Lead Vocal", "uuid-d" }, { "Pad", "uuid-a" } };
     for (auto& r : rows) {
         auto* p = pairs->createNewChildElement("PAIR");
         p->setAttribute("feeder", r[0]);

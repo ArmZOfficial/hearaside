@@ -122,5 +122,32 @@ function playThrough({ seconds, jitterMs, stalls = [], pktFrames = 480, seed = 7
   expect('listen page: a stall is one gap, no longer than the stall, without a click', g.gaps.length === 1 && g.gaps[0] <= 200 && g.maxStep < 0.05);
 }
 
+// ---- a gap that starts with only m frames left in the buffer: they and then their last value die away over 96 frames
+for (const [name, make] of [['friend page', () => {
+  const { p } = makeProcessor();
+  const out = [new Float32Array(128), new Float32Array(128)];
+  return { p, out, run: () => p.process([[new Float32Array(128)]], [out]) };
+}], ['listen page', () => {
+  const p = new Core(() => {});
+  const out = [new Float32Array(128), new Float32Array(128)];
+  return { p, out, run: () => p.render(out[0], out[1], 48000, 1e9) };
+}]]) {
+  const steps = [];
+  for (const m of [0, 1, 31, 32, 64, 95, 96, 120]) {
+    const { p, out, run } = make();
+    p.l.fill(0.5); p.r.fill(0.5);
+    p.primed = true; p.muted = false; p.rate = 48000; p.rd = 1000; p.w = 1000 + m + 2;   // fill = m + 2: m frames can still be played
+    p.lastL = p.lastR = 0.5;
+    run();
+    let worst = 0, prev;
+    for (const ch of out) { prev = 0.5;   // the quantum before ended at 0.5
+      for (let i = 0; i < 128; i++) { worst = Math.max(worst, Math.abs(ch[i] - prev)); prev = ch[i]; } }
+    steps.push(`${m}:${worst.toFixed(4)}`);
+    expect(`${name}: ${m} frames left, then the gap: no step above 1/96 of the level, ends at zero, muted`,
+      worst <= 0.5 / 96 + 1e-3 && Math.abs(out[0][127]) < 1e-6 && Math.abs(out[1][127]) < 1e-6 && p.muted === true);
+  }
+  console.log(`     ${name}: biggest step by frames left: ${steps.join(' ')}`);
+}
+
 console.log(failures === 0 ? 'worklet: all passed' : 'worklet: FAILED');
 process.exit(failures === 0 ? 0 : 1);

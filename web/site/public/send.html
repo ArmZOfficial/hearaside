@@ -333,11 +333,10 @@ class Duplex extends AudioWorkletProcessor {
         if (fill < need) {   // gap: what is left fades out (no click), then wait with the cursor where it is
           const m = Math.max(0, Math.floor((fill - 2) / step));
           this.play(L, R, m, step);
-          if (m >= 32) for (let i = 0; i < m; i++) { const g = (m - i) / m; L[i] *= g; if (R !== L) R[i] *= g; }   // what is left fades out
-          else {   // (almost) nothing left: the last sample dies away over 96 frames instead of a click
-            const a = m > 0 ? L[m - 1] : this.lastL, b = m > 0 ? R[m - 1] : this.lastR;
-            for (let i = m; i < Math.min(n, m + 96); i++) { const g = 1 - (i - m + 1) / 96; L[i] = a * g; if (R !== L) R[i] = b * g; }
-          }
+          // what is left (and then its last value, held) dies away over 96 frames: no click, however short the rest
+          const hl = m > 0 ? L[m - 1] : this.lastL, hr = m > 0 ? (R !== L ? R[m - 1] : hl) : this.lastR;
+          const s0 = m >= 96 ? m - 96 : Math.max(0, Math.min(m, n - 96));
+          for (let i = s0; i < Math.min(n, s0 + 96); i++) { const g = 1 - (i - s0 + 1) / 96; L[i] = (i < m ? L[i] : hl) * g; if (R !== L) R[i] = (i < m ? R[i] : hr) * g; }
           this.muted = true; this.mutedFor = 0; this.missing = (need - fill) / this.rate;
         } else {
           // every second: follow the line (see ideal): up at once, down by half of what was never needed

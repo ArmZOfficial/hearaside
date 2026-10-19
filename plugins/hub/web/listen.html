@@ -209,49 +209,110 @@ function refreshTexts() {
 
 // The jitter buffer. Runs in an AudioWorklet, or on the page through a ScriptProcessor where
 // AudioWorklet is missing: browsers only offer it on https and localhost, and the WiFi link is http.
+// The chosen latency (base) is the least it keeps; it grows when the line needs more (the 95th percentile of
+// the lateness of the last 5 s, at once) and comes back every second. A short gap is a fade and the buffer goes
+// on where it stopped; only a long one (> 3 packets) fills up again.
 const core = `
 class Core {
   constructor(post) {
     this.post = post;
     this.cap = 48000 * 6; this.l = new Float32Array(this.cap); this.r = new Float32Array(this.cap);
-    this.w = 0; this.rd = 0; this.rate = 48000; this.target = 0.3; this.primed = false; this.adj = 0; this.tick = 0;
+    this.w = 0; this.rd = 0; this.rate = 48000; this.base = 0.3; this.target = 0.3; this.primed = false; this.adj = 0; this.tick = 0;
     this.pl = 0; this.pr = 0;
+    this.pkt = 0.01; this.t = 0; this.lates = []; this.margin = 1e9; this.win = 0; this.hold = 0;
+    this.muted = false; this.mutedFor = 0; this.missing = 0; this.fadeIn = 0; this.lastL = 0; this.lastR = 0;
   }
   message(m) {
-    if (m.target) { this.target = m.target; this.primed = false; return; }
+    if (m.target) { this.base = this.target = m.target; this.primed = false; return; }
     this.rate = m.rate;
     const s = m.pcm, ch = m.ch, n = s.length / ch;
+    this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
     for (let i = 0; i < n; i++) {
       const k = (this.w + i) % this.cap;
       this.l[k] = s[i * ch] / 32768; this.r[k] = s[i * ch + ch - 1] / 32768;
     }
     this.w += n;
-    if (this.w - this.rd > this.cap - 4096) this.rd = this.w - this.target * this.rate;   // fell far behind
+    this.lates.push(this.t, this.t - this.w / this.rate);   // when the packet showed up, against a steady flow
+    if (this.lates.length > 4000) this.lates.splice(0, 2000);   // ideal() prunes it, but only while playing
+    if (this.w - this.rd > this.cap - 4096) { this.rd = this.w - this.target * this.rate; this.primed = false; }   // fell far behind
   }
-  render(L, R, outRate, every) {
-    const n = L.length;
-    let fill = this.w - this.rd;
-    const want = this.target * this.rate;
-    if (!this.primed) {
-      if (fill >= want) { this.primed = true; this.rd = this.w - want; fill = want; }
-      else { L.fill(0); R.fill(0); this.report(fill, every); return; }
+  // what the line needs now (seconds): its jitter + half a packet (the fill is a saw tooth) + 5 ms, never under the chosen latency
+  ideal() {
+    const a = this.lates;
+    let i = 0, jit = 0;
+    while (i < a.length && a[i] < this.t - 5) i += 2;
+    a.splice(0, i);
+    if (a.length >= 40) {
+      let ref = 1e9;
+      for (let k = 1; k < a.length; k += 2) ref = Math.min(ref, a[k]);
+      const d = [];
+      for (let k = 1; k < a.length; k += 2) d.push(a[k] - ref);
+      d.sort((x, y) => x - y);
+      jit = d[Math.ceil(d.length * 0.95) - 1];
     }
-    // follow the sender's clock: play a hair faster or slower to keep the buffer at the target
-    const err = (fill - want) / want;
-    this.adj += (Math.max(-0.004, Math.min(0.004, err * 0.01)) - this.adj) * 0.02;
-    const step = this.rate / outRate * (1 + this.adj);
-    if (fill < n * step + 2) { this.primed = false; L.fill(0); R.fill(0); this.report(fill, every); return; }
-    if (fill > want + this.rate * 0.6) this.rd = this.w - want;   // a burst arrived: catch up
+    return Math.max(this.base, Math.min(Math.max(0.4, this.base), jit + 0.5 * this.pkt + 0.005));
+  }
+  play(L, R, m, step) {   // m frames from the buffer, the rest of the quantum is silence
     let pos = this.rd, pl = 0, pr = 0;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < m; i++) {
       const i0 = Math.floor(pos), f = pos - i0, a = i0 % this.cap, b = (i0 + 1) % this.cap;
       const l = this.l[a] + (this.l[b] - this.l[a]) * f, r = this.r[a] + (this.r[b] - this.r[a]) * f;
       L[i] = l; if (R !== L) R[i] = r;
       pl = Math.max(pl, Math.abs(l)); pr = Math.max(pr, Math.abs(r));
       pos += step;
     }
+    for (let i = m; i < L.length; i++) { L[i] = 0; if (R !== L) R[i] = 0; }
     this.rd = pos;
     this.pl = Math.max(pl, this.pl * 0.9); this.pr = Math.max(pr, this.pr * 0.9);
+  }
+  render(L, R, outRate, every) {
+    const n = L.length, dt = n / outRate;
+    this.t += dt;
+    let fill = this.w - this.rd;
+    const want = this.target * this.rate;
+    if (!this.primed) {
+      if (fill >= want) { this.primed = true; this.muted = false; this.rd = this.w - want; fill = want; this.fadeIn = 96; }
+      else { this.play(L, R, 0, 0); this.report(fill, every); return; }
+    }
+    // follow the sender's clock: play a hair faster or slower to keep the buffer at the target
+    const err = (fill - want) / want;
+    this.adj += (Math.max(-0.01, Math.min(0.004, err * (err < 0 ? 0.02 : 0.01))) - this.adj) * 0.02;
+    const step = this.rate / outRate * (1 + this.adj);
+    const need = n * step + 2;
+    if (this.muted) {
+      this.mutedFor += dt;
+      if (fill >= need && fill >= Math.min(want, (this.pkt + 0.006) * this.rate)) {   // data is back: go on where we stopped
+        this.muted = false; this.fadeIn = 96;
+        this.target = Math.min(Math.max(0.4, this.base), this.target + this.missing + this.mutedFor); this.hold = 5;
+      } else {
+        if (this.mutedFor > Math.max(0.03, this.pkt * 3)) this.primed = false;   // a long one: fill up again
+        this.play(L, R, 0, 0); this.report(fill, every); return;
+      }
+    }
+    if (fill < need) {   // gap: what is left fades out (no click), then wait with the cursor where it is
+      const m = Math.max(0, Math.floor((fill - 2) / step));
+      this.play(L, R, m, step);
+      for (let i = 0; i < m; i++) { const g = (m - i) / m; L[i] *= g; if (R !== L) R[i] *= g; }
+      if (m === 0) for (let i = 0; i < Math.min(n, 96); i++) { const g = 1 - (i + 1) / 96; L[i] = this.lastL * g; if (R !== L) R[i] = this.lastR * g; }   // nothing left: the last sample dies away
+      this.muted = true; this.mutedFor = 0; this.missing = (need - fill) / this.rate;
+    } else {
+      this.margin = Math.min(this.margin, (fill - need) / this.rate);
+      this.win += dt; this.hold -= dt;
+      if (this.win >= 1) {   // every second: up at once, down by half of what was never needed
+        const ideal = this.ideal();
+        if (ideal > this.target) this.target = ideal;
+        else if (this.hold <= 0) { const cut = Math.min(0.5 * (this.target - ideal), 0.5 * (this.margin - 0.002)); if (cut > 0.0002) this.target -= cut; }
+        this.win = 0; this.margin = 1e9;
+      }
+      if (fill > want + this.rate * 0.6) this.rd = this.w - want;   // a burst arrived: catch up
+      this.play(L, R, n, step);
+      if (this.fadeIn > 0) {   // the music (re)starts: no click
+        const k = Math.min(n, this.fadeIn);
+        for (let i = 0; i < k; i++) { const g = (96 - this.fadeIn + i + 1) / 96; L[i] *= g; if (R !== L) R[i] *= g; }
+        this.fadeIn -= k;
+      }
+    }
+    this.lastL = L[n - 1]; this.lastR = R[n - 1];
     this.report(fill, every);
   }
   report(fill, every) {

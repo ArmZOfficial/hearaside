@@ -84,11 +84,27 @@ TEST_CASE("send queue: pongs behind a stuck line stop at the cap, however many p
         kept += q.appendIfRoom(pong.data(), pong.size(), 1024) ? 1 : 0;
         CHECK(q.flush(std::ref(s)));
     }
-    CHECK(kept == 0);                       // the packet alone is already over the cap: no pong waits behind it
-    CHECK(q.pending() == audio.size());
+    CHECK(kept == 9);                       // the audio packet does not count against the pongs: 9 x 127 bytes pass 1 KB
+    CHECK(q.pending() == audio.size() + 9 * pong.size());
+    CHECK(q.controlPending() == 9 * pong.size());
+}
+
+TEST_CASE("send queue: memory stays small when a slow line never lets the queue go empty") {
+    SendQueue q;
+    FakeSocket s;
+    const std::string pong(127, 'p');
+    size_t most = 0;
+    std::string all;
+    for (int i = 0; i < 10000; ++i) {
+        q.appendIfRoom(pong.data(), pong.size(), 1024);
+        all += pong;
+        s.room = 100;   // the line takes a little each round, so there is always something waiting
+        CHECK(q.flush(std::ref(s)));
+        most = std::max(most, q.stored());
+    }
+    CHECK(!q.idle());
+    CHECK(most < 8192);
     s.room = 1 << 20;
     CHECK(q.flush(std::ref(s)));
-    for (int i = 0; i < 1000; ++i) q.appendIfRoom(pong.data(), pong.size(), 1024);   // empty again, still stuck now
-    s.room = 0;
-    CHECK(q.pending() <= 1024 + pong.size());
+    CHECK(s.got.size() <= all.size() && all.compare(0, s.got.size(), s.got) == 0);   // what went out is a true prefix: the compaction lost and moved nothing
 }

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -16,17 +17,25 @@ class SendQueue {
 public:
     bool idle() const noexcept { return off_ >= buf_.size(); }
     size_t pending() const noexcept { return buf_.size() - off_; }
+    size_t stored() const noexcept { return buf_.size(); }   // what the queue really holds in memory (tests)
+    // bytes waiting that are not the audio packet at the front: what the cap on control messages counts
+    size_t controlPending() const noexcept { return buf_.size() - std::max(off_, audioEnd_); }
 
     // A control message (ping, pong): always kept, in order, after what waits already.
     void append(const void* p, size_t n) {
-        if (idle()) { buf_.clear(); off_ = 0; }
+        if (idle()) { buf_.clear(); off_ = audioEnd_ = 0; }
+        else if (off_ > 4096 && off_ * 2 > buf_.size()) {   // what is sent already must not stay: a peer that never lets the queue go idle would grow it without end
+            buf_.erase(buf_.begin(), buf_.begin() + std::ptrdiff_t(off_));
+            audioEnd_ = audioEnd_ > off_ ? audioEnd_ - off_ : 0;
+            off_ = 0;
+        }
         const auto* b = static_cast<const uint8_t*>(p);
         buf_.insert(buf_.end(), b, b + n);
     }
-    // The same, but only while less than `cap` bytes wait: a peer that keeps asking for answers and never reads
-    // them must not make this grow. false = not kept.
+    // The same, but only while `cap` bytes of control messages do not wait yet: a peer that keeps asking for
+    // answers and never reads them must not make this grow. false = not kept.
     bool appendIfRoom(const void* p, size_t n, size_t cap) {
-        if (pending() >= cap) return false;
+        if (controlPending() >= cap) return false;
         append(p, n);
         return true;
     }
@@ -34,6 +43,7 @@ public:
     bool offer(const void* p, size_t n) {
         if (!idle()) return false;
         append(p, n);
+        audioEnd_ = buf_.size();
         return true;
     }
     // send(const uint8_t* p, size_t n) -> bytes taken, 0 = the socket is full right now, < 0 = the connection is gone.
@@ -51,7 +61,7 @@ public:
 
 private:
     std::vector<uint8_t> buf_;
-    size_t off_ = 0;
+    size_t off_ = 0, audioEnd_ = 0;   // audioEnd_: where the audio packet at the front ends
 };
 
 // Where to read next from a ring that `write` has run ahead of: more than maxLagMs behind = skip to keepMs

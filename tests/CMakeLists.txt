@@ -4,7 +4,8 @@ add_executable(ss_unit_tests
     unit/test_dsp.cpp
     unit/test_engine.cpp
     unit/test_friends.cpp
-    unit/test_autosync.cpp)
+    unit/test_autosync.cpp
+    unit/test_paced_send.cpp)
 target_link_libraries(ss_unit_tests PRIVATE ssengine ssdsp ssbus)
 add_test(NAME unit COMMAND ss_unit_tests)
 

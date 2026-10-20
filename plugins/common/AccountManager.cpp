@@ -820,6 +820,12 @@ void AccountManager::doPollDeviceCode() {
             } else if (err == "access_denied") {
                 setState(State::SignedOut);
                 return;
+            } else if (err == "invalid_grant") {
+                // the code was already used (or is unknown): waiting longer can't help, say it failed
+                startFailed_.store(true);
+                setState(State::SignedOut);
+                notifyStateChanged();
+                return;
             } else if (err == "expired_token") {
                 {
                     const std::lock_guard<std::mutex> lk(mutex_);

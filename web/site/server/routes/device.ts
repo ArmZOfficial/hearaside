@@ -87,10 +87,12 @@ export function deviceRoutes(store: Store) {
     await store.updateDeviceCode(hash, { lastPollAt: new Date(now).toISOString() });
     if (c.status === 'pending') return res.status(400).json({ error: tooSoon ? 'slow_down' : 'authorization_pending' });
 
-    // approved: one device row per sign-in; the code can't be used again
+    // approved: one device row per sign-in; the code can't be used again.
+    // Sign first: if that throws (e.g. no PLUGIN_TOKEN_SECRET) the code is still unused and the plug-in's next poll retries
+    const id = randomUUID();
+    const access = await signAccess(c.userId!, id);
     if (!(await store.claimDeviceCode(hash))) return res.status(400).json({ error: 'invalid_grant' });
     const refresh = randomToken();
-    const id = randomUUID();
     const info = c.clientInfo;
     await store.createDevice({
       id, userId: c.userId!, name: info.daw ? `${info.computer} · ${info.daw}` : info.computer, os: info.os, daw: info.daw, plugin: info.plugin,
@@ -100,7 +102,7 @@ export function deviceRoutes(store: Store) {
     const profile = await store.getProfile(c.userId!);
     const user = await store.getUser(c.userId!);
     res.json({
-      token_type: 'Bearer', access_token: await signAccess(c.userId!, id), expires_in: ACCESS_TTL_SEC, refresh_token: refresh,
+      token_type: 'Bearer', access_token: access, expires_in: ACCESS_TTL_SEC, refresh_token: refresh,
       device_id: id, user: profile && user ? meOf(store, profile, user) : null,
     });
   });

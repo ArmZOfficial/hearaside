@@ -92,12 +92,12 @@ TEST_CASE("send queue: pongs behind a stuck line stop at the cap, however many p
 TEST_CASE("send queue: memory stays small when a slow line never lets the queue go empty") {
     SendQueue q;
     FakeSocket s;
-    const std::string pong(127, 'p');
     size_t most = 0;
-    std::string all;
+    std::string all;   // what the queue accepted, in order
     for (int i = 0; i < 10000; ++i) {
-        q.appendIfRoom(pong.data(), pong.size(), 1024);
-        all += pong;
+        std::string pong = std::to_string(1000000 + i);   // every pong is different: lost or doubled bytes show
+        for (size_t k = 0; pong.size() < 127; ++k) pong += char('a' + (i + int(k) * 7) % 26);
+        if (q.appendIfRoom(pong.data(), pong.size(), 1024)) all += pong;
         s.room = 100;   // the line takes a little each round, so there is always something waiting
         CHECK(q.flush(std::ref(s)));
         most = std::max(most, q.stored());
@@ -106,5 +106,23 @@ TEST_CASE("send queue: memory stays small when a slow line never lets the queue 
     CHECK(most < 8192);
     s.room = 1 << 20;
     CHECK(q.flush(std::ref(s)));
-    CHECK(s.got.size() <= all.size() && all.compare(0, s.got.size(), s.got) == 0);   // what went out is a true prefix: the compaction lost and moved nothing
+    CHECK(q.idle());
+    CHECK(s.got == all);   // compaction lost and moved nothing
+}
+
+TEST_CASE("send queue: an audio packet sent in part keeps its place before the pong behind it") {
+    SendQueue q;
+    FakeSocket s;
+    std::string audio;
+    for (int i = 0; i < 6000; ++i) audio += char('A' + i % 23);
+    const std::string pong(127, 'p');
+    CHECK(q.offer(audio.data(), audio.size()));
+    s.room = 5000;
+    CHECK(q.flush(std::ref(s)));          // 5000 of 6000 out
+    CHECK(q.appendIfRoom(pong.data(), pong.size(), 1024));   // compaction is allowed here: the head is over 4 KB
+    CHECK(q.controlPending() == pong.size());
+    CHECK(q.pending() == 1000 + pong.size());
+    s.room = 1 << 20;
+    CHECK(q.flush(std::ref(s)));
+    CHECK(s.got == audio + pong);
 }

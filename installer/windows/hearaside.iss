@@ -115,7 +115,7 @@ Root: HKLM; Subkey: "Software\HEARASIDE"; ValueType: string; ValueName: "Version
 
 [Run]
 Filename: "{code:ObsExe}"; Description: "{cm:OpenObs}"; Flags: postinstall nowait skipifsilent unchecked; Check: ObsInstalled
-Filename: "https://hearaside.vercel.app/guides/getting-started"; Description: "{cm:OpenGuide}"; Flags: postinstall shellexec nowait skipifsilent unchecked
+Filename: "https://hearaside.netlify.app/guides/getting-started"; Description: "{cm:OpenGuide}"; Flags: postinstall shellexec nowait skipifsilent unchecked
 
 [Code]
 var

@@ -53,7 +53,7 @@ JUCE_IMPLEMENT_SINGLETON(AccountManager)
 AccountManager& AccountManager::get() { return *getInstance(); }
 
 AccountManager::AccountManager() : juce::Thread("AccountWorker") {
-    serverBase_ = getEnv("HEARASIDE_API_URL", "https://hearaside.vercel.app");
+    serverBase_ = getEnv("HEARASIDE_API_URL", "https://hearaside.netlify.app");
     if (serverBase_.endsWithChar('/')) serverBase_ = serverBase_.dropLastCharacters(1);
 
     loadFromDisk();

@@ -3,21 +3,29 @@
 import { useLocation } from 'react-router';
 import { langOf, otherLangPath } from '../i18n';
 
-export const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://hearaside.vercel.app').replace(/\/$/, '');
+export const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://hearaside.netlify.app').replace(/\/$/, '');
 
 export function Seo({ title, description, noindex = false }: { title: string; description?: string; noindex?: boolean }) {
   const { pathname } = useLocation();
   const lang = langOf(pathname);
   const other = otherLangPath(pathname);
+  const currentUrl = SITE_URL + pathname;
+  const ogImage = `${SITE_URL}/screens/og.png`;
   return (
     <>
       <title>{title}</title>
       {description && <meta name="description" content={description} />}
       {description && <meta property="og:description" content={description} />}
       <meta property="og:title" content={title} />
+      <meta property="og:url" content={currentUrl} />
+      <meta property="og:image" content={ogImage} />
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:title" content={title} />
+      {description && <meta name="twitter:description" content={description} />}
+      <meta name="twitter:image" content={ogImage} />
       <meta property="og:locale" content={lang === 'th' ? 'th_TH' : 'en_US'} />
       {noindex && <meta name="robots" content="noindex" />}
-      {!noindex && <link rel="canonical" href={SITE_URL + pathname} />}
+      {!noindex && <link rel="canonical" href={currentUrl} />}
       {!noindex && <link rel="alternate" hrefLang={lang === 'th' ? 'en' : 'th'} href={SITE_URL + other} />}
     </>
   );

@@ -8,7 +8,7 @@
 
 ## ติดตั้ง (ผู้ใช้)
 
-1. ดาวน์โหลด `HEARASIDE-Setup-1.0.3.exe` จาก [GitHub Releases](https://github.com/ArmZOfficial/hearaside/releases) หรือ [hearaside.vercel.app/download](https://hearaside.vercel.app/download)
+1. ดาวน์โหลด `HEARASIDE-Setup-1.0.3.exe` จาก [GitHub Releases](https://github.com/ArmZOfficial/hearaside/releases) หรือ [hearaside.netlify.app/download](https://hearaside.netlify.app/download)
 2. ปิด DAW และ OBS แล้วรันตัวติดตั้ง ได้ครบในไฟล์เดียว: Hub, Track, App Audio (VST3 + VST2), HEARASIDE for OBS และ cloudflared (ลิงก์ผ่านเน็ต ไม่ต้องลงเพิ่ม)
 3. ใน DAW: สแกนปลั๊กอินใหม่ → ใส่ **HEARASIDE Hub** บน Master และ **HEARASIDE Track** ท้ายทุกแทร็ก
 4. ใน OBS: เพิ่ม Source ชื่อ **HEARASIDE**
@@ -25,7 +25,7 @@
 | **HEARASIDE Hub** | Insert บน Master bus (ตัวเดียวต่อโปรเจกต์) | รับเสียงคนดูจาก Master (ผ่านปลั๊กอินเหนือ Hub) ส่ง OBS, สร้างเสียงหูฟังจากแต่ละแทร็ก, mixer กลาง (รีโมตทุกแทร็ก), limiter, LUFS, ปุ่มตัดเสียงคนดู, ฟังแบบคนดู, ระดับหูฟังรวม |
 | **HEARASIDE OBS Source** | ปลั๊กอินใน OBS | อ่าน Stream Mix จาก shared memory, ชดเชย clock drift, แปลง sample rate |
 | **HEARASIDE App Audio** (Windows) | Insert บนแทร็กไหนก็ได้ (Audio / Instrument / Bus) | ดึงเสียงจากโปรแกรมเดียว (YouTube, Spotify...) หรือทั้งเครื่องยกเว้น DAW เข้าแทร็ก, เปิด/ปิด + ระดับเสียง, อัดลง WAV (Print) แบบกดเองหรืออัดตาม DAW, ควบคุมจาก Hub ได้ |
-| **เว็บไซต์ + บัญชี** (`web/site`) | [hearaside.vercel.app](https://hearaside.vercel.app) (Vercel + Supabase) | หน้าแนะนำ ดาวน์โหลด คู่มือ, บัญชี (ไม่บังคับ), เข้าสู่ระบบในปลั๊กอินด้วยโค้ด, ลิงก์ถาวรของลิงก์ฟัง/ลิงก์เพื่อน (เสียงไม่ผ่านเว็บ) |
+| **เว็บไซต์ + บัญชี** (`web/site`) | [hearaside.netlify.app](https://hearaside.netlify.app) (Netlify/Vercel + Supabase) | หน้าแนะนำ ดาวน์โหลด คู่มือ, บัญชี (ไม่บังคับ), เข้าสู่ระบบในปลั๊กอินด้วยโค้ด, ลิงก์ถาวรของลิงก์ฟัง/ลิงก์เพื่อน (เสียงไม่ผ่านเว็บ) |
 | *Bridge* (เสริม) | แอปบน tray | ส่ง Stream Mix ออก audio device อื่น (VB-CABLE ฯลฯ) — ยังไม่ได้ทำ |
 
 ---
@@ -135,7 +135,7 @@ Master:  Gullfoss ─► IMPusher ─► HEARASIDE Hub ─► (ปลั๊ก�
 - ผ่านเน็ต: ตัวติดตั้งใส่ cloudflared มาให้แล้ว (`C:\Program Files\HEARASIDE\cloudflared`) Hub ได้ลิงก์ https อัตโนมัติ ไม่ต้องสมัคร Cloudflare (ถ้า build เองให้ `winget install --id Cloudflare.cloudflared`) ถ้าไม่มี cloudflared จะได้ลิงก์ใน WiFi เดียวกัน (http: หน้าฟังใช้ตัวเล่นสำรองแทน AudioWorklet ซึ่งเบราว์เซอร์เปิดให้เฉพาะ https / localhost; การส่งไมค์จากเบราว์เซอร์ต้องใช้ลิงก์ https)
 - ปุ่มเปิดลิงก์ฟังใน Hub เปิดผ่าน `http://127.0.0.1` (ฟังบนเครื่องนี้ ไม่ผ่าน tunnel)
 - ไม่มีลิงก์ถาวร: เปิดแชร์แต่ละครั้งได้ลิงก์ฟังสุ่มใหม่ (ลิงก์ของไลฟ์ก่อนใช้ไม่ได้) และโดเมนของ cloudflared เปลี่ยนทุกครั้ง ครั้งแรก Windows อาจถามสิทธิ์ firewall ให้ DAW
-- **ลิงก์ถาวร (เข้าสู่ระบบแล้ว ไม่ต้องตั้งอะไร)**: เข้าสู่ระบบบัญชี HEARASIDE ในปลั๊กอิน แล้ว Hub ใช้เว็บของบัญชี (`hearaside.vercel.app`) เป็นที่อยู่ลิงก์ถาวรให้เอง ทั้งลิงก์ฟังและลิงก์ส่งเสียงของเพื่อนแต่ละคน ลิงก์ขึ้นในหน้า Account › Links and friends และเพิกถอนจากเว็บได้ (Hub ออกลิงก์ใหม่ให้เองในรอบถัดไป) · ที่อยู่ที่ตั้งเองใน Settings ชนะเสมอ · ถ้าเว็บลงทะเบียนลิงก์ไม่ได้ 1 นาที Hub กลับไปใช้ลิงก์ที่เปลี่ยนทุกไลฟ์จนจบ session
+- **ลิงก์ถาวร (เข้าสู่ระบบแล้ว ไม่ต้องตั้งอะไร)**: เข้าสู่ระบบบัญชี HEARASIDE ในปลั๊กอิน แล้ว Hub ใช้เว็บของบัญชี (`hearaside.netlify.app`) เป็นที่อยู่ลิงก์ถาวรให้เอง ทั้งลิงก์ฟังและลิงก์ส่งเสียงของเพื่อนแต่ละคน ลิงก์ขึ้นในหน้า Account › Links and friends และเพิกถอนจากเว็บได้ (Hub ออกลิงก์ใหม่ให้เองในรอบถัดไป) · ที่อยู่ที่ตั้งเองใน Settings ชนะเสมอ · ถ้าเว็บลงทะเบียนลิงก์ไม่ได้ 1 นาที Hub กลับไปใช้ลิงก์ที่เปลี่ยนทุกไลฟ์จนจบ session
 - **ลิงก์ถาวร (ไม่มีบัญชี)**: deploy `web/share-vercel` ในบัญชี Vercel ของคุณ ([วิธีทำ](web/share-vercel/README.md)) แล้วใส่ที่อยู่ใน Hub › ตั้งค่า › "ที่อยู่เว็บแชร์" ลิงก์จะเป็น `https://<เว็บของคุณ>/l/<token>` คงที่ต่อโปรเจกต์ ส่งครั้งเดียวใช้ได้ทุกไลฟ์ (Hub บอกเว็บว่า tunnel อยู่ไหนทุก 30 วิ เสียงยังวิ่งตรงจาก Hub)
 - หน้าเว็บที่ไม่ได้มาจาก Hub หรือเว็บแชร์ที่ตั้งไว้จะต่อ WebSocket ไม่ได้ (Hub ตรวจ `Origin`)
 
@@ -173,9 +173,9 @@ Master:  Gullfoss ─► IMPusher ─► HEARASIDE Hub ─► (ปลั๊ก�
 
 ทุกอย่างด้านเสียงใช้ได้โดยไม่มีบัญชีและไม่มีเน็ต บัญชีเป็นของเสริม:
 
-- **เข้าสู่ระบบในปลั๊กอิน** (Hub › Settings › Account, Track/App Audio › Account): กด *Sign in with your browser* → ได้โค้ด 8 ตัว → อนุญาตที่ `hearaside.vercel.app/link` ไม่มีการพิมพ์รหัสผ่านในปลั๊กอิน · เข้าที่ตัวไหน ปลั๊กอินทุกตัวในเครื่องเข้าด้วย (token เก็บใน `%APPDATA%\HEARASIDE\account.dat` เข้ารหัส DPAPI ไม่อยู่ในไฟล์โปรเจกต์)
+- **เข้าสู่ระบบในปลั๊กอิน** (Hub › Settings › Account, Track/App Audio › Account): กด *Sign in with your browser* → ได้โค้ด 8 ตัว → อนุญาตที่ `hearaside.netlify.app/link` ไม่มีการพิมพ์รหัสผ่านในปลั๊กอิน · เข้าที่ตัวไหน ปลั๊กอินทุกตัวในเครื่องเข้าด้วย (token เก็บใน `%APPDATA%\HEARASIDE\account.dat` เข้ารหัส DPAPI ไม่อยู่ในไฟล์โปรเจกต์)
 - **ได้อะไร:** ลิงก์ถาวรโดยไม่ต้องมีเว็บของตัวเอง, ชื่อ/รูปที่เพื่อนเห็น, **Sync appearance** (ภาษา ธีม ขนาด ความทึบกระจก สีแทร็ก ลดการเคลื่อนไหว ตามไปทุกเครื่อง ค่าใหม่กว่าชนะ ไม่ซิงก์ค่าที่กระทบเสียง), รายการอุปกรณ์ + ออกจากระบบจากเว็บ
-- **deploy เว็บ** (`web/site` บน Vercel, ค่าตัวอย่างใน `web/site/.env.example`): Supabase (บัญชี, รูป), `PLUGIN_TOKEN_SECRET`, และ **`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`** สำหรับลิงก์ถาวรและ rate limit · dev ในเครื่อง: `npm run dev` ใน `web/site` (`STORE=memory` ไม่ต้องมี Supabase)
+- **deploy เว็บ** (`web/site` บน Netlify หรือ Vercel, ค่าตัวอย่างใน `web/site/.env.example`): Supabase (บัญชี, รูป), `PLUGIN_TOKEN_SECRET`, และ **`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`** สำหรับลิงก์ถาวรและ rate limit · dev ในเครื่อง: `npm run dev` ใน `web/site` (`STORE=memory` ไม่ต้องมี Supabase)
 
 ### REST API
 

@@ -40,6 +40,7 @@ for (const url of urls) {
   if (head.some(t => /name="description"/.test(t))) page = page.replace(/<meta name="description"[^>]*>/, '');
   if (head.some(t => /property="og:description"/.test(t))) page = page.replace(/<meta property="og:description"[^>]*>/, '');
   if (head.some(t => /property="og:title"/.test(t))) page = page.replace(/<meta property="og:title"[^>]*>/, '');
+  if (head.some(t => /property="og:image"/.test(t))) page = page.replace(/<meta property="og:image"[^>]*>/, '');
   page = page.replace('</head>', `    ${[...head, fonts].join('\n    ')}\n  </head>`);
   const out = url === '/' ? join(dist, 'index.html') : join(dist, url.slice(1), 'index.html');
   mkdirSync(dirname(out), { recursive: true });

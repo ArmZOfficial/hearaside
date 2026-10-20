@@ -3,7 +3,7 @@ import type { ZodType } from 'zod';
 import type { Me } from '../../shared/schemas.js';
 import type { AuthUser, Profile, Store } from './store.js';
 
-export const siteUrl = () => (process.env.SITE_URL ?? 'https://hearaside.vercel.app').replace(/\/$/, '');
+export const siteUrl = () => (process.env.SITE_URL ?? 'https://hearaside.netlify.app').replace(/\/$/, '');
 
 /** parses the JSON body with a shared zod schema; answers 400 itself when it doesn't fit */
 export function body<T>(schema: ZodType<T>, req: Request, res: Response): T | null {

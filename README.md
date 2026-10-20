@@ -8,7 +8,7 @@
 
 ## ติดตั้ง (ผู้ใช้)
 
-1. ดาวน์โหลด `HEARASIDE-Setup-1.0.3.exe` จาก [GitHub Releases](https://github.com/ArmZOfficial/hearaside/releases) หรือ [hearaside.netlify.app/download](https://hearaside.netlify.app/download)
+1. ดาวน์โหลด `HEARASIDE-Setup-1.0.5.exe` จาก [GitHub Releases](https://github.com/ArmZOfficial/hearaside/releases) หรือ [hearaside.netlify.app/download](https://hearaside.netlify.app/download)
 2. ปิด DAW และ OBS แล้วรันตัวติดตั้ง ได้ครบในไฟล์เดียว: Hub, Track, App Audio (VST3 + VST2), HEARASIDE for OBS และ cloudflared (ลิงก์ผ่านเน็ต ไม่ต้องลงเพิ่ม)
 3. ใน DAW: สแกนปลั๊กอินใหม่ → ใส่ **HEARASIDE Hub** บน Master และ **HEARASIDE Track** ท้ายทุกแทร็ก
 4. ใน OBS: เพิ่ม Source ชื่อ **HEARASIDE**

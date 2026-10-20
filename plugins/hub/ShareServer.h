@@ -71,6 +71,16 @@ public:
     juce::String friendUrl(const juce::String& token) const;     // best link: public if ready, else LAN
     int friendsConnected() const noexcept { return friendsLive_.load(); }
 
+    // What the line to one friend does (0.2): round trip from the page's pong (median of the last few), the
+    // bit rates of the last second, and the worst gaps since the friend connected. rttMs < 0 = no pong yet
+    // (an older page never answers). micGapMaxMs = longest silence between two microphone packets, downLagMaxMs =
+    // most audio waiting for a slow line, downSkips = times a slow line made the Hub jump ahead.
+    struct FriendStats {
+        float rttMs = -1.0f, upKbps = 0.0f, downKbps = 0.0f, micGapMaxMs = 0.0f, downLagMaxMs = 0.0f;
+        uint32_t downSkips = 0;
+    };
+    FriendStats friendStats(int slot) const;
+
     static juce::String newToken();    // 26 characters from the OS's secure random source (130 bits)
     static juce::String newSecret();   // 64 hex characters (256 bits), proves who owns the permanent links
     static bool secureRandom(void* dst, size_t n);
@@ -80,11 +90,13 @@ public:
 
 private:
     struct Conn;
+    struct FriendOut;
     void acceptLoop();
     void serve(Conn&);
     void streamTo(Conn&);
     void receiveFrom(Conn&);
     void friendSession(Conn&, int slot, uint32_t id, const juce::String& token);
+    void friendSend(juce::StreamingSocket&, int slot, uint32_t gen, FriendOut&);
     int  friendSlotFor(const juce::String& token, uint32_t* id = nullptr, juce::String* name = nullptr, juce::String* host = nullptr) const;
     void tunnelLoop();
     void reap();
@@ -105,6 +117,12 @@ private:
     std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> friendGen_ {};
     std::array<std::atomic<bool>, ssbus::kMaxFriends> friendKick_ {}, friendRemeasure_ {};
     std::array<std::mutex, ssbus::kMaxFriends> friendWrite_;
+    struct FriendNet {   // FriendStats, as atomics: the reader and the writer thread of a session fill it
+        std::atomic<float> rtt { -1.0f }, up { 0.0f }, down { 0.0f }, micGap { 0.0f }, lag { 0.0f };
+        std::atomic<uint32_t> skips { 0 };
+        std::atomic<uint64_t> upBytes { 0 }, downBytes { 0 };
+    };
+    std::array<FriendNet, ssbus::kMaxFriends> friendNet_;
     std::atomic<int> friendsLive_ { 0 };
     std::atomic<bool> listenEnabled_ { true };
 

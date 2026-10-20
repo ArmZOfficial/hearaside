@@ -5,7 +5,8 @@ add_executable(ss_unit_tests
     unit/test_engine.cpp
     unit/test_friends.cpp
     unit/test_jitter.cpp
-    unit/test_autosync.cpp)
+    unit/test_autosync.cpp
+    unit/test_paced_send.cpp)
 target_link_libraries(ss_unit_tests PRIVATE ssengine ssdsp ssbus)
 add_test(NAME unit COMMAND ss_unit_tests)
 
@@ -18,6 +19,8 @@ find_program(NODE_EXECUTABLE node)
 if(NODE_EXECUTABLE)
     add_test(NAME share_web_in_sync COMMAND ${NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/web/share-vercel/scripts/sync-web.mjs --check)
     add_test(NAME share_api COMMAND ${NODE_EXECUTABLE} --test ${CMAKE_SOURCE_DIR}/web/share-vercel/test/directory.test.js)
+    add_test(NAME net_sim COMMAND ${NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/net-sim/net-sim.test.mjs)   # the bad-line proxy for the friend page tests
+    add_test(NAME web_worklet COMMAND ${NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/web-friend/worklet.test.mjs)   # the friend page's audio worklet, no browser
 endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)

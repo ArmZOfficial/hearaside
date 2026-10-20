@@ -1197,8 +1197,10 @@ int main(int argc, char** argv) {
             }
         }
         const auto v = hub.friends();
-        std::printf("RESULT live=%d delay=%.1f peak=%.3f playing=%d writePos=%llu\n", wasLive ? 1 : 0, maxDelay, maxPeak,
-                    (!v.empty() && v[0].playing) ? 1 : 0, (unsigned long long)hub.engine().bus()->friends[0].writePos.load());
+        const auto net = hub.share().friendStats(0);   // the line: round trip, kbps, worst gaps (0.2)
+        std::printf("RESULT live=%d delay=%.1f peak=%.3f playing=%d writePos=%llu rtt=%.1f up=%.0f down=%.0f micGap=%.0f lag=%.0f skips=%u\n", wasLive ? 1 : 0, maxDelay, maxPeak,
+                    (!v.empty() && v[0].playing) ? 1 : 0, (unsigned long long)hub.engine().bus()->friends[0].writePos.load(),
+                    net.rttMs, net.upKbps, net.downKbps, net.micGapMaxMs, net.downLagMaxMs, net.downSkips);
         std::fflush(stdout);
         gAudio = nullptr;
         return wasLive ? 0 : 1;

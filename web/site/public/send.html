@@ -122,6 +122,10 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
       <div><div class="label" data-t="clean"></div><div class="cap" data-t="cleanCap"></div></div>
       <label class="switch"><input type="checkbox" id="clean"><span></span></label>
     </div>
+    <div class="row">
+      <div><div class="label" data-t="stereo"></div><div class="cap" data-t="stereoCap"></div></div>
+      <label class="switch"><input type="checkbox" id="stereo"><span></span></label>
+    </div>
     <div id="hearPanel">
       <div class="row">
         <div><div class="label" data-t="hear"></div><div class="cap" data-t="hearCap"></div></div>
@@ -141,6 +145,7 @@ const T = {
         subtitle: "เสียงไมค์ของคุณจะเข้าไปในแทร็กของคนที่ส่งลิงก์นี้ให้ แบบสด ๆ",
         subtitleRoom: "ได้ยินเพลงของเจ้าของลิงก์ ร้องตามได้เลย เสียงคุณจะถูกจัดให้ตรงจังหวะเอง",
         device: "ไมค์ที่ใช้", clean: "ตัดเสียงรบกวน", cleanCap: "เปิดถ้าอยู่ในที่เสียงดัง (คุยมากกว่าร้องเพลง)",
+        stereo: "สเตอริโอ (เครื่องดนตรี)", stereoCap: "ปิด = โมโน ใช้เน็ตน้อยลงครึ่งหนึ่ง เปิดเมื่อส่งคีย์บอร์ดหรือกีตาร์ที่มี 2 ช่อง",
         hear: "ฟังเพลง", hearCap: "ได้ยินเพลงที่เจ้าของลิงก์เล่นอยู่ ใช้หูฟังเพื่อไม่ให้เสียงเพลงเข้าไมค์",
         tap: "แตะเพื่อเริ่มส่งเสียง", stopHint: "แตะเพื่อหยุดส่ง", idle: "ยังไม่ได้ส่ง", connecting: "กำลังเชื่อมต่อ...",
         live: "กำลังส่งเสียงสด", lost: "หลุด กำลังต่อใหม่...", denied: "เบราว์เซอร์ไม่อนุญาตให้ใช้ไมค์",
@@ -153,6 +158,7 @@ const T = {
         subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
         subtitleRoom: "You hear their music and sing along. Your voice is lined up with the beat for you.",
         device: "Microphone", clean: "Noise suppression", cleanCap: "Turn on in noisy places (talking rather than singing)",
+        stereo: "Stereo (instrument)", stereoCap: "Off = mono, half the data. Turn on for a keyboard or guitar with two channels.",
         hear: "Hear the music", hearCap: "Plays what the host plays. Use headphones so the music doesn't leak into your mic.",
         tap: "Tap to start sending", stopHint: "Tap to stop", idle: "Not sending", connecting: "Connecting...",
         live: "Sending live", lost: "Connection lost, retrying...", denied: "The browser blocked the microphone",
@@ -230,8 +236,9 @@ function showBehind() { $("delay").textContent = running && behindMs != null ? f
 
 // One worklet for both directions, so the microphone and the music share the same clock:
 //   down: the Stream Mix from the Hub + the other friends (HRA2, with the position of each packet on the
-//         Hub's timeline), through a jitter buffer that grows on a dropout and shrinks back when the line is
-//         steady (as small as the network allows, like Jamulus' auto jitter buffer), played to the headphones;
+//         Hub's timeline), through a jitter buffer that follows the line: its size is what the last 5 s of
+//         lateness need (95th percentile), it grows at once and shrinks back every second. A short gap is
+//         a fade and the buffer goes on where it stopped; only a long one (> 3 packets) starts over;
 //   up:   the microphone in 10 ms packets, each stamped with the Stream Mix position the friend was
 //         HEARING when that packet's first frame was captured: position being played now, minus the
 //         output and input latency the browser reports. The Hub turns that into "how late is this voice".
@@ -242,11 +249,13 @@ class Duplex extends AudioWorkletProcessor {
     this.cap = 48000 * 6; this.l = new Float32Array(this.cap); this.r = new Float32Array(this.cap);
     this.w = 0; this.rd = 0; this.rate = 48000; this.target = 0.06; this.primed = false; this.adj = 0;
     this.pkt = 0.02; this.margin = 1e9; this.win = 0; this.hold = 0;   // adaptive jitter buffer (seconds)
+    this.t = 0; this.lates = []; this.muted = false; this.mutedFor = 0; this.missing = 0; this.fadeIn = 0; this.lastL = 0; this.lastR = 0;
     this.posOff = 0; this.havePos = false; this.expect = -1;
-    this.lat = 0.03; this.buf = new Float32Array(1920); this.n = 0; this.pk = 0; this.t = 0; this.echo = 0;
+    this.lat = 0.03; this.chans = 1; this.buf = new Float32Array(960); this.n = 0; this.pk = 0; this.echo = 0; this.tick = 0;
     this.port.onmessage = e => {
       const m = e.data;
       if (m.lat !== undefined) { this.lat = m.lat; return; }
+      if (m.chans !== undefined) { this.chans = m.chans; this.n = 0; return; }   // 1 = mono (a voice), 2 = stereo (an instrument)
       this.down(m);
     };
   }
@@ -254,51 +263,100 @@ class Duplex extends AudioWorkletProcessor {
     this.rate = m.rate;
     const s = m.pcm, n = s.length / 2;
     this.pkt = Math.max(this.pkt * 0.995, n / m.rate);   // the Hub sends a DAW block at a time: never wait less
-    if (m.pos !== undefined && m.pos !== this.expect) { this.posOff = m.pos - this.w; this.havePos = true; }
+    if (m.pos !== undefined && m.pos !== this.expect) { this.posOff = m.pos - this.w; this.havePos = true; this.lates.length = 0; }   // the Hub skipped ahead: measure again
     if (m.pos !== undefined) this.expect = m.pos + n;
     for (let i = 0; i < n; i++) {
       const k = (this.w + i) % this.cap;
       this.l[k] = s[i * 2] / 32768; this.r[k] = s[i * 2 + 1] / 32768;
     }
     this.w += n;
+    this.lates.push(this.t, this.t - this.w / this.rate);   // when the packet showed up, against a steady flow
+    if (this.lates.length > 4000) this.lates.splice(0, 2000);   // ideal() prunes it, but only while playing
     if (this.w - this.rd > this.cap - 4096) { this.rd = this.w - this.target * this.rate; this.primed = false; }
+  }
+  // what the line needs now (seconds): its jitter (95th percentile of the lateness above the best case of the
+  // last 5 s) + half a packet (the fill is a saw tooth) + a render quantum + 2 ms; 20 ms until it is measured
+  ideal() {
+    const a = this.lates;
+    let i = 0, jit = 0.02;
+    while (i < a.length && a[i] < this.t - 5) i += 2;
+    a.splice(0, i);
+    if (a.length >= 40) {
+      let ref = 1e9;
+      for (let k = 1; k < a.length; k += 2) ref = Math.min(ref, a[k]);
+      const d = [];
+      for (let k = 1; k < a.length; k += 2) d.push(a[k] - ref);
+      d.sort((x, y) => x - y);
+      jit = d[Math.ceil(d.length * 0.95) - 1];
+    }
+    return Math.min(0.4, Math.max(this.pkt + 0.01, jit + 0.5 * this.pkt + 0.005));
+  }
+  play(L, R, m, step) {   // m frames from the buffer, the rest of the quantum is silence
+    let pos = this.rd;
+    for (let i = 0; i < m; i++) {
+      const i0 = Math.floor(pos), f = pos - i0, a = i0 % this.cap, b = (i0 + 1) % this.cap;
+      L[i] = this.l[a] + (this.l[b] - this.l[a]) * f;
+      if (R !== L) R[i] = this.r[a] + (this.r[b] - this.r[a]) * f;
+      pos += step;
+    }
+    for (let i = m; i < L.length; i++) { L[i] = 0; if (R !== L) R[i] = 0; }
+    this.rd = pos;
   }
   process(inputs, outputs) {
     const out = outputs[0], L = out[0], R = out[1] || out[0];
     const n = L.length;
+    this.t += n / sampleRate;
     // the music
     let fill = this.w - this.rd;
     const want = this.target * this.rate;
     let step = this.rate / sampleRate;
-    const posNow = this.primed && this.havePos ? this.rd + this.posOff : -1;   // position of this quantum's first output frame
+    const posNow = this.primed && !this.muted && this.havePos ? this.rd + this.posOff : -1;   // position of this quantum's first output frame
     if (!this.primed) {
-      if (fill >= want) { this.primed = true; this.rd = this.w - want; fill = want; } else { L.fill(0); if (R !== L) R.fill(0); }
+      if (fill >= want) { this.primed = true; this.muted = false; this.rd = this.w - want; fill = want; this.fadeIn = 96; } else this.play(L, R, 0, 0);
     }
     if (this.primed) {
-      const err = (fill - want) / want;   // follow the Hub's clock: a hair faster or slower keeps the buffer at the target
-      this.adj += (Math.max(-0.004, Math.min(0.004, err * 0.01)) - this.adj) * 0.02;
+      const err = (fill - want) / want;   // follow the Hub's clock: a hair faster or slower keeps the buffer at the target (a bit more slowing when it ran low)
+      this.adj += (Math.max(-0.005, Math.min(0.004, err * (err < 0 ? 0.02 : 0.01))) - this.adj) * 0.02;
       step = this.rate / sampleRate * (1 + this.adj);
-      if (fill < n * step + 2) {   // dropout: more room from now on
-        this.primed = false; L.fill(0); if (R !== L) R.fill(0);
-        this.target = Math.min(0.4, this.target + 0.015); this.hold = 5;
-      } else {
-        // steady for 3 s: give back what was never needed (keeps the music as close to live as the line allows)
-        this.margin = Math.min(this.margin, (fill - n * step) / this.rate);
-        this.win += n / sampleRate; this.hold -= n / sampleRate;
-        if (this.win >= 3) {
-          const floor = this.pkt + 0.01;
-          if (this.hold <= 0 && this.margin > 0.008) this.target = Math.max(floor, this.target - Math.min(this.margin / 2, 0.005));
-          this.win = 0; this.margin = 1e9;
+      const need = n * step + 2;
+      if (this.muted) {
+        this.mutedFor += n / sampleRate;
+        if (fill >= need && fill >= Math.min(want, (this.pkt + 0.006) * this.rate)) {   // data is back: go on where we stopped
+          this.muted = false; this.fadeIn = 96;
+          this.target = Math.min(0.4, this.target + this.missing + this.mutedFor); this.hold = 5;   // the next one like it must not gap
+        } else {
+          if (this.mutedFor > Math.max(0.03, this.pkt * 3)) this.primed = false;   // a long one: fill up again
+          this.play(L, R, 0, 0);
         }
-        if (fill > want + this.rate * 0.6) this.rd = this.w - want;
-        let pos = this.rd;
-        for (let i = 0; i < n; i++) {
-          const i0 = Math.floor(pos), f = pos - i0, a = i0 % this.cap, b = (i0 + 1) % this.cap;
-          L[i] = this.l[a] + (this.l[b] - this.l[a]) * f;
-          if (R !== L) R[i] = this.r[a] + (this.r[b] - this.r[a]) * f;
-          pos += step;
+      }
+      if (this.primed && !this.muted) {
+        if (fill < need) {   // gap: what is left fades out (no click), then wait with the cursor where it is
+          const m = Math.max(0, Math.floor((fill - 2) / step));
+          this.play(L, R, m, step);
+          // what is left (and then its last value, held) dies away over 96 frames: no click, however short the rest
+          const hl = m > 0 ? L[m - 1] : this.lastL, hr = m > 0 ? (R !== L ? R[m - 1] : hl) : this.lastR;
+          const s0 = m >= 96 ? m - 96 : Math.max(0, Math.min(m, n - 96));
+          for (let i = s0; i < Math.min(n, s0 + 96); i++) { const g = 1 - (i - s0 + 1) / 96; L[i] = (i < m ? L[i] : hl) * g; if (R !== L) R[i] = (i < m ? R[i] : hr) * g; }
+          this.muted = true; this.mutedFor = 0; this.missing = (need - fill) / this.rate;
+        } else {
+          // every second: follow the line (see ideal): up at once, down by half of what was never needed
+          this.margin = Math.min(this.margin, (fill - need) / this.rate);
+          this.win += n / sampleRate; this.hold -= n / sampleRate;
+          if (this.win >= 1) {
+            const ideal = this.ideal();
+            if (ideal > this.target) this.target = ideal;
+            else if (this.hold <= 0) { const cut = Math.min(0.5 * (this.target - ideal), 0.5 * (this.margin - 0.002)); if (cut > 0.0002) this.target -= cut; }
+            this.win = 0; this.margin = 1e9;
+          }
+          if (fill > want + this.rate * 0.6) this.rd = this.w - want;
+          this.play(L, R, n, step);
+          if (this.fadeIn > 0) {   // the music (re)starts: no click
+            const k = Math.min(n, this.fadeIn);
+            for (let i = 0; i < k; i++) { const g = (96 - this.fadeIn + i + 1) / 96; L[i] *= g; if (R !== L) R[i] *= g; }
+            this.fadeIn -= k;
+          }
         }
-        this.rd = pos;
+        this.lastL = L[n - 1]; this.lastR = R[n - 1];
       }
     }
     // the microphone
@@ -307,11 +365,11 @@ class Duplex extends AudioWorkletProcessor {
       const l = ch[0], r = ch[1] || ch[0];
       for (let i = 0; i < l.length; i++) {
         if (this.n === 0) this.echo = posNow >= 0 ? Math.max(0, Math.round(posNow + i * step - this.lat * this.rate)) : 0;
-        this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i];
+        if (this.chans === 2) { this.buf[this.n * 2] = l[i]; this.buf[this.n * 2 + 1] = r[i]; } else this.buf[this.n] = l[i];
         this.pk = Math.max(this.pk, Math.abs(l[i]), Math.abs(r[i]));
-        if (++this.n === 480) { this.port.postMessage({ pcm: this.buf.slice(0, 960), echo: this.echo }); this.n = 0; }   // 10 ms at 48 kHz
+        if (++this.n === 480) { this.port.postMessage({ pcm: this.buf.slice(0, 480 * this.chans), echo: this.echo, chans: this.chans }); this.n = 0; }   // 10 ms at 48 kHz
       }
-      if (++this.t % 8 === 0) { this.port.postMessage({ peak: this.pk }); this.pk = 0; }
+      if (++this.tick % 8 === 0) { this.port.postMessage({ peak: this.pk }); this.pk = 0; }
     }
     return true;
   }
@@ -341,7 +399,8 @@ async function openMic() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = await navigator.mediaDevices.getUserMedia({ audio: {
     deviceId: $("device").value ? { exact: $("device").value } : undefined,
-    echoCancellation: false, noiseSuppression: clean, autoGainControl: false, channelCount: 2 } });
+    echoCancellation: false, noiseSuppression: clean, autoGainControl: false, channelCount: $("stereo").checked ? 2 : 1 } });
+  if (node) node.port.postMessage({ chans: $("stereo").checked ? 2 : 1 });
   const src = ctx.createMediaStreamSource(stream);
   src.connect(node);
   setLatency();
@@ -390,7 +449,7 @@ async function start() {
     outGain = ctx.createGain();
     node.connect(outGain).connect(ctx.destination);
     setVolume();
-    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data.pcm, e.data.echo);
+    node.port.onmessage = e => e.data.peak !== undefined ? (peak = e.data.peak) : send(e.data.pcm, e.data.echo, e.data.chans);
     await openMic();
     await ctx.resume();
   } catch (e) {
@@ -425,6 +484,7 @@ async function connect() {
       if (!m) return;
       if (m.v === 2) { duplex = true; room = { name: m.name || "", host: m.host || "" }; applyLang(); }
       if (m.delay !== undefined) { behindMs = m.delay >= 0 ? m.delay : null; showBehind(); }
+      if (m.ping !== undefined) ws.send(JSON.stringify({ pong: m.ping }));   // the Hub measures the round trip (an older Hub never asks)
       return;
     }
     const d = new DataView(e.data);
@@ -438,11 +498,11 @@ async function connect() {
   ws.onclose = () => { if (!running) return; clearTimeout(legacyTimer); behindMs = null; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
 }
 
-function send(f, echo) {
+function send(f, echo, chans) {
   if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 40000) return;   // a slow line: drop rather than sing 200 ms+ late
-  const v2 = duplex, hdr = v2 ? 24 : 16, n = f.length / 2;
+  const v2 = duplex, hdr = v2 ? 24 : 16, n = f.length / chans;
   const buf = new ArrayBuffer(hdr + f.length * 2), d = new DataView(buf), s = new Int16Array(buf, hdr);
-  d.setUint32(0, v2 ? 0x32415248 : 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, 2, true);
+  d.setUint32(0, v2 ? 0x32415248 : 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, chans, true);
   d.setUint16(10, latencyKnown ? 1 : 0, true); d.setUint32(12, n, true);
   if (v2) d.setBigUint64(16, BigInt(Math.max(0, Math.round(echo || 0))), true);
   for (let i = 0; i < f.length; i++) s[i] = muted ? 0 : Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767)));
@@ -483,6 +543,11 @@ $("mute").onclick = () => {
 $("mute").textContent = L.mute;
 $("device").onchange = () => { if (running) openMic(); };
 $("clean").onchange = () => { if (running) openMic(); };
+$("stereo").onchange = () => {
+  try { localStorage.setItem("hearaside-stereo", $("stereo").checked ? "1" : "0"); } catch (e) {}
+  if (running) openMic();
+};
+try { $("stereo").checked = localStorage.getItem("hearaside-stereo") === "1"; } catch (e) {}
 $("hear").onchange = setVolume;
 $("vol").oninput = setVolume;
 setVolume();

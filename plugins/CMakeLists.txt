@@ -162,6 +162,8 @@ if(HEARASIDE_BUILD_TOOLS AND HEARASIDE_BUILD_TESTS)
     find_program(NODE_FOR_FRIEND_PAGE node)
     if(NODE_FOR_FRIEND_PAGE)   # the friend's page in real Chrome against a real Hub (skips when Chrome / Playwright are missing)
         add_test(NAME friend_page COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-page.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)
+        add_test(NAME friend_wire COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-wire.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)   # the same wire without a browser: ping / pong, a stuck line down
+        set_tests_properties(friend_page friend_wire PROPERTIES RESOURCE_LOCK hearaside_hub_share)   # both start a Hub on the share ports
     endif()
     if(WIN32)
         add_test(NAME friend_app_source COMMAND hearaside_ui_snapshot --test-friend-app)   # S5: a friend as App Audio's source

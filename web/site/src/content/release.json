@@ -7,6 +7,11 @@
     "obsMin":  "32",
     "notes":  [
                   {
+                      "version":  "1.0.5",
+                      "en":  "The website moves to its permanent home (hearaside.netlify.app, old links redirect) and the logo is refreshed as a clean black-and-white H. Plug-ins and protocol are unchanged, so 1.0.4 and 1.0.5 work together.",
+                      "th":  "เว็บไซต์ย้ายไปที่บ้านถาวร (hearaside.netlify.app ลิงก์เก่า redirect ให้) และรีเฟรช logo เป็นอักษร H ขาวดำสะอาดตา ตัวปลั๊กอินและ protocol ไม่เปลี่ยน ใช้ 1.0.4 กับ 1.0.5 ร่วมกันได้"
+                  },
+                  {
                       "version":  "1.0.4",
                       "en":  "Security fixes: signing a plug-in in now needs the code typed from the plug-in itself, sign-in tokens are never saved unprotected, and the link server holds up better against a flood of connections. The website adds a bot check to sign-in and sign-up.",
                       "th":  "แก้ด้านความปลอดภัย: การเชื่อมปลั๊กอินกับบัญชีต้องพิมพ์โค้ดจากปลั๊กอินเอง โทเคนเข้าสู่ระบบจะไม่ถูกบันทึกแบบไม่เข้ารหัสอีก และเซิร์ฟเวอร์ลิงก์ทนต่อการเชื่อมต่อถล่มได้ดีขึ้น เว็บเพิ่มการตรวจบอตตอนเข้าสู่ระบบและสมัครสมาชิก"

@@ -732,6 +732,7 @@ Table build() {
     s(Str::PairedWith, "จับคู่กับ “%s” แล้ว · ปลั๊กอินของคุณเพิ่ม %d ms", "Paired with “%s” · your plug-ins add %d ms");
     s(Str::PairHubOld, "Hub ไม่ตอบ อัปเดต Hub เป็นเวอร์ชันล่าสุดแล้วลองใหม่", "The Hub didn’t answer. Update the Hub and try again.");
     s(Str::PairBusy, "Hub ยังไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่", "The Hub is busy. Try again in a moment.");
+    s(Str::PairRateHigh, "จับคู่อัตโนมัติใช้ได้ที่ 44.1 หรือ 48 kHz เลือก Track เอง", "Auto-pair works at 44.1 or 48 kHz. Pick the Track by hand.");
     s(Str::DawYours, "DAW ของคุณ", "your DAW");
     return t;
 }

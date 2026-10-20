@@ -506,6 +506,11 @@ void HubEngine::applyMemory(BusLayout& b) {
 bool HubEngine::startProbe(int feeder) {
     BusLayout* b = bus();
     if (b == nullptr || feeder < 0 || feeder >= kMaxFeeders) return false;
+    {
+        // the analysis windows are frame counts made for 44.1 / 48 kHz: above that the sweep may not fit them and the answer would be a false "not found"
+        const std::lock_guard<std::mutex> lock(measureMutex_);
+        if (sampleRate_ > 48000.5) return false;
+    }
     const FeederRecord& f = b->feeders[feeder];
     const uint32_t fid = f.friendId.load(std::memory_order_relaxed);
     bool linked = false;
@@ -549,10 +554,11 @@ void HubEngine::probeStep() {
         probeBest_ = slot;
         probeLi_ = li;
         probeWord_ = slot >= 0 ? pairWord(*b, slot, fid) : 0;
-        probeHoldTo_ = w + pending + uint32_t((double(slotToMasterMs_.load(std::memory_order_relaxed)) + lineUpMs()) * rate / 1000.0) + probeLeadIn(rate);
         probeStage_.store(3, std::memory_order_relaxed);
         uint32_t sweep = 2;
         feeder.hubCommand.compare_exchange_strong(sweep, 0, std::memory_order_relaxed);   // no Track may start or go on with the sweep from now on
+        // from the clock after the correlation and the call-off, not from `w` read before them: they can take longer than a block
+        probeHoldTo_ = capWrite_.load(std::memory_order_acquire) + pending + uint32_t((double(slotToMasterMs_.load(std::memory_order_relaxed)) + lineUpMs()) * rate / 1000.0) + probeLeadIn(rate);
     };
     const bool lost = j < 0 || feeder.state.load(std::memory_order_acquire) != kSlotActive
         || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull;   // the feeder left, or the DAW stopped processing audio

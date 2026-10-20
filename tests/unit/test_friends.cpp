@@ -882,17 +882,19 @@ TEST_CASE("friends: Line up does not grow during a probe when a friend's delay g
     CHECK(D > 250.0);
     bool grown = false;
     rig.probe([&](int64_t sinceSweep) {
-        if (sinceSweep >= int64_t(0.1 * kRate) && !grown) { grown = true; rig.b->friends[0].delayBits.store(floatBits(float(290.0 + 10.0 + 300.0))); }   // a worse network, measured now
+        if (sinceSweep >= int64_t(0.1 * kRate) && !grown) { grown = true; rig.b->friends[0].delayBits.store(floatBits(float(300.0 + 200.0))); }   // a worse network, measured now: D wants to grow, still under the 600 ms limit
         CHECK_NEAR(rig.r.hub.lineUpMs(), D, 0.01);
     });
     CHECK(grown);
     checkSweepNeverHeard(rig);
+    CHECK(rig.r.hub.lineUpMs() > D + 150.0);   // and it did want to: it follows once the probe is over
 }
 
-// the probe's times are by the clock, not by frame counts made for 48 kHz
-static void probeAtRate(int rate) {
-    ProbeRig rig(true, 290.0, 600.0f, 0.0, rate);
+// 44.1 kHz: the probe's times are by the clock, and a Track that reaches the master 450 ms late (measured) is waited for
+TEST_CASE("friends: nobody hears the probe sweep at 44.1 kHz") {
+    ProbeRig rig(true, 290.0, 600.0f, 450.0, 44100);
     rig.r.run(1.5);
+    rig.r.hub.measureLatencies();
     rig.r.music = false;
     rig.r.run(0.5);
     rig.probe();
@@ -904,8 +906,21 @@ static void probeAtRate(int rate) {
     CHECK_LT(sweepIn(rig.r.stream, rig.startOut, rig.r.stream.size(), rig.sweep), 0.05);
     CHECK_LT(sweepIn(rig.r.friendMix, rig.startOut, rig.r.friendMix.size(), rig.sweep), 0.05);
 }
-TEST_CASE("friends: nobody hears the probe sweep at 96 kHz") { probeAtRate(96000); }
-TEST_CASE("friends: nobody hears the probe sweep at 44.1 kHz") { probeAtRate(44100); }
+
+// above 48 kHz the analysis windows (frame counts) are too short for the sweep: the Hub says no before it mutes or plays anything
+TEST_CASE("friends: the probe is refused at 96 kHz, before anything is muted or played") {
+    ProbeRig rig(true, 40.0, 0.0f, 0.0, 96000);
+    rig.r.run(1.0);
+    const uint32_t seq = rig.b->feeders[rig.fidx].hubCommandSeq.load();
+    CHECK(!rig.r.hub.startProbe(rig.fidx));
+    CHECK(!rig.r.hub.probing());
+    rig.r.run(0.5);
+    CHECK(rig.b->feeders[rig.fidx].hubCommand.load() == 0);
+    CHECK(rig.b->feeders[rig.fidx].hubCommandSeq.load() == seq);
+    CHECK(rig.sweepFrom < 0);
+    CHECK(peakOf(rig.r.stream, rig.r.stream.size() - 4800, rig.r.stream.size()) > 0.05f);   // the Stream Mix goes on
+    CHECK(peakOf(rig.r.friendMix, rig.r.friendMix.size() - 4800, rig.r.friendMix.size()) > 0.05f);
+}
 
 TEST_CASE("friends: a probe the Hub ended takes the sweep command back") {
     ProbeRig rig(true, 290.0, 600.0f);

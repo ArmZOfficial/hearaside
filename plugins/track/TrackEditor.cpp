@@ -418,7 +418,7 @@ TrackEditor::TrackEditor(TrackProcessor& p)
             proc_.clearReply();
         } else if ((rep == ssbus::kReplyNoMatch || rep == ssbus::kReplyFailed) && proc_.lastRequest() == ssbus::kReqProbe) {
             probeSince_ = 0;
-            overlay().toast(tr(rep == ssbus::kReplyFailed ? Str::PairBusy : Str::PairNotFound));   // Failed = the Hub can't listen now (busy, auto sync, not ready)
+            overlay().toast(tr(rep != ssbus::kReplyFailed ? Str::PairNotFound : proc_.currentSampleRate() > 48000.5 ? Str::PairRateHigh : Str::PairBusy));   // Failed = the Hub can't listen now (busy, auto sync, not ready)
             proc_.clearReply();
         } else if (rep > 0 && rep < 0xFFFF0000u) {
             if (proc_.lastRequest() == ssbus::kReqProbe) probeSince_ = 0;   // paired: the banner says with which Track

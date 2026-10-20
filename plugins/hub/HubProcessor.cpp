@@ -672,6 +672,13 @@ void HubProcessor::serviceRequests() {
                 ssbus::postReply(f, 1);
                 break;
             }
+            case ssbus::kReqPairWith:
+                ssbus::postReply(f, engine_.pairWith(feeder, arg) ? 1u : ssbus::kReplyFailed);
+                break;
+            case ssbus::kReqProbe:   // answered by the engine when it has listened
+                if (autoSync_.phase == SyncPhase::Reference || autoSync_.phase == SyncPhase::Microphone || !engine_.startProbe(feeder))
+                    ssbus::postReply(f, ssbus::kReplyFailed);
+                break;
             case ssbus::kReqCopyLink: {
                 const juce::String link = friendLink(arg);
                 if (link.isNotEmpty()) {
@@ -994,6 +1001,15 @@ void HubProcessor::getStateInformation(juce::MemoryBlock& dest) {
     for (int i = 0; i < ssbus::kMaxStems; ++i) stems.setProperty("s" + juce::String(i), stemNames_[size_t(i)], nullptr);
     state.removeChild(state.getChildWithName("STEMS"), nullptr);
     state.appendChild(stems, nullptr);
+    juce::ValueTree pairs("PAIRS");   // which Track each friend input goes out through (chosen by hand or found by the probe)
+    for (const auto& m : engine_.pairMemory()) {
+        juce::ValueTree p("PAIR");
+        p.setProperty("feeder", juce::String::fromUTF8(m.feeder.c_str()), nullptr);
+        p.setProperty("slot", juce::String::fromUTF8(m.slotUuid.c_str()), nullptr);
+        pairs.appendChild(p, nullptr);
+    }
+    state.removeChild(state.getChildWithName("PAIRS"), nullptr);
+    state.appendChild(pairs, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -1007,6 +1023,16 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     // older projects also saved scenes and a hosted mastering chain
     state.removeChild(state.getChildWithName("SCENES"), nullptr);
     state.removeProperty("mastering", nullptr);
+    std::vector<HubEngine::PairMemory> pairs;
+    const auto saved = state.getChildWithName("PAIRS");
+    for (int i = saved.getNumChildren(); --i >= 0;) {   // newest first (remember() appends): the newest of a clash and the first 256 stay
+        const auto p = saved.getChild(i);
+        HubEngine::PairMemory m { p.getProperty("feeder").toString().toStdString(), p.getProperty("slot").toString().toStdString() };
+        const bool twice = std::any_of(pairs.begin(), pairs.end(), [&](const auto& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });
+        if (!m.feeder.empty() && !m.slotUuid.empty() && !twice && pairs.size() < 256) pairs.push_back(std::move(m));   // an empty one would match any Track or feeder
+    }
+    std::reverse(pairs.begin(), pairs.end());
+    engine_.setPairMemory(std::move(pairs));
     friendRoom_.fromState(state.getChildWithName("FRIENDS"));
     lineUp_ = bool(state.getProperty("lineUp", true));
     state.removeChild(state.getChildWithName("FRIENDS"), nullptr);

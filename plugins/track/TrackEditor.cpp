@@ -367,6 +367,14 @@ TrackEditor::TrackEditor(TrackProcessor& p)
         content_.addAndMakeVisible(c);
     content_.addChildComponent(keepRow_);
     body_.addChildComponent(friendField_);
+    body_.addChildComponent(outField_);
+    body_.addChildComponent(probeField_);
+    probeBtn_.onClick = [this] {
+        probeSince_ = juce::jmax<juce::uint32>(1, juce::Time::getMillisecondCounter());
+        proc_.requestProbe();
+        refreshFriendTexts();
+    };
+    outPicker_.buildMenu = [this] { return buildOutMenu(); };
     content_.addChildComponent(sheet_);
     content_.addChildComponent(accountPanel_);
     accountPanel_.onBack = [this] { openAccount(false); };
@@ -405,7 +413,15 @@ TrackEditor::TrackEditor(TrackProcessor& p)
         } else if (rep == ssbus::kReplyRoomFull) {
             overlay().toast(tr(Str::FriendFullToast));
             proc_.clearReply();
+        } else if (rep == ssbus::kReplyFailed && proc_.lastRequest() == ssbus::kReqPairWith) {
+            overlay().toast(tr(Str::PairRefused));
+            proc_.clearReply();
+        } else if ((rep == ssbus::kReplyNoMatch || rep == ssbus::kReplyFailed) && proc_.lastRequest() == ssbus::kReqProbe) {
+            probeSince_ = 0;
+            overlay().toast(tr(rep != ssbus::kReplyFailed ? Str::PairNotFound : proc_.currentSampleRate() > 48000.5 ? Str::PairRateHigh : Str::PairBusy));   // Failed = the Hub can't listen now (busy, auto sync, not ready)
+            proc_.clearReply();
         } else if (rep > 0 && rep < 0xFFFF0000u) {
+            if (proc_.lastRequest() == ssbus::kReqProbe) probeSince_ = 0;   // paired: the banner says with which Track
             proc_.clearReply();
         }
         refreshStatus();
@@ -492,12 +508,38 @@ void TrackEditor::refreshTexts() {
     refreshFriendTexts();
 }
 
+Menu TrackEditor::buildOutMenu() {
+    Menu m(260);
+    m.header(tr(Str::GoesOutThrough));
+    FriendDirectory::Info fi;
+    const uint32_t fid = proc_.friendId();
+    const int outSlot = fid != 0 && FriendDirectory::find(fid, fi) ? fi.outSlot : -1;
+    m.check(tr(Str::PairAutomatic), outSlot < 0, [this] { proc_.requestPairWith(ssbus::kPairAutomatic); });
+    if (auto* bus = proc_.bus()) {
+        for (int s = 0; s < ssbus::kMaxSlots; ++s) {
+            const auto& slot = bus->slots[s];
+            if (slot.state.load(std::memory_order_acquire) != ssbus::kSlotActive || (slot.flags.load(std::memory_order_relaxed) & ssbus::kFlagApp)) continue;
+            if (const uint32_t by = slot.fedBy.load(std::memory_order_relaxed); by != 0 && by != fid) continue;
+            std::string name, uuid;
+            uint32_t colour = 0;
+            ssbus::readSlotIdentity(slot, name, uuid, colour);
+            m.check(juce::String(s + 1) + "  " + juce::String::fromUTF8(name.c_str()), s == outSlot, [this, s] { proc_.requestPairWith(uint32_t(s)); });
+            m.last().icon = icons::Icon::Waveform;
+        }
+    }
+    return m;
+}
+
 void TrackEditor::refreshFriendTexts() {
     FriendDirectory::Info fi;
     const uint32_t fid = proc_.friendId();
     const auto fn = fid != 0 && FriendDirectory::find(fid, fi) ? fi.name : tr(Str::FriendWord);
     keepRow_.setTexts(tr(Str::KeepOwnSound), trf(Str::KeepOwnSoundCap, { fn }));
     friendField_.setTexts(trf(Str::FriendLevelIn, { fn }), {});
+    outField_.setTexts(tr(Str::GoesOutThrough), {});
+    probeField_.setTexts({}, tr(Str::PairNowCap));
+    probeBtn_.setButtonText(tr(probeSince_ != 0 ? Str::PairListening : Str::PairNow));
+    probeBtn_.setEnabled(probeSince_ == 0);
     friendSlider_.setTitle(trf(Str::FriendLevelIn, { fn }));
 }
 
@@ -520,6 +562,16 @@ void TrackEditor::refreshStatus() {
         FriendDirectory::Info fi;
         const bool hasFriend = (fid != 0 && FriendDirectory::find(fid, fi));
         const auto friendName = hasFriend ? fi.name : tr(Str::FriendWord);
+        {
+            juce::String where = tr(Str::PairAutomatic);
+            if (hasFriend && fi.outSlot >= 0 && bus != nullptr) {
+                std::string n, u;
+                uint32_t c = 0;
+                ssbus::readSlotIdentity(bus->slots[fi.outSlot], n, u, c);
+                where = juce::String(fi.outSlot + 1) + "  " + juce::String::fromUTF8(n.c_str());
+            }
+            outPicker_.set(icons::Icon::Waveform, where);
+        }
 
         if (!hub) {
             banner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::HubMissingBanner));
@@ -529,7 +581,10 @@ void TrackEditor::refreshStatus() {
             banner_.set(Banner::Style::Warning, icons::Icon::Warning, currentDaw() == Daw::Cubase ? tr(Str::FriendDawPausedCubase) : tr(Str::FriendDawPaused));
         } else if (hasFriend && fi.outSlot >= 0 && bus != nullptr) {
             const float fxMs = ssbus::bitsFloat(bus->slots[fi.outSlot].fxLatencyBits.load(std::memory_order_relaxed));
-            banner_.set(Banner::Style::Info, icons::Icon::Check, trf(Str::FriendPaired, { friendName, juce::String(juce::roundToInt(fxMs)) }));
+            std::string n, u;
+            uint32_t c = 0;
+            ssbus::readSlotIdentity(bus->slots[fi.outSlot], n, u, c);
+            banner_.set(Banner::Style::Info, icons::Icon::Check, trf(Str::PairedWith, { n.empty() ? juce::String(fi.outSlot + 1) : juce::String::fromUTF8(n.c_str()), juce::String(juce::roundToInt(fxMs)) }));
         } else {
             banner_.set(Banner::Style::Warning, icons::Icon::Warning, trf(Str::FriendNotPaired, { friendName }));
         }
@@ -599,6 +654,11 @@ void TrackEditor::timerCallback() {
         lastStr_ = str;
         layout();   // the summary sentence changes length
         content_.repaint();
+    }
+    if (probeSince_ != 0 && juce::Time::getMillisecondCounter() - probeSince_ > 6000) {   // no answer (an older Hub); a current one answers in 1-2 s, at the very worst in 10
+        probeSince_ = 0;
+        overlay().toast(tr(Str::PairHubOld));
+        refreshFriendTexts();
     }
     if (isFriend) {
         keepRow_.setOn(paramOn(trackparam::KeepOwn), content_.isShowing());
@@ -674,8 +734,8 @@ void TrackEditor::layout() {
         strRow_.setBounds(c.removeFromTop(60.0f).toNearestInt());
     }
     c.removeFromTop(12.0f);
-    body_.fields = fr ? std::vector<Field*> { &friendField_ } : std::vector<Field*> { &headField_, &viewField_, &delayField_ };
-    for (auto* f : { &friendField_, &headField_, &viewField_, &delayField_ })
+    body_.fields = fr ? std::vector<Field*> { &friendField_, &outField_, &probeField_ } : std::vector<Field*> { &headField_, &viewField_, &delayField_ };
+    for (auto* f : { &friendField_, &outField_, &probeField_, &headField_, &viewField_, &delayField_ })
         f->setVisible(std::find(body_.fields.begin(), body_.fields.end(), f) != body_.fields.end());
 
     const float th = wrappedHeight(uiFont(12.5f), summaryText(), c.getWidth() - 24.0f, 6.0f);

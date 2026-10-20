@@ -122,6 +122,16 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     // so nobody gets their own voice back a round trip later (mix-minus for every friend at once).
     {
         const float* src[2] = { outs_[0][0].data(), outs_[0][1].data() };
+        friendMixGain_.setTarget(probeFeeder_.load(std::memory_order_relaxed) >= 0 ? 0.0f : 1.0f);   // silent while the probe sweep passes
+        if (friendMixGain_.isSmoothing() || friendMixGain_.current() != 1.0f) {
+            for (int i = 0; i < n; ++i) {
+                const float g = friendMixGain_.next();
+                delayScratch_[0][size_t(i)] = src[0][i] * g;
+                delayScratch_[1][size_t(i)] = src[1][i] * g;
+            }
+            src[0] = delayScratch_[0].data();
+            src[1] = delayScratch_[1].data();
+        }
         ringWrite(b->friendMixAudio, b->friendMixWrite, src, 2, uint32_t(n));
     }
 
@@ -199,6 +209,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
             const uint32_t a = tot[size_t(j)], u = usedTot_[size_t(j)];
             if ((a > u ? a - u : u - a) > uint32_t(0.008 * sampleRate_)) changed = true;
         }
+        if (probeFeeder_.load(std::memory_order_relaxed) >= 0 && lineOn) changed = false;   // the probe holds the mute for the D it started with
         const bool urgent = !lineOn;
         if (changed && lineXfRemain_ == 0) {
             lineHold_ += uint32_t(n);

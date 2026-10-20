@@ -723,6 +723,16 @@ Table build() {
     s(Str::AppearanceSynced, "ซิงก์หน้าตาจากบัญชีของคุณแล้ว", "Appearance synced from your account");
     s(Str::SignedInToast, "เข้าสู่ระบบเป็น %s แล้ว", "Signed in as %s");
     s(Str::SignedOutToast, "ออกจากระบบแล้ว", "Signed out");
+    s(Str::PairAutomatic, "อัตโนมัติ", "Automatic");
+    s(Str::PairRefused, "เลือก Track นั้นไม่ได้ อาจมีเพื่อนคนอื่นใช้อยู่หรือหายไปแล้ว", "Can’t use that Track. Another friend may have it, or it is gone.");
+    s(Str::PairNow, "จับคู่อัตโนมัติ", "Pair automatically");
+    s(Str::PairListening, "กำลังฟัง…", "Listening…");
+    s(Str::PairNotFound, "หา Track ท้ายช่องนี้ไม่เจอ", "Couldn’t find the Track at the end of this channel");
+    s(Str::PairNowCap, "เล่นเสียงสั้น ๆ แล้วเงียบประมาณ 1–2 วินาที ระหว่างนี้คนดูและเพื่อนจะไม่ได้ยินอะไร", "Plays a short sweep. Viewers and friends hear nothing for a second or two.");
+    s(Str::PairedWith, "จับคู่กับ “%s” แล้ว · ปลั๊กอินของคุณเพิ่ม %d ms", "Paired with “%s” · your plug-ins add %d ms");
+    s(Str::PairHubOld, "Hub ไม่ตอบ อัปเดต Hub เป็นเวอร์ชันล่าสุดแล้วลองใหม่", "The Hub didn’t answer. Update the Hub and try again.");
+    s(Str::PairBusy, "Hub ยังไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่", "The Hub is busy. Try again in a moment.");
+    s(Str::PairRateHigh, "จับคู่อัตโนมัติใช้ได้ที่ 44.1 หรือ 48 kHz เลือก Track เอง", "Auto-pair works at 44.1 or 48 kHz. Pick the Track by hand.");
     s(Str::DawYours, "DAW ของคุณ", "your DAW");
     return t;
 }

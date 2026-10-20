@@ -42,7 +42,8 @@ export function store() {
     if (shared) return shared;
     shared = redisFromEnv();
     if (!shared) {
-        if (process.env.VERCEL) throw new Error("No Redis configured: add Upstash for Redis from the Vercel Marketplace");
+        // Netlify functions are the same: every instance has its own memory, so a link registered on one is "offline" on the next
+        if (process.env.VERCEL || process.env.NETLIFY) throw new Error("No Redis configured: set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN");
         shared = memoryStore();
     }
     return shared;

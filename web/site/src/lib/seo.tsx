@@ -3,7 +3,7 @@
 import { useLocation } from 'react-router';
 import { langOf, otherLangPath } from '../i18n';
 
-export const SITE_URL = 'https://hearaside.vercel.app';
+export const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://hearaside.vercel.app').replace(/\/$/, '');
 
 export function Seo({ title, description, noindex = false }: { title: string; description?: string; noindex?: boolean }) {
   const { pathname } = useLocation();

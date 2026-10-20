@@ -1,0 +1,81 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# 1. API: ส่ง request /api/* เข้า serverless function (Express)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# 2. Permanent Share links: ลิงก์ฟังสดและส่งเสียง
+[[redirects]]
+  from = "/l/*"
+  to = "/listen.html"
+  status = 200
+
+[[redirects]]
+  from = "/s/*"
+  to = "/send.html"
+  status = 200
+
+# 3. SPA Fallback: หน้า account / auth ที่ไม่ได้ prerender ให้เข้า app.html
+# (หน้า static ที่มีไฟล์จริงเช่น /, /th, /guides/* จะถูกเสิร์ฟก่อนเสมอโดยอัตโนมัติ)
+[[redirects]]
+  from = "/*"
+  to = "/app.html"
+  status = 200
+
+# Security headers ทั่วไป
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data: blob: https://*.supabase.co https://lh3.googleusercontent.com https://cdn.discordapp.com; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com; frame-src https://accounts.google.com https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://*.supabase.co"
+
+# Headers สำหรับหน้าฟังและส่งเสียงสด (WebRTC/WebSocket audio player)
+[[headers]]
+  for = "/l/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' wss://*.trycloudflare.com; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/s/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' wss://*.trycloudflare.com; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/listen.html"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' wss://*.trycloudflare.com; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/send.html"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' wss://*.trycloudflare.com; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "microphone=(self), camera=(), geolocation=()"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Cache-control สำหรับ static assets (CSS, JS, Fonts)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

@@ -1,0 +1,7 @@
+# Netlify root configuration
+# ชี้ให้ Netlify build จากโฟลเดอร์ web/site โดยอัตโนมัติ
+[build]
+  base = "web/site"
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"

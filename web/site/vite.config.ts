@@ -6,7 +6,7 @@ import mdx from '@mdx-js/rollup';
 // Vite builds the static site (Vercel serves it from the CDN); the Express API is one Vercel
 // Function (api/index.ts). In development /api is proxied to `tsx watch server/dev.ts` (:3001).
 // which build this is: an open tab compares it with /version.json and reloads when a newer one is live
-const BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || String(Date.now());
+const BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID || process.env.DEPLOY_ID || process.env.COMMIT_REF?.slice(0, 12) || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) || String(Date.now());
 const versionFile = {
   name: 'version-file',
   apply: 'build' as const,

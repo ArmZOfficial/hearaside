@@ -81,4 +81,32 @@ export function useFriends() {
   });
 }
 
+// --- back office (only answers for admins; everyone else gets 404) ---------------------------------
+
+export interface AdminVersion { version: string; site: number; github: number; manual: number; total: number }
+export interface AdminDownloads { total: number; counted: number; before: number; last30: number; versions: AdminVersion[]; daily: { day: string; count: number }[] }
+export interface AdminOverview {
+  counts: { users: number; deleted: number; devices: number; activeDevices7d: number; links: number; signups: { day: string; count: number }[] };
+  downloads: Pick<AdminDownloads, 'total' | 'last30' | 'daily' | 'versions'>;
+}
+export interface AdminUser {
+  id: string; email: string; handle: string; displayName: string; createdAt: string; lastSeenAt: string | null;
+  devices: number; links: number; deletedAt: string | null;
+}
+
+export function useIsAdmin() {
+  const { token, status } = useAuth();
+  return useQuery({
+    queryKey: ['admin-me', token],
+    queryFn: () => call<{ admin: true }>(token, 'GET', '/admin/me').then(() => true, () => false),
+    enabled: status === 'signedIn' && !!token,
+    staleTime: 5 * 60_000,
+  }).data === true;
+}
+
+export function useAdminQuery<T>(key: string, path: string) {
+  const { token, status } = useAuth();
+  return useQuery({ queryKey: ['admin', key, path, token], queryFn: () => call<T>(token, 'GET', path), enabled: status === 'signedIn' && !!token });
+}
+
 export type { PendingDevice };

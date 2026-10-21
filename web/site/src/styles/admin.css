@@ -1,0 +1,25 @@
+/* Back office (/admin). Same tokens as the rest of the site; charts are drawn in the ink colour. */
+.adm-grid { display: grid; gap: 20px; grid-template-columns: 220px minmax(0, 1fr); align-items: start; }
+@media (max-width: 820px) { .adm-grid { grid-template-columns: 1fr; } }
+.adm-menu { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.adm-body { padding: 24px; display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.stat { padding: 16px; border-radius: 14px; background: var(--hs-inset); border: 1px solid var(--hs-hairline1); display: flex; flex-direction: column; gap: 4px; }
+.stat b { font-size: 28px; line-height: 1.1; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--hs-graphite); }
+.chart { width: 100%; height: 140px; display: block; }
+.chart rect { fill: var(--hs-ink); }
+.chart rect.zero { fill: var(--hs-sliderRail); }
+.chart rect:hover { opacity: .65; }
+.chart text { fill: var(--hs-graphite); font-size: 10px; }
+.tbl-wrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl th { text-align: left; font-weight: 500; color: var(--hs-graphite); font-size: 13px; padding: 8px 10px; border-bottom: 1px solid var(--hs-hairline2); white-space: nowrap; }
+.tbl td { padding: 10px; border-bottom: 1px solid var(--hs-hairline1); vertical-align: middle; }
+.tbl .n { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl .acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.adm-note { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--hs-graphite); }
+.adm-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.adm-bar .lbl { flex: 1 1 220px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--hs-inset); border: 1px solid var(--hs-hairline2); color: var(--hs-ink2); }
+.pill.warn { color: var(--hs-warn); background: var(--hs-warnBg); border-color: transparent; }

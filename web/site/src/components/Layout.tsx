@@ -9,12 +9,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowUpRight, BookOpen, Download, Link2, LogOut, Monitor, Moon, Sun, User } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Download, LayoutDashboard, Link2, LogOut, Monitor, Moon, Sun, User } from 'lucide-react';
 import { maskEmail } from '../../shared/schemas';
 import { otherLangPath, useT } from '../i18n';
 import { useTheme } from '../lib/theme';
 import { useAuth } from '../lib/auth';
-import { useMe } from '../lib/api';
+import { useIsAdmin, useMe } from '../lib/api';
 import { Avatar, Wordmark } from './ui/Kit';
 
 
@@ -63,6 +63,7 @@ function AccountMenu() {
   const { t, path } = useT();
   const auth = useAuth();
   const me = useMe();
+  const isAdmin = useIsAdmin();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const reduce = useReducedMotion();
@@ -140,6 +141,7 @@ function AccountMenu() {
             <div className="menu-sep" role="separator" />
             <Item icon={Download} label={t('nav.download')} onSelect={go(path('/download'))} />
             <Item icon={BookOpen} label={t('nav.guides')} onSelect={go(path('/guides'))} />
+            {isAdmin && <Item icon={LayoutDashboard} label="หลังบ้าน (Admin)" onSelect={go('/admin')} />}
             <div className="menu-sep" role="separator" />
             <Item icon={LogOut} label={t('acct.signOutBrowser')} onSelect={signOut} tone="danger" />
           </motion.div>

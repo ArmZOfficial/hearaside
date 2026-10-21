@@ -3,7 +3,7 @@
 // through end to end. Never used in production (STORE=memory only).
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { HANDLE_RE, type SyncedSettings } from '../../shared/schemas.js';
-import { StoreError, type AuthUser, type DeviceCode, type DeviceRow, type FriendRow, type LinkRow, type Profile, type Store } from './store.js';
+import { BASE_DAY, StoreError, type AdminCounts, type AdminUserRow, type DownloadRow, type AuthUser, type DeviceCode, type DeviceRow, type FriendRow, type LinkRow, type Profile, type Store } from './store.js';
 
 const RESERVED = new Set(['admin', 'administrator', 'hearaside', 'support', 'help', 'api', 'link', 'login', 'logout', 'signup', 'signin',
   'account', 'accounts', 'download', 'downloads', 'guides', 'guide', 'privacy', 'terms', 'settings', 'me', 'root', 'system', 'staff',
@@ -34,6 +34,7 @@ export class MemoryStore implements Store {
   settings = new Map<string, SyncedSettings & { updatedAt: string }>();
   links = new Map<string, LinkRow>();
   friends = new Map<string, FriendRow>();
+  downloads = new Map<string, DownloadRow>();     // day|version|source -> row
 
   // --- the development sign-in (website, memory mode) ----------------------------------------
   signUp(email: string, password: string, displayName: string, locale: 'en' | 'th'): string {
@@ -197,5 +198,49 @@ export class MemoryStore implements Store {
     const p = this.profiles.get(userId);
     if (p) p.deletedAt = now();
     this.signOutEverywhere(userId);
+  }
+
+  async bumpDownload(version: string) {
+    const day = now().slice(0, 10), key = `${day}|${version}|site`;
+    const row = this.downloads.get(key) ?? { day, version, source: 'site' as const, count: 0 };
+    row.count++;
+    this.downloads.set(key, row);
+  }
+  async setDownloadBase(version: string, source: 'github' | 'manual', count: number) {
+    this.downloads.set(`${BASE_DAY}|${version}|${source}`, { day: BASE_DAY, version, source, count });
+  }
+  async downloadRows() { return [...this.downloads.values()].map(r => ({ ...r })); }
+
+  async adminCounts(): Promise<AdminCounts> {
+    const since = Date.now() - 30 * 86_400_000, week = Date.now() - 7 * 86_400_000;
+    const signups = new Map<string, number>();
+    for (const u of this.users.values()) if (new Date(u.createdAt).getTime() >= since) {
+      const d = u.createdAt.slice(0, 10);
+      signups.set(d, (signups.get(d) ?? 0) + 1);
+    }
+    const devices = [...this.devices.values()].filter(d => !d.revokedAt);
+    return {
+      users: this.users.size,
+      deleted: [...this.profiles.values()].filter(p => p.deletedAt).length,
+      devices: devices.length,
+      activeDevices7d: devices.filter(d => new Date(d.lastSeenAt).getTime() >= week).length,
+      links: [...this.links.values()].filter(l => !l.revokedAt).length,
+      signups: [...signups].sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count })),
+    };
+  }
+  async adminUsers(q: string, offset: number, limit: number) {
+    const needle = q.trim().toLowerCase();
+    const rows: AdminUserRow[] = [...this.users.values()].flatMap(u => {
+      const p = this.profiles.get(u.id);
+      if (!p) return [];
+      const devs = [...this.devices.values()].filter(d => d.userId === u.id && !d.revokedAt);
+      return [{
+        id: u.id, email: u.email, handle: p.handle, displayName: p.displayName, createdAt: u.createdAt,
+        lastSeenAt: devs.map(d => d.lastSeenAt).sort().pop() ?? null, devices: devs.length,
+        links: [...this.links.values()].filter(l => l.userId === u.id && !l.revokedAt).length, deletedAt: p.deletedAt,
+      }];
+    }).filter(r => !needle || [r.email, r.handle, r.displayName].some(v => v.toLowerCase().includes(needle)))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return { total: rows.length, users: rows.slice(offset, offset + limit) };
   }
 }

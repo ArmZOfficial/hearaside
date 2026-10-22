@@ -45,7 +45,8 @@ set(hearaside_common_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Icons.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/SettingsPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/AccountManager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/AccountPanel.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/AccountPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/qrcodegen.cpp)
 
 function(hearaside_add_plugin target)
     cmake_parse_arguments(P "" "PRODUCT_NAME;PLUGIN_CODE;DESCRIPTION" "SOURCES" ${ARGN})

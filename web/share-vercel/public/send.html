@@ -97,6 +97,40 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
   background: var(--inset); font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; gap: 8px;
 }
 .banner.alert { border-color: rgba(220, 60, 60, 0.4); background: rgba(220, 60, 60, 0.08); }
+.checklist {
+  margin-top: 18px; padding: 14px 16px; border-radius: 18px; background: var(--inset); border: 1px solid var(--hair);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.check-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.check-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.check-item { display: flex; align-items: center; gap: 12px; }
+.check-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; transition: background .2s, box-shadow .2s; }
+.check-dot.ok { background: #22C55E; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22); }
+.check-dot.warn { background: #EAB308; box-shadow: 0 0 0 3px rgba(234, 179, 8, 0.22); }
+.check-info { flex: 1; min-width: 0; }
+.check-name { font-size: 13px; font-weight: 500; color: var(--ink); }
+.check-status { font-size: 11.5px; color: var(--graphite); margin-top: 1px; line-height: 1.35; }
+.ready-badge {
+  padding: 4px 10px; border-radius: 999px; background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35); color: #15803D; font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px; animation: popIn .2s ease-out;
+}
+@media (prefers-color-scheme: dark) {
+  .ready-badge { background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.45); color: #4ADE80; }
+}
+@keyframes popIn { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+details.troubleshoot {
+  margin-top: 14px; padding: 12px 16px; border-radius: 16px; background: var(--inset); border: 1px solid var(--hair);
+  font-size: 13px; color: var(--ink2); cursor: pointer;
+}
+details.troubleshoot summary {
+  font-weight: 500; color: var(--ink); cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between;
+}
+details.troubleshoot summary::-webkit-details-marker { display: none; }
+details.troubleshoot summary::after { content: "+"; font-size: 16px; color: var(--graphite); font-weight: 400; }
+details.troubleshoot[open] summary::after { content: "\2212"; }
+.troubleshoot-content { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 12px; line-height: 1.5; color: var(--graphite); cursor: default; }
+.troubleshoot-row strong { color: var(--ink); display: block; margin-bottom: 2px; }
 .warn { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--hair3); font-size: 13px; line-height: 1.5; }
 .insecure .warn { display: block; }
 .tip { margin-top: 14px; font-size: 12px; color: var(--graphite); line-height: 1.5; text-align: center; }
@@ -122,6 +156,34 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 
   <div class="row"><span class="chip"><span class="dot"></span><span id="status"></span></span><span class="value" id="delay"></span></div>
   <button class="mute" id="mute" hidden></button>
+
+  <div class="checklist" id="preflight">
+    <div class="check-head">
+      <div class="check-title" data-t="preflightTitle"></div>
+      <div class="ready-badge" id="readyBadge" style="display:none" data-t="readyToSing"></div>
+    </div>
+    <div class="check-item" id="chkMic">
+      <div class="check-dot" id="dotMic"></div>
+      <div class="check-info">
+        <div class="check-name" data-t="chkMicName"></div>
+        <div class="check-status" id="chkMicStatus" data-t="chkMicWait"></div>
+      </div>
+    </div>
+    <div class="check-item" id="chkHp">
+      <div class="check-dot" id="dotHp"></div>
+      <div class="check-info">
+        <div class="check-name" data-t="chkHpName"></div>
+        <div class="check-status" id="chkHpStatus" data-t="chkHpWait"></div>
+      </div>
+    </div>
+    <div class="check-item" id="chkNet">
+      <div class="check-dot" id="dotNet"></div>
+      <div class="check-info">
+        <div class="check-name" data-t="chkNetName"></div>
+        <div class="check-status" id="chkNetStatus" data-t="chkNetWait"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="panel">
     <div>
@@ -160,6 +222,23 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
     <div id="hpBannerText"></div>
     <button class="btn-secondary" id="enableSpeakerBtn" type="button" data-t="enableSpeaker"></button>
   </div>
+  <details class="troubleshoot">
+    <summary data-t="echoHelpTitle"></summary>
+    <div class="troubleshoot-content">
+      <div class="troubleshoot-row">
+        <strong data-t="echoDirectTitle"></strong>
+        <span data-t="echoDirectDesc"></span>
+      </div>
+      <div class="troubleshoot-row">
+        <strong data-t="echoHubTitle"></strong>
+        <span data-t="echoHubDesc"></span>
+      </div>
+      <div class="troubleshoot-row">
+        <strong data-t="echoSpeakerTitle"></strong>
+        <span data-t="echoSpeakerDesc"></span>
+      </div>
+    </div>
+  </details>
   <div class="warn" data-t="insecure"></div>
   <div class="tip" data-t="tip"></div>
   <div class="foot" id="foot"></div>
@@ -170,6 +249,19 @@ const T = {
   th: { title: "ส่งเสียงเข้า DAW", invited: "{host} ชวนคุณมาร้องเพลง", you: "คุณคือ {name}",
         subtitle: "เสียงไมค์ของคุณจะเข้าไปในแทร็กของคนที่ส่งลิงก์นี้ให้ แบบสด ๆ",
         subtitleRoom: "ได้ยินเพลงของเจ้าของลิงก์ ร้องตามได้เลย เสียงคุณจะถูกจัดให้ตรงจังหวะเอง",
+        preflightTitle: "เช็กก่อนร้อง",
+        chkMicName: "ไมค์", chkMicWait: "แตะไมค์เพื่อทดสอบสัญญาณ", chkMicOk: "ไมค์ทำงานปกติ ✓",
+        chkHpName: "หูฟัง", chkHpWait: "แนะนำให้ใส่หูฟังเพื่อไม่ให้เสียงเพลงสะท้อน", chkHpOk: "ใช้หูฟังอยู่ (ไม่มีเสียงรั่ว) ✓",
+        chkHpSpeaker: "โหมดลำโพง (เปิดตัดเสียงสะท้อนแล้ว)",
+        chkNetName: "สัญญาณเน็ต", chkNetWait: "รอเชื่อมต่อห้อง...", chkNetOk: "เชื่อมต่อแล้ว (RTT {rtt} ms) ✓",
+        chkNetConnecting: "กำลังเชื่อมต่อ...", readyToSing: "พร้อมร้อง ✓",
+        echoHelpTitle: "ได้ยินเสียงตัวเองซ้อน?",
+        echoDirectTitle: "ได้ยินเสียงตัวเองทันที (Direct Monitor):",
+        echoDirectDesc: "ดูที่ Audio Interface ของคุณว่าเปิดปุ่ม Direct Monitor หรือหมุน Mix/Playback อยู่ไหม ให้ปรับเป็น Playback 100% หรือปิด Direct Monitor",
+        echoHubTitle: "ได้ยินเสียงตัวเองหน่วงตามเน็ต:",
+        echoHubDesc: "ปิดสวิตช์ \"ได้ยินตัวเองจาก Hub\" ด้านล่าง (ค่าเริ่มต้นปิดอยู่แล้ว)",
+        echoSpeakerTitle: "เสียงเพลงจากลำโพงย้อนเข้าไมค์:",
+        echoSpeakerDesc: "แนะนำให้ใส่หูฟัง หรือเปิดสวิตช์ \"โหมดลำโพง (ตัดเสียงสะท้อน AEC)\" ด้านล่าง",
         device: "ไมค์ที่ใช้", clean: "ตัดเสียงรบกวน", cleanCap: "เปิดถ้าอยู่ในที่เสียงดัง (คุยมากกว่าร้องเพลง)",
         hpCheck: "ตรวจการใช้หูฟัง", hpCheckCap: "เล่นเสียงสั้น ๆ เช็กว่าเสียงลำโพงเข้าไมค์ไหม", hpCheckBtn: "เช็กหูฟัง",
         hpChecking: "กำลังเช็กเสียง chirp...", hpOk: "ใช้หูฟังอยู่ พร้อมร้อง ✓",
@@ -189,6 +281,19 @@ const T = {
   en: { title: "Send your voice in", invited: "{host} invited you to sing", you: "You are {name}",
         subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
         subtitleRoom: "You hear their music and sing along. Your voice is lined up with the beat for you.",
+        preflightTitle: "Pre-flight Check",
+        chkMicName: "Microphone", chkMicWait: "Tap mic to test signal", chkMicOk: "Microphone working ✓",
+        chkHpName: "Headphones", chkHpWait: "Headphones recommended to prevent echo", chkHpOk: "Using headphones (no leak) ✓",
+        chkHpSpeaker: "Speaker mode (Echo cancellation active)",
+        chkNetName: "Network", chkNetWait: "Waiting to connect...", chkNetOk: "Connected (RTT {rtt} ms) ✓",
+        chkNetConnecting: "Connecting...", readyToSing: "Ready to sing ✓",
+        echoHelpTitle: "Hearing your own voice echo?",
+        echoDirectTitle: "Hearing yourself instantly (Direct Monitor):",
+        echoDirectDesc: "Check if your Audio Interface has Direct Monitor turned on or the Mix knob set towards Input. Turn it to 100% Playback or turn off Direct Monitor.",
+        echoHubTitle: "Hearing yourself delayed by network:",
+        echoHubDesc: "Turn off the \"Hear myself from Hub\" switch below (off by default).",
+        echoSpeakerTitle: "Music from speakers leaking into mic:",
+        echoSpeakerDesc: "Use headphones, or switch on \"Speaker mode (Echo cancel)\" below.",
         device: "Microphone", clean: "Noise suppression", cleanCap: "Turn on in noisy places (talking rather than singing)",
         hpCheck: "Check headphones", hpCheckCap: "Plays a short chirp to test if speaker audio reaches your mic", hpCheckBtn: "Check",
         hpChecking: "Checking for chirp...", hpOk: "Using headphones, ready to sing ✓",
@@ -222,8 +327,52 @@ function applyLang() {
   $("title").textContent = room ? (room.host ? fmt(L.invited, { host: room.host }) : fmt(L.you, { name: room.name })) : L.title;
   $("subtitle").textContent = room ? L.subtitleRoom : L.subtitle;
   $("hearPanel").style.display = room ? "" : "none";
+  updatePreflight();
 }
 const $ = id => document.getElementById(id);
+const app = $("app");
+let running = false, muted = false, ctx = null, stream = null, node = null, outGain = null, ws = null, retry = null, peak = 0;
+let behindMs = null, latencyKnown = false, duplex = false, legacyTimer = null;
+let micHeard = false, hpState = "wait", netRtt = null;
+
+function updatePreflight() {
+  const dotMic = $("dotMic"), stMic = $("chkMicStatus");
+  if (dotMic && stMic) {
+    if (micHeard) { dotMic.className = "check-dot ok"; stMic.textContent = L.chkMicOk; }
+    else if (running) { dotMic.className = "check-dot"; stMic.textContent = L.chkMicWait; }
+    else { dotMic.className = "check-dot"; stMic.textContent = L.chkMicWait; }
+  }
+
+  const dotHp = $("dotHp"), stHp = $("chkHpStatus");
+  if (dotHp && stHp) {
+    if ($("speaker").checked) { dotHp.className = "check-dot ok"; stHp.textContent = L.chkHpSpeaker; }
+    else if (hpState === "ok") { dotHp.className = "check-dot ok"; stHp.textContent = L.chkHpOk; }
+    else if (hpState === "leak") { dotHp.className = "check-dot warn"; stHp.textContent = L.hpLeak; }
+    else { dotHp.className = "check-dot"; stHp.textContent = L.chkHpWait; }
+  }
+
+  const dotNet = $("dotNet"), stNet = $("chkNetStatus");
+  if (dotNet && stNet) {
+    if (ws && ws.readyState === 1) {
+      dotNet.className = "check-dot ok";
+      const rttVal = netRtt != null ? netRtt : (behindMs != null ? Math.round(behindMs) : null);
+      stNet.textContent = rttVal != null ? fmt(L.chkNetOk, { rtt: rttVal }) : L.live;
+    } else if (running) {
+      dotNet.className = "check-dot";
+      stNet.textContent = L.chkNetConnecting;
+    } else {
+      dotNet.className = "check-dot";
+      stNet.textContent = L.chkNetWait;
+    }
+  }
+
+  const badge = $("readyBadge");
+  if (badge) {
+    const ready = micHeard && ($("speaker").checked || hpState === "ok") && (ws && ws.readyState === 1);
+    badge.style.display = ready ? "inline-flex" : "none";
+  }
+}
+
 applyLang();
 document.getElementById("lang").onclick = () => {
   lang = lang === "th" ? "en" : "th";
@@ -231,10 +380,6 @@ document.getElementById("lang").onclick = () => {
   applyLang();
   refreshTexts();
 };
-
-const app = $("app");
-let running = false, muted = false, ctx = null, stream = null, node = null, outGain = null, ws = null, retry = null, peak = 0;
-let behindMs = null, latencyKnown = false, duplex = false, legacyTimer = null;
 
 // Where the audio goes. Served by the Hub: the same host. Served by the share web site (permanent
 // link): ask its directory where the Hub's tunnel is right now; it changes each time the Hub restarts,
@@ -260,8 +405,9 @@ if (!window.isSecureContext || !navigator.mediaDevices) app.classList.add("insec
 function status(text, live) {
   $("status").textContent = text;
   app.classList.toggle("live", !!live);
+  updatePreflight();
 }
-function idle() { $("hint").textContent = L.tap; status(L.idle); $("mute").hidden = true; $("delay").textContent = ""; }
+function idle() { $("hint").textContent = L.tap; status(L.idle); $("mute").hidden = true; $("delay").textContent = ""; updatePreflight(); }
 idle();
 function refreshTexts() {
   if (!running) { idle(); return; }
@@ -269,8 +415,9 @@ function refreshTexts() {
   $("mute").textContent = muted ? L.unmute : L.mute;
   status(muted ? L.muted : ws && ws.readyState === 1 ? L.live : L.connecting, !muted && ws && ws.readyState === 1);
   showBehind();
+  updatePreflight();
 }
-function showBehind() { $("delay").textContent = running && behindMs != null ? fmt(L.behind, { ms: Math.round(behindMs) }) : ""; }
+function showBehind() { $("delay").textContent = running && behindMs != null ? fmt(L.behind, { ms: Math.round(behindMs) }) : ""; updatePreflight(); }
 
 // One worklet for both directions, so the microphone and the music share the same clock:
 //   down: the Stream Mix from the Hub + the other friends (HRA2, with the position of each packet on the
@@ -704,6 +851,10 @@ function send(f, echo, chans) {
 
 function meter() {
   if (!running) return;
+  if (peak > 0.015 && !micHeard) {
+    micHeard = true;
+    updatePreflight();
+  }
   const lv = muted ? 0 : Math.max(0, Math.min(1, (20 * Math.log10(Math.max(peak, 1e-6)) + 50) / 50));
   $("level").style.opacity = (0.15 + lv * 0.6).toFixed(2);
   $("level").style.transform = "scale(" + (0.92 + lv * 0.28).toFixed(3) + ")";
@@ -713,6 +864,8 @@ function meter() {
 
 function stop() {
   running = false;
+  micHeard = false;
+  netRtt = null;
   clearTimeout(retry);
   clearTimeout(legacyTimer);
   gen++;
@@ -728,6 +881,7 @@ function stop() {
   behindMs = null;
   $("level").style.opacity = 0;
   idle();
+  updatePreflight();
 }
 
 $("mic").onclick = () => running ? stop() : start();
@@ -748,6 +902,7 @@ try { $("stereo").checked = localStorage.getItem("hearaside-stereo") === "1"; } 
 
 $("speaker").onchange = () => {
   try { localStorage.setItem("hearaside-speaker", $("speaker").checked ? "1" : "0"); } catch (e) {}
+  updatePreflight();
   if (running) openMic();
   else if (ws && ws.readyState === 1) ws.send(JSON.stringify({ speakerMode: $("speaker").checked }));
 };
@@ -844,13 +999,16 @@ async function checkHeadphones() {
   $("hpBtn").disabled = false;
 
   if (leaked) {
+    hpState = "leak";
     $("hpResult").textContent = L.hpLeak;
     $("hpBannerText").textContent = L.hpLeak;
     $("hpBanner").style.display = "flex";
   } else {
+    hpState = "ok";
     $("hpResult").textContent = L.hpOk;
     $("hpBanner").style.display = "none";
   }
+  updatePreflight();
 }
 
 $("hpBtn").onclick = checkHeadphones;
@@ -858,6 +1016,7 @@ $("enableSpeakerBtn").onclick = () => {
   $("speaker").checked = true;
   try { localStorage.setItem("hearaside-speaker", "1"); } catch (e) {}
   $("hpBanner").style.display = "none";
+  updatePreflight();
   if (running) openMic();
   else if (ws && ws.readyState === 1) ws.send(JSON.stringify({ speakerMode: true }));
 };

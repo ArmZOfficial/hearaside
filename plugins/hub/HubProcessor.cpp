@@ -286,6 +286,34 @@ void HubProcessor::muteVocalMonitor() {
     for (int s : vocalSlots()) send(s, ssbus::ParamId::Mon, 0.0f);
 }
 
+std::vector<FriendView> HubProcessor::friends() const {
+    auto list = friendRoom_.views(engine_.bus(), engine_);
+    for (auto& v : list) {
+        if (v.slot >= 0) v.aecMode = int(share_.friendAecMode(v.slot));
+    }
+    return list;
+}
+
+void HubProcessor::applySessionPreset(SessionPreset preset) {
+    sessionPreset_ = preset;
+    if (preset == SessionPreset::Karaoke) {
+        setLineUp(true);
+        for (const auto& f : friendRoom_.entries()) {
+            if (f.slot >= 0) share_.setFriendAecMode(f.slot, ssnet::AecMode::Auto);
+        }
+    } else if (preset == SessionPreset::Podcast) {
+        setLineUp(false);
+        for (const auto& f : friendRoom_.entries()) {
+            if (f.slot >= 0) share_.setFriendAecMode(f.slot, ssnet::AecMode::On);
+        }
+    } else if (preset == SessionPreset::LiveJam) {
+        setLineUp(true);
+        for (const auto& f : friendRoom_.entries()) {
+            if (f.slot >= 0) share_.setFriendAecMode(f.slot, ssnet::AecMode::Off);
+        }
+    }
+}
+
 void HubProcessor::setParam(const char* id, float plain) {
     if (auto* p = apvts_.getParameter(id)) {
         p->beginChangeGesture();

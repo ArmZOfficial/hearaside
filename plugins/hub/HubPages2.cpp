@@ -1,6 +1,7 @@
 // Hub sub-pages, part 2: Share and friends, Track fine settings, Manage tracks, Manage program audio.
 #include "HubPagesShared.h"
 #include "Host.h"
+#include "KaraokeRoomPanel.h"
 #include "app/AppCapture.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -66,11 +67,13 @@ public:
     static constexpr int kHeight = 112;
 
     FriendCard(HubEditor& e, uint32_t id) : ed_(e), id_(id) {
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &rec_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &rec_, &mixInDaw_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
             addAndMakeVisible(c);
         copy_.setSmall(true);
         rec_.setSmall(true);
         rec_.setIcon(icons::Icon::Record);
+        mixInDaw_.setSmall(true);
+        mixInDaw_.setIcon(icons::Icon::Sliders);
         remove_.setSize(32, 32);
         name_.onRename = [this](const juce::String& n) { ed_.renameFriend(id_, n); };
         copy_.onClick = [this] {
@@ -88,6 +91,7 @@ public:
             else ed_.proc().startFriendRecording(id_);
             update(v_);
         };
+        mixInDaw_.onClick = [this] { ed_.showMixInDaw(id_, mixInDaw_); };
         remove_.onClick = [this] {
             const auto name = v_.name;
             ed_.proc().removeFriend(id_);
@@ -104,6 +108,7 @@ public:
     void startRename() { name_.startEditing(); }
     void refreshTexts() {
         copy_.setButtonText(tr(Str::CopyLink));
+        mixInDaw_.setButtonText(tr(Str::MixInDawAction));
         name_.setTooltip(tr(Str::DoubleClickToRename));
         const bool rec = ed_.proc().isFriendRecording(id_);
         rec_.setTooltip(rec ? tr(Str::StopRecording) : tr(Str::PrintToFile));
@@ -130,6 +135,7 @@ public:
         rec_.setStyle(rec ? GhostButton::Style::DangerSolid : GhostButton::Style::Ghost);
         rec_.setButtonText(rec ? clock(sec) : juce::String());
         rec_.setTooltip(rec ? tr(Str::StopRecording) : tr(Str::PrintToFile));
+        mixInDaw_.setVisible(!v.inDaw && v.live());
         const juce::ScopedValueSetter<bool> svs(updating_, true);
         if (touch_.idle() && !vol_.isMouseButtonDown()) {
             vol_.setValue(LevelSlider::dbToSlider(v.volumeDb), juce::dontSendNotification);
@@ -150,14 +156,21 @@ public:
         auto r = getLocalBounds().toFloat();
         drawInset(g, r, 16.0f, p);
         drawAvatar(g, avatar_, v_.name, v_.live(), p);
-        // status line
-        Dot dot = Dot::Warn;
+        // status line with Jamulus traffic light
+        Dot dot = Dot::Muted;
         juce::String text;
         if (ed_.proc().isFriendRecording(id_)) {
             dot = Dot::Warn;
             text = trf(Str::RecordingTime, { clock(ed_.proc().friendRecordSec(id_)) });
         } else if (v_.state == FriendView::State::Live) {
-            dot = (v_.overLimit || v_.leakDetected || v_.echoInMaster) ? Dot::Warn : Dot::Ok;
+            const float lat = v_.totalMs > 0.0f ? v_.totalMs : v_.delayMs;
+            if (v_.overLimit || v_.echoInMaster || lat > 120.0f) {
+                dot = Dot::Warn;
+            } else if (v_.leakDetected || lat > 60.0f) {
+                dot = Dot::Warn;
+            } else {
+                dot = Dot::Ok;
+            }
             if (v_.echoInMaster) text = tr(Str::FriendEchoInMaster);
             else if (v_.leakDetected) text = tr(Str::FriendSpeakerLeak);
             else if (v_.inDaw) text = v_.outSlot >= 0 ? trf(Str::SingingInDaw, { ed_.proc().feederTrackName(v_.feeder) }) : tr(Str::InDawNotHeadphones);
@@ -173,12 +186,20 @@ public:
         g.setColour(p.graphite);
         g.setFont(uiFont(12.0f));
         g.drawText(ellipsize(uiFont(12.0f), text, statusLine_.getWidth() - 14.0f), statusLine_.withTrimmedLeft(14.0f), juce::Justification::centredLeft, false);
-        // delay
-        g.setColour(p.ink2);
-        g.setFont(uiFont(12.0f, Weight::Medium));
-        g.drawText(v_.live() && v_.delayMs >= 0.0f ? trf(Str::DelayMsLabel, { juce::String(juce::roundToInt(v_.delayMs)) })
-                                                   : juce::String(juce::CharPointer_UTF8("\xe2\x80\x94")),
-                   delay_, juce::Justification::centredRight, false);
+        // delay + AEC + headphone/speaker badge
+        if (v_.live() && v_.delayMs >= 0.0f) {
+            g.setColour(p.ink2);
+            g.setFont(uiFont(11.5f, Weight::Medium));
+            const juce::String delayStr = trf(Str::DelayMsLabel, { juce::String(juce::roundToInt(v_.totalMs > 0.0f ? v_.totalMs : v_.delayMs)) });
+            const juce::String aecStr = v_.aecMode == 1 ? "AEC On" : (v_.aecMode == 2 ? "AEC Off" : "AEC Auto");
+            const juce::String spkIcon = v_.leakDetected ? juce::String(juce::CharPointer_UTF8(" \xc2\xb7 Spk"))
+                                                         : juce::String(juce::CharPointer_UTF8(" \xc2\xb7 \xf0\x9f\x8e\xa7"));
+            g.drawText(delayStr + " (" + aecStr + ")" + spkIcon, delay_, juce::Justification::centredRight, false);
+        } else {
+            g.setColour(p.ink2);
+            g.setFont(uiFont(12.0f, Weight::Medium));
+            g.drawText(juce::String(juce::CharPointer_UTF8("\xe2\x80\x94")), delay_, juce::Justification::centredRight, false);
+        }
         // the second row
         g.setColour(p.graphite);
         g.setFont(uiFont(12.0f));
@@ -195,18 +216,23 @@ public:
         auto top = r.removeFromTop(40.0f);
         remove_.setBounds(top.removeFromRight(32.0f).withSizeKeepingCentre(32.0f, 32.0f).toNearestInt());
         top.removeFromRight(6.0f);
-        copy_.setBounds(top.removeFromRight(juce::jmax(92.0f, float(copy_.idealWidth()))).withSizeKeepingCentre(juce::jmax(92.0f, float(copy_.idealWidth())), 30.0f).toNearestInt());
+        copy_.setBounds(top.removeFromRight(juce::jmax(84.0f, float(copy_.idealWidth()))).withSizeKeepingCentre(juce::jmax(84.0f, float(copy_.idealWidth())), 30.0f).toNearestInt());
         top.removeFromRight(6.0f);
         const float recW = rec_.getButtonText().isEmpty() ? 32.0f : juce::jmax(64.0f, float(rec_.idealWidth()));
         rec_.setBounds(top.removeFromRight(recW).withSizeKeepingCentre(recW, 30.0f).toNearestInt());
-        top.removeFromRight(12.0f);
+        if (mixInDaw_.isVisible()) {
+            top.removeFromRight(6.0f);
+            const float mw = juce::jmax(110.0f, float(mixInDaw_.idealWidth()));
+            mixInDaw_.setBounds(top.removeFromRight(mw).withSizeKeepingCentre(mw, 30.0f).toNearestInt());
+        }
+        top.removeFromRight(10.0f);
         auto meterCol = top.removeFromRight(juce::jmin(110.0f, top.getWidth() * 0.35f));
         delay_ = meterCol.removeFromTop(20.0f);
         meterCol.removeFromTop(4.0f);
         mic_.setBounds(meterCol.removeFromTop(6.0f).toNearestInt());
-        top.removeFromRight(12.0f);
+        top.removeFromRight(10.0f);
         avatar_ = top.removeFromLeft(32.0f).withSizeKeepingCentre(32.0f, 32.0f);
-        top.removeFromLeft(12.0f);
+        top.removeFromLeft(10.0f);
         auto col = top.withSizeKeepingCentre(top.getWidth(), 20.0f + 3.0f + 16.0f);
         name_.setBounds(col.removeFromTop(20.0f).toNearestInt());
         col.removeFromTop(3.0f);
@@ -245,6 +271,7 @@ private:
     MeterBar mic_ { 6.0f, true };
     GhostButton copy_ { {}, GhostButton::Style::Ghost };
     GhostButton rec_ { {}, GhostButton::Style::Ghost };
+    GhostButton mixInDaw_ { {}, GhostButton::Style::Ghost };
     IconButton remove_ { icons::Icon::Close };
     bool wasRec_ = false;
     double lastRecSec_ = 0.0;
@@ -260,7 +287,7 @@ private:
 class SharePage : public HubPage {
 public:
     explicit SharePage(HubEditor& e) : HubPage(e) {
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &spread_, &add_, &lineSwitch_, &measure_, &scroll_, &listenSwitch_, &listenField_, &open_, &copy_,
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &startKaraoke_, &presetDropdown_, &spread_, &add_, &lineSwitch_, &measure_, &scroll_, &listenSwitch_, &listenField_, &open_, &copy_,
                                                                             &install_, &backupField_, &backupCopy_, &receiveField_, &connect_ })
             addAndMakeVisible(c);
         addChildComponent(bufferBanner_);
@@ -275,9 +302,35 @@ public:
         };
         directMonBanner_.addMouseListener(&directMonBannerClick_, false);
         scroll_.setContent(body_);
+        startKaraoke_.setIcon(icons::Icon::Play);
+        startKaraoke_.onClick = [this] {
+            auto& proc = ed.proc();
+            proc.setSharing(true);
+            proc.setLineUp(true);
+            uint32_t friendId = 0;
+            if (proc.friendCount() == 0) {
+                friendId = proc.addFriend(tr(Str::FriendDefaultName).replace("%d", "1"));
+            } else {
+                friendId = proc.friends().front().id;
+            }
+            tick();
+            if (auto* ov = Overlay::find(*this)) {
+                ov->showPopover(std::make_unique<KaraokeRoomPanel>(ed, friendId), startKaraoke_, false);
+            }
+            ed.toast(tr(Str::StartKaraokeRoom));
+        };
+        presetDropdown_.setSmall(true);
+        presetDropdown_.onChange = [this](int idx) {
+            auto& proc = ed.proc();
+            using SP = HubProcessor::SessionPreset;
+            if (idx == 0) proc.applySessionPreset(SP::Karaoke);
+            else if (idx == 1) proc.applySessionPreset(SP::Podcast);
+            else if (idx == 2) proc.applySessionPreset(SP::LiveJam);
+            tick();
+        };
         spread_.setIcon(icons::Icon::Spread);
         add_.setIcon(icons::Icon::Plus);
-        for (auto* b : { &open_, &copy_, &install_, &backupCopy_, &measure_ }) b->setSmall(true);
+        for (auto* b : { &open_, &copy_, &install_, &backupCopy_, &measure_, &startKaraoke_ }) b->setSmall(true);
         add_.onClick = [this] {
             if (ed.proc().roomFull()) { ed.toast(tr(Str::FriendFullToast)); return; }
             const auto id = ed.proc().addFriend(tr(Str::FriendDefaultName).replace("%d", juce::String(ed.proc().friendCount() + 1)));
@@ -318,6 +371,17 @@ public:
     }
 
     void refreshTexts() override {
+        startKaraoke_.setButtonText(tr(Str::StartKaraokeRoom));
+        startKaraoke_.setTooltip(tr(Str::StartKaraokeRoom));
+        presetDropdown_.setTitle(tr(Str::PresetTitle));
+        juce::StringArray presets;
+        presets.add(tr(Str::PresetKaraoke));
+        presets.add(tr(Str::PresetPodcast));
+        presets.add(tr(Str::PresetLiveJam));
+        presetDropdown_.setItems(presets);
+        const auto curPreset = ed.proc().sessionPreset();
+        using SP = HubProcessor::SessionPreset;
+        presetDropdown_.setSelected(curPreset == SP::Karaoke ? 0 : (curPreset == SP::Podcast ? 1 : 2));
         spread_.setButtonText(tr(Str::SpreadOut));
         spread_.setTooltip(tr(Str::SpreadOutTip));
         add_.setButtonText(tr(Str::AddFriend));
@@ -494,9 +558,20 @@ public:
         // left card: Friends
         auto c = left_.withTrimmedLeft(24.0f).withTrimmedRight(24.0f).withTrimmedTop(22.0f).withTrimmedBottom(16.0f);
         auto head = c.removeFromTop(38.0f);
+        const float skw = juce::jmax(130.0f, float(startKaraoke_.idealWidth()));
+        startKaraoke_.setBounds(head.removeFromRight(skw).withSizeKeepingCentre(skw, 32.0f).toNearestInt());
+        head.removeFromRight(8.0f);
+        const float pw = 120.0f;
+        presetDropdown_.setBounds(head.removeFromRight(pw).withSizeKeepingCentre(pw, 32.0f).toNearestInt());
+        head.removeFromRight(8.0f);
         add_.setBounds(head.removeFromRight(float(add_.idealWidth())).toNearestInt());
-        head.removeFromRight(12.0f);
-        spread_.setBounds(head.removeFromRight(float(spread_.idealWidth())).toNearestInt());
+        if (head.getWidth() > 220.0f) {
+            head.removeFromRight(8.0f);
+            spread_.setBounds(head.removeFromRight(float(spread_.idealWidth())).toNearestInt());
+            spread_.setVisible(true);
+        } else {
+            spread_.setVisible(false);
+        }
         friendsHead_ = head;
         c.removeFromTop(14.0f);
         if (bufferBanner_.isVisible()) {
@@ -703,6 +778,8 @@ private:
         repaint();
     }
 
+    GhostButton startKaraoke_ { {}, GhostButton::Style::Solid };
+    Dropdown presetDropdown_;
     GhostButton spread_ { {}, GhostButton::Style::Ghost }, add_ { {}, GhostButton::Style::Solid };
     LinkField listenField_, backupField_;
     GhostButton open_, copy_ { {}, GhostButton::Style::Solid }, install_, backupCopy_, measure_ { {}, GhostButton::Style::Ghost };

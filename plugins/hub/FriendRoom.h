@@ -31,6 +31,7 @@ struct FriendView {
     int outSlot = -1;           // the Track at the end of that channel (-1 = not paired yet)
     bool leakDetected = false;  // speaker leak detected
     bool echoInMaster = false;  // friend voice present in master bus while route is Direct
+    int aecMode = 0;            // 0=Auto, 1=On, 2=Off
     bool live() const noexcept { return state == State::Live; }
 };
 

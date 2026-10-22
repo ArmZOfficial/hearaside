@@ -150,7 +150,12 @@ public:
     // ---- friends room (S2) ------------------------------------------------------------------
     // Each friend gets a send-in link of their own; the Hub plays them (headphones + Stream Mix) and
     // can line them up with the music for the viewers (Line up). Message thread.
-    std::vector<FriendView> friends() const { return friendRoom_.views(engine_.bus(), engine_); }
+    std::vector<FriendView> friends() const;
+    ssnet::AecMode friendAecMode(int slot) const { return share_.friendAecMode(slot); }
+    void setFriendAecMode(int slot, ssnet::AecMode mode) { share_.setFriendAecMode(slot, mode); }
+    enum class SessionPreset { Karaoke, Podcast, LiveJam };
+    void applySessionPreset(SessionPreset preset);
+    SessionPreset sessionPreset() const noexcept { return sessionPreset_; }
     int friendCount() const noexcept { return friendRoom_.count(); }
     bool roomFull() const noexcept { return friendRoom_.full(); }
     uint32_t addFriend(const juce::String& name = {});          // 0 = full
@@ -267,6 +272,7 @@ private:
     SharedSettings settings_;
     bool shareWanted_ = false;
     FriendRoom friendRoom_;
+    SessionPreset sessionPreset_ = SessionPreset::Karaoke;
     bool lineUp_ = true;
     ssbus::BusLayout* shareBus_ = nullptr;
     juce::String listenToken_ = ShareServer::newToken(), sendToken_ = ShareServer::newToken();   // saved: links stay the same

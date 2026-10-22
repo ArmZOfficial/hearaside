@@ -746,6 +746,32 @@ Table build() {
     s(Str::TurnedOffVocalMonToast, "ปิด “คุณได้ยิน” ในแทร็กร้องแล้ว", "Turned off “You hear” on vocal tracks");
     s(Str::DirectMonSetting, "Direct Monitor บน Audio Interface", "Audio Interface Direct Monitor");
     s(Str::DirectMonSettingCap, "ปิด “คุณได้ยิน” ของแทร็กร้องให้อัตโนมัติ เพื่อป้องกันเสียงก้องซ้อน", "Automatically turns off “You hear” on vocal tracks to prevent echo");
+    s(Str::StartKaraokeRoom, "เริ่มห้องคาราโอเกะ", "Start Karaoke Room");
+    s(Str::StartKaraokeRoomTip, "เปิดแชร์, ตั้ง Line up, ตรวจความพร้อม และสร้างลิงก์สำหรับเพื่อนในคลิกเดียว", "Share, line up, check setup, and create a singer link in 1 click");
+    s(Str::KaraokeRoomTitle, "ห้องคาราโอเกะพร้อมแล้ว", "Karaoke Room Ready");
+    s(Str::KaraokeScanQr, "สแกน QR Code ด้วยมือถือเพื่อร่วมร้อง", "Scan QR Code with phone to join");
+    s(Str::KaraokeRoomLink, "ลิงก์เข้าห้องร้อง (ส่งให้เพื่อน)", "Singer Link (send to friends)");
+    s(Str::KaraokeBufferOk, "บัฟเฟอร์เสียงเหมาะสม (%d samples)", "Audio buffer optimal (%d samples)");
+    s(Str::KaraokeBufferHigh, "บัฟเฟอร์เสียง %d samples (แนะนำ 128 หรือ 256 เพื่อไม่ให้หน่วง)", "Audio buffer %d samples (recommend 128 or 256 for lower latency)");
+    s(Str::KaraokeObsOk, "OBS Audio พร้อมส่งเสียง", "OBS Audio ready");
+    s(Str::KaraokeObsNotConnected, "OBS ยังไม่ได้เชื่อมต่อ (เปิด OBS เพื่อส่งเสียงให้คนดู)", "OBS not connected (open OBS to stream to viewers)");
+    s(Str::TrafficGood, "สัญญาณดีมาก (หน่วงน้อย)", "Excellent (low latency)");
+    s(Str::TrafficFair, "สัญญาณปานกลาง (อาจมีกระตุกเล็กน้อย)", "Fair (slight latency or jitter)");
+    s(Str::TrafficBad, "สัญญาณช้าหรือหน่วงสูง", "High latency or packet drop");
+    s(Str::MixInDawAction, "ใส่เอฟเฟกต์ใน DAW", "Mix in DAW");
+    s(Str::AecAutoTag, "AEC อัตโนมัติ", "AEC Auto");
+    s(Str::AecOnTag, "AEC เปิด", "AEC On");
+    s(Str::AecOffTag, "AEC ปิด", "AEC Off");
+    s(Str::PresetTitle, "โหมดการทำงาน", "Session Preset");
+    s(Str::PresetKaraoke, "ร้องคาราโอเกะ", "Karaoke");
+    s(Str::PresetKaraokeDesc, "Opus 96k, AEC อัตโนมัติ, Line Up ตรงจังหวะเพลง", "Opus 96k, Auto AEC, Line Up synced");
+    s(Str::PresetPodcast, "พอดแคสต์ / คุยสด", "Podcast / Talk");
+    s(Str::PresetPodcastDesc, "Opus 64k, AEC เปิดตลอด, ไม่หน่วงเสียง", "Opus 64k, Always AEC, zero delay");
+    s(Str::PresetLiveJam, "เล่นดนตรีสด", "Live Jam");
+    s(Str::PresetLiveJamDesc, "Opus 160k สเตอริโอ, ปิด AEC, หน่วงต่ำสุด", "Opus 160k stereo, AEC off, lowest latency");
+    s(Str::MixFriendStep4, "กด “ส่งเสียงทดสอบจับคู่” หรือรอ Hub ตรวจพบแทร็กอัตโนมัติ", "Click “Run Pairing Sweep” or let the Hub detect automatically");
+    s(Str::RunProbeSweep, "ส่งเสียงทดสอบจับคู่", "Run Pairing Sweep");
+    s(Str::ProbeRunning, "กำลังส่งสัญญาณทดสอบ...", "Running pairing probe...");
     return t;
 }
 

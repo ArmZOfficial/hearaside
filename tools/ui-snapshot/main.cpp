@@ -407,6 +407,16 @@ int testUi() {
     expect("link: short token refused", links::parse("https://h/l/abc").kind == Kind::None);
     if (testAccount() != 0) failures++;
     std::printf("%s\n", failures == 0 ? "ui: all passed" : "ui: FAILED");
+    // buffer warning (PLAN 1.11)
+    expect("buffer warning text exists in Thai and English",
+           tr(Str::FriendBufferWarning).contains("buffer") &&
+           [&] {
+               const auto cur = currentLanguage();
+               setCurrentLanguage(Language::English);
+               const auto en = tr(Str::FriendBufferWarning);
+               setCurrentLanguage(cur);
+               return en.contains("128");
+           }());
     return failures == 0 ? 0 : 1;
 }
 
@@ -742,9 +752,11 @@ void buildGallery(Gallery& gl) {
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
+    _putenv_s("HEARASIDE_NO_TUNNEL", "1");
     _putenv_s("HEARASIDE_SETTINGS_NAME", "settings-ui-snapshot");   // never the user's window sizes, flags, language
     if (std::getenv("HEARASIDE_ACCOUNT_NAME") == nullptr) _putenv_s("HEARASIDE_ACCOUNT_NAME", "account-ui-snapshot");   // nor their sign-in
 #else
+    setenv("HEARASIDE_NO_TUNNEL", "1", 1);
     setenv("HEARASIDE_SETTINGS_NAME", "settings-ui-snapshot", 1);
     setenv("HEARASIDE_ACCOUNT_NAME", "account-ui-snapshot", 0);
 #endif
@@ -1157,7 +1169,18 @@ int main(int argc, char** argv) {
             expect("the other friend is not affected", bus->friends[1].state.load() == ssbus::kFriendLive);
             finished = true;
         });
+        hub.startFriendRecording(mint);
+        expect("Mint recording started", hub.isFriendRecording(mint));
         for (int i = 0; i < 2000 && state != 1 && !finished; ++i) pump(10);
+        expect("friend has recorded audio seconds", hub.friendRecordSec(mint) > 0.0);
+        hub.stopFriendRecording(mint);
+        expect("friend recording stopped", !hub.isFriendRecording(mint));
+        const auto recDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("HEARASIDE").getChildFile("Recordings");
+        juce::File mintTake;
+        for (const auto& f : recDir.findChildFiles(juce::File::findFiles, false, "Mint *.wav"))
+            if (mintTake == juce::File() || f.getLastModificationTime() > mintTake.getLastModificationTime()) mintTake = f;
+        expect("Mint WAV take was written to disk", mintTake.existsAsFile() && mintTake.getSize() > 1024);
+        if (mintTake.existsAsFile()) mintTake.deleteFile();
         if (state == 1) { hub.removeFriend(mint); pump(50); state = 2; }
         for (int i = 0; i < 2000 && !finished; ++i) pump(10);
         client.join();
@@ -1226,11 +1249,12 @@ int main(int argc, char** argv) {
 
         struct Head : juce::AudioPlayHead {
             int64_t time = 480000;
+            bool rec = false;
             juce::Optional<PositionInfo> getPosition() const override {
                 PositionInfo p;
                 p.setTimeInSamples(time);
                 p.setIsPlaying(true);
-                p.setIsRecording(false);
+                p.setIsRecording(rec);
                 return p;
             }
         } head;
@@ -1263,7 +1287,7 @@ int main(int argc, char** argv) {
                     app.processBlock(buf, midi);
                     head.time += 256;
                     ++blocks;
-                    if (blocks - b0 > 190) peak = std::max(peak, buf.getMagnitude(0, 256));
+                    if (blocks - b0 > 40) peak = std::max(peak, buf.getMagnitude(0, 256));
                 }
                 juce::MessageManager::getInstance()->runDispatchLoopUntil(1);
                 juce::Thread::sleep(1);
@@ -1273,9 +1297,22 @@ int main(int argc, char** argv) {
         std::printf("     App Audio output peak %.3f, status %d, latency %.1f ms\n", peak, int(app.captureState()), app.latencyMs());
         expect("the source is the friend", app.input() == AppAudioProcessor::Input::Friend);
         expect("the status is Running (the friend is singing)", app.captureState() == AppCapture::State::Running);
-        expect("the friend's microphone comes out of the plug-in", peak > 0.1f);
+        expect("idle friend input is silent to prevent echo (PLAN 1.9)", peak < 0.001f);
         expect("the picker says \"Mint · friend\"", AppAudioProcessor::appLabel(app.app()) == juce::String(juce::CharPointer_UTF8("Mint \xc2\xb7 friend")));
         expect("a take's shift = the friend's delay + our buffer", std::abs(app.takeShiftMs() - (120.0 + app.latencyMs())) < 3.0);
+
+        // verify friend audio passes when recording or with "program only"
+        peak = 0.0f;
+        head.rec = true;
+        run(1.2);
+        expect("the friend's microphone comes out of the plug-in while recording", peak > 0.1f);
+        head.rec = false;
+
+        peak = 0.0f;
+        app.params().getParameter(appparam::Only)->setValueNotifyingHost(1.0f);
+        run(1.2);
+        expect("the friend's microphone comes out with Program only", peak > 0.1f);
+        app.params().getParameter(appparam::Only)->setValueNotifyingHost(0.0f);
 
         // the App Audio's own headphone slot stays silent: the Hub plays the friend
         bool monOff = false;

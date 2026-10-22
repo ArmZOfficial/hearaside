@@ -111,7 +111,8 @@ bool HubEngine::friendsSoloActive() const noexcept {
     return false;
 }
 
-void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStreamOuts>& used, bool soloActive) noexcept {
+void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStreamOuts>& used, bool soloActive,
+                           int64_t timeSamples, bool playing) noexcept {
     BusLayout* b = bus_.load(std::memory_order_relaxed);
     const uint32_t sr = uint32_t(sampleRate_ + 0.5);
     const double dt = double(n) / sampleRate_;
@@ -156,11 +157,19 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
             info.jitterP95MsBits.store(0, std::memory_order_relaxed);
             for (int c = 0; c < 2; ++c) std::memset(f.out[c].data(), 0, size_t(n) * sizeof(float));
             f.peak *= std::exp(-float(n) / (0.3f * float(sr)));
+            if (friendTap_) {
+                const float* tapCh[2] = { f.out[0].data(), f.out[1].data() };
+                friendTap_(friendTapUser_, j, tapCh, n, timeSamples, playing);
+            }
             continue;
         }
         float* o[2] = { f.out[0].data(), f.out[1].data() };
         const bool wasPrimed = f.reader.primed();
         const bool ok = f.reader.pull(b->friendAudio[j], h.writePos, rate, o, n);
+        if (friendTap_) {
+            const float* tapCh[2] = { f.out[0].data(), f.out[1].data() };
+            friendTap_(friendTapUser_, j, tapCh, n, timeSamples, playing);
+        }
         if (!wasPrimed && f.reader.primed()) {
             f.mon.snap(0.0f);
             f.str.snap(0.0f);   // no click when the voice (re)starts

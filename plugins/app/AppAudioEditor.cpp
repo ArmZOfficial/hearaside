@@ -354,7 +354,8 @@ int AppAudioEditor::layoutBody(int width) {
         others_ = { 0.0f, y, w, oh };
         y += oh + 8.0f;
     }
-    const float nh = wrappedHeight(uiFont(12.0f), tr(Str::AppNormalTrackNote), w, 6.0f);
+    const auto noteKey = proc_.input() == AppAudioProcessor::Input::Friend ? Str::FriendRecordEchoNote : Str::AppNormalTrackNote;
+    const float nh = wrappedHeight(uiFont(12.0f), tr(noteKey), w, 6.0f);
     note_ = { 0.0f, y, w, nh };
     y += nh + 6.0f;
     return juce::roundToInt(y);
@@ -425,7 +426,8 @@ void AppAudioEditor::paintBody(juce::Graphics& g) {
         if (daw != Daw::Cubase) line("Cubase", Str::CubaseOther);
         if (daw != Daw::Reaper) line("Reaper", Str::ReaperOther);
     }
-    drawWrapped(g, tr(Str::AppNormalTrackNote), uiFont(12.0f), p.graphite, note_, 6.0f);
+    const auto noteKey = proc_.input() == AppAudioProcessor::Input::Friend ? Str::FriendRecordEchoNote : Str::AppNormalTrackNote;
+    drawWrapped(g, tr(noteKey), uiFont(12.0f), p.graphite, note_, 6.0f);
 }
 
 juce::AudioProcessorEditor* AppAudioProcessor::createEditor() { return new AppAudioEditor(*this); }

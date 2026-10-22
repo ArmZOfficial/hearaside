@@ -66,9 +66,11 @@ public:
     static constexpr int kHeight = 112;
 
     FriendCard(HubEditor& e, uint32_t id) : ed_(e), id_(id) {
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &rec_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
             addAndMakeVisible(c);
         copy_.setSmall(true);
+        rec_.setSmall(true);
+        rec_.setIcon(icons::Icon::Record);
         remove_.setSize(32, 32);
         name_.onRename = [this](const juce::String& n) { ed_.renameFriend(id_, n); };
         copy_.onClick = [this] {
@@ -79,6 +81,12 @@ public:
             juce::Component::SafePointer<FriendCard> sp(this);
             juce::Timer::callAfterDelay(1400, [sp] { if (sp) sp->copy_.setButtonText(tr(Str::CopyLink)); });
             ed_.toast(trf(Str::CopiedFriendLink, { v_.name }));
+        };
+        rec_.onClick = [this] {
+            const bool recording = ed_.proc().isFriendRecording(id_);
+            if (recording) ed_.proc().stopFriendRecording(id_);
+            else ed_.proc().startFriendRecording(id_);
+            update(v_);
         };
         remove_.onClick = [this] {
             const auto name = v_.name;
@@ -97,6 +105,8 @@ public:
     void refreshTexts() {
         copy_.setButtonText(tr(Str::CopyLink));
         name_.setTooltip(tr(Str::DoubleClickToRename));
+        const bool rec = ed_.proc().isFriendRecording(id_);
+        rec_.setTooltip(rec ? tr(Str::StopRecording) : tr(Str::PrintToFile));
         vol_.setTooltip(tr(Str::DoubleClickToReset));
         volValue_.setTooltip(tr(Str::DoubleClickToType));
         panValue_.setTooltip(tr(Str::PanTypeTip));
@@ -112,6 +122,14 @@ public:
         v_ = v;
         name_.setName(v.name, {});
         mic_.setLevel(v.state == FriendView::State::Live ? meterPosition(v.peak) : 0.0f);
+        const bool rec = ed_.proc().isFriendRecording(id_);
+        const double sec = ed_.proc().friendRecordSec(id_);
+        const bool wasRec = wasRec_;
+        wasRec_ = rec;
+        lastRecSec_ = sec;
+        rec_.setStyle(rec ? GhostButton::Style::DangerSolid : GhostButton::Style::Ghost);
+        rec_.setButtonText(rec ? clock(sec) : juce::String());
+        rec_.setTooltip(rec ? tr(Str::StopRecording) : tr(Str::PrintToFile));
         const juce::ScopedValueSetter<bool> svs(updating_, true);
         if (touch_.idle() && !vol_.isMouseButtonDown()) {
             vol_.setValue(LevelSlider::dbToSlider(v.volumeDb), juce::dontSendNotification);
@@ -123,7 +141,7 @@ public:
         vol_.setDim(dim);
         for (juce::Component* c : std::initializer_list<juce::Component*> { &vol_, &volValue_, &pan_, &panValue_ }) c->setEnabled(!dim);
         if (nameChanged) refreshTexts();
-        if (dawChanged) resized();
+        if (dawChanged || wasRec != rec) resized();
         repaint();
     }
 
@@ -135,7 +153,10 @@ public:
         // status line
         Dot dot = Dot::Warn;
         juce::String text;
-        if (v_.state == FriendView::State::Live) {
+        if (ed_.proc().isFriendRecording(id_)) {
+            dot = Dot::Warn;
+            text = trf(Str::RecordingTime, { clock(ed_.proc().friendRecordSec(id_)) });
+        } else if (v_.state == FriendView::State::Live) {
             dot = v_.overLimit ? Dot::Warn : Dot::Ok;
             if (v_.inDaw) text = v_.outSlot >= 0 ? trf(Str::SingingInDaw, { ed_.proc().feederTrackName(v_.feeder) }) : tr(Str::InDawNotHeadphones);
             else if (v_.overLimit) text = trf(Str::FriendOverLimit, { juce::String(ed_.proc().lineUpLimitMs()) });
@@ -173,8 +194,11 @@ public:
         remove_.setBounds(top.removeFromRight(32.0f).withSizeKeepingCentre(32.0f, 32.0f).toNearestInt());
         top.removeFromRight(6.0f);
         copy_.setBounds(top.removeFromRight(juce::jmax(92.0f, float(copy_.idealWidth()))).withSizeKeepingCentre(juce::jmax(92.0f, float(copy_.idealWidth())), 30.0f).toNearestInt());
+        top.removeFromRight(6.0f);
+        const float recW = rec_.getButtonText().isEmpty() ? 32.0f : juce::jmax(64.0f, float(rec_.idealWidth()));
+        rec_.setBounds(top.removeFromRight(recW).withSizeKeepingCentre(recW, 30.0f).toNearestInt());
         top.removeFromRight(12.0f);
-        auto meterCol = top.removeFromRight(juce::jmin(130.0f, top.getWidth() * 0.4f));
+        auto meterCol = top.removeFromRight(juce::jmin(110.0f, top.getWidth() * 0.35f));
         delay_ = meterCol.removeFromTop(20.0f);
         meterCol.removeFromTop(4.0f);
         mic_.setBounds(meterCol.removeFromTop(6.0f).toNearestInt());
@@ -218,7 +242,10 @@ private:
     InlineName name_ { 14.5f, Weight::SemiBold };
     MeterBar mic_ { 6.0f, true };
     GhostButton copy_ { {}, GhostButton::Style::Ghost };
+    GhostButton rec_ { {}, GhostButton::Style::Ghost };
     IconButton remove_ { icons::Icon::Close };
+    bool wasRec_ = false;
+    double lastRecSec_ = 0.0;
     LevelSlider vol_;
     EditableValue volValue_ { EditableValue::Kind::Db, -30.0f, 6.0f };
     PanSlider pan_ { false };
@@ -234,6 +261,8 @@ public:
         for (juce::Component* c : std::initializer_list<juce::Component*> { &spread_, &add_, &lineSwitch_, &measure_, &scroll_, &listenSwitch_, &listenField_, &open_, &copy_,
                                                                             &install_, &backupField_, &backupCopy_, &receiveField_, &connect_ })
             addAndMakeVisible(c);
+        addChildComponent(bufferBanner_);
+        bufferBanner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::FriendBufferWarning));
         scroll_.setContent(body_);
         spread_.setIcon(icons::Icon::Spread);
         add_.setIcon(icons::Icon::Plus);
@@ -291,6 +320,7 @@ public:
         listenField_.setTitle(tr(Str::ShareListen));
         lineSwitch_.setTitle(tr(Str::LineUpFriends));
         receiveField_.setTitle(tr(Str::LinkToReceive));
+        bufferBanner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::FriendBufferWarning));
         for (auto* c : cardViews_) c->refreshTexts();
         repaint();
     }
@@ -340,6 +370,15 @@ public:
         const bool measuring = juce::Time::getMillisecondCounter() < measuringUntil_;
         measure_.setButtonText(measuring ? tr(Str::Measuring) : tr(Str::MeasureAgain));
         measure_.setEnabled(!views.empty() && !measuring);
+        bool anyLive = false;
+        for (const auto& v : views) {
+            if (v.live()) { anyLive = true; break; }
+        }
+        const bool bufferWarn = anyLive && proc.latency().block > 256;
+        if (bufferWarn != bufferBanner_.isVisible()) {
+            bufferBanner_.setVisible(bufferWarn);
+            relayout = true;
+        }
         if (relayout) resized();
         repaint();
     }
@@ -420,6 +459,11 @@ public:
         spread_.setBounds(head.removeFromRight(float(spread_.idealWidth())).toNearestInt());
         friendsHead_ = head;
         c.removeFromTop(14.0f);
+        if (bufferBanner_.isVisible()) {
+            const int bh = bufferBanner_.idealHeight(juce::roundToInt(c.getWidth()));
+            bufferBanner_.setBounds(c.removeFromTop(float(bh)).toNearestInt());
+            c.removeFromTop(10.0f);
+        }
         if (!narrow) {
             footer_ = c.removeFromBottom(12.0f + wrappedHeight(uiFont(12.0f), tr(Str::FriendsFooter), c.getWidth() - 26.0f, 6.0f));
             c.removeFromBottom(12.0f);
@@ -618,6 +662,7 @@ private:
     LinkField listenField_, backupField_;
     GhostButton open_, copy_ { {}, GhostButton::Style::Solid }, install_, backupCopy_, measure_ { {}, GhostButton::Style::Ghost };
     Switch listenSwitch_, lineSwitch_;
+    Banner bufferBanner_;
     ScrollArea scroll_ { 14 };
     juce::Component body_;
     juce::OwnedArray<FriendCard> cards_;
@@ -1293,6 +1338,9 @@ public:
         if (++ticks_ % 20 == 1) scanTakes();   // every ~2 s
         recording_.clear();
         for (const auto& s : srcs) if (s.recording()) recording_.push_back({ s.app == kSystemAudio ? tr(Str::WholeComputerShort) : HubEditor::programLabel(s.app), s.recordSec });
+        for (const auto& f : ed.proc().friends())
+            if (ed.proc().isFriendRecording(f.id))
+                recording_.push_back({ f.name.isNotEmpty() ? f.name : ("Friend " + juce::String(f.id)), ed.proc().friendRecordSec(f.id) });
         if (recording_.size() != lastRecording_) { lastRecording_ = recording_.size(); layoutTakes(); }
         takes_.repaint();
         repaint();

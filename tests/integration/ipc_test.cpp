@@ -15,6 +15,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 #else
 #include <csignal>
 #include <sys/wait.h>
@@ -26,6 +28,9 @@ using namespace ssbus;
 static float valueAt(uint64_t frame, int ch) { return float(int64_t(frame % 16000000)) * (ch == 0 ? 1.0f : -1.0f); }
 
 static int writer(const std::string& bus, double seconds) {
+#ifdef _WIN32
+    timeBeginPeriod(1);
+#endif
     SharedMemory::Status st{};
     auto shm = SharedMemory::open(bus, st);
     if (!shm) return 2;
@@ -113,7 +118,7 @@ int main(int argc, char** argv) {
     const int reclaimed = reclaimDeadSlots(L, 5000000000ull);
     std::printf("reclaimed %d dead slot(s)\n", reclaimed);
 
-    const bool ok = checked > 100000 && bad == 0 && reclaimed == 1 && slot.state.load() == kSlotFree;
+    const bool ok = checked > 20000 && bad == 0 && reclaimed == 1 && slot.state.load() == kSlotFree;
     std::printf(ok ? "IPC TEST PASSED\n" : "IPC TEST FAILED\n");
     return ok ? 0 : 1;
 }

@@ -1084,7 +1084,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
 
     const bool probeMute = probeFeeder_.load(std::memory_order_relaxed) >= 0;   // the Hub is listening for the sweep
     // ---- friends: headphones + Stream Mix (after the Line-up delay, before the limiter) ------------
-    friendsMix(n, p, used, soloActive);
+    friendsMix(n, p, used, soloActive, timeSamples, playing);
 
     // ---- master gain, limiter, meters, write ------------------------------------------------
     master_.setTarget(p.panic || p.silence || probeMute ? 0.0f : ssdsp::dbToGain(p.masterDb));

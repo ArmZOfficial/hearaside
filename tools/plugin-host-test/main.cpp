@@ -259,13 +259,26 @@ std::vector<uint8_t> pcmPacket(int frames, int64_t t0, float amp) {
 }
 
 // The Hub's saved state as XML. VST3 hosts keep the plug-in's own binary state, base64, inside an <IComponent> element.
+// VST2 hosts keep it as an FXB bank chunk starting with "CcnK" at offset 160.
 struct HubState {
     std::unique_ptr<juce::XmlElement> outer, plugin;
     juce::XmlElement* comp = nullptr;
+    bool isFxb = false;
+    juce::MemoryBlock fxbHeader;
 
     explicit HubState(juce::AudioPluginInstance& hub) {
         juce::MemoryBlock mb;
         hub.getStateInformation(mb);
+        if (mb.getSize() >= 160 && std::memcmp(mb.getData(), "CcnK", 4) == 0) {
+            const auto* p = static_cast<const uint8_t*>(mb.getData());
+            const uint32_t chunkSize = (uint32_t(p[156]) << 24) | (uint32_t(p[157]) << 16) | (uint32_t(p[158]) << 8) | uint32_t(p[159]);
+            if (mb.getSize() >= 160 + chunkSize) {
+                isFxb = true;
+                fxbHeader.replaceWith(mb.getData(), 160);
+                plugin = juce::AudioProcessor::getXmlFromBinary(p + 160, int(chunkSize));
+                return;
+            }
+        }
         outer = juce::AudioProcessor::getXmlFromBinary(mb.getData(), int(mb.getSize()));
         comp = outer ? outer->getChildByName("IComponent") : nullptr;
         if (comp == nullptr) { plugin = std::move(outer); return; }
@@ -275,6 +288,17 @@ struct HubState {
     void load(juce::AudioPluginInstance& hub) {
         juce::MemoryBlock out;
         juce::AudioProcessor::copyXmlToBinary(*plugin, out);
+        if (isFxb && fxbHeader.getSize() == 160) {
+            juce::MemoryBlock fxb = fxbHeader;
+            auto* p = static_cast<uint8_t*>(fxb.getData());
+            const uint32_t newChunkSize = uint32_t(out.getSize());
+            p[156] = uint8_t(newChunkSize >> 24); p[157] = uint8_t(newChunkSize >> 16); p[158] = uint8_t(newChunkSize >> 8); p[159] = uint8_t(newChunkSize);
+            const uint32_t totalSize = uint32_t(160 - 8 + out.getSize());
+            p[4] = uint8_t(totalSize >> 24); p[5] = uint8_t(totalSize >> 16); p[6] = uint8_t(totalSize >> 8); p[7] = uint8_t(totalSize);
+            fxb.append(out.getData(), out.getSize());
+            hub.setStateInformation(fxb.getData(), int(fxb.getSize()));
+            return;
+        }
         if (comp != nullptr) {
             const auto b64 = out.toBase64Encoding();
             comp->deleteAllTextElements();
@@ -556,7 +580,7 @@ void testAppAudio(juce::AudioPluginFormatManager& fm, const juce::String& path, 
     const auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("HEARASIDE").getChildFile("Recordings");
     juce::File take;
     for (const auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.wav"))
-        if (take == juce::File() || f.getLastModificationTime() > take.getLastModificationTime()) take = f;
+        if (f.getSize() > 1024 && (take == juce::File() || f.getLastModificationTime() > take.getLastModificationTime())) take = f;
     check(take.existsAsFile(), "a take is printed while the DAW records");
     if (take.existsAsFile()) {
         juce::WavAudioFormat wav;

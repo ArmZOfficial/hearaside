@@ -119,6 +119,8 @@ enum class Str {
     SignedOutToast,
     PairAutomatic, PairRefused, PairNow, PairListening, PairNotFound, PairNowCap, PairedWith, PairHubOld, PairBusy, PairRateHigh,
     DawYours,
+    FriendRecordEchoNote,
+    FriendBufferWarning,
     Count
 };
 

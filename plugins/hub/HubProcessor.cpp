@@ -54,6 +54,9 @@ HubProcessor::HubProcessor()
     lastConnect_ = juce::Time::getMillisecondCounter();
     engine_.connect(busName_.toStdString());
     engine_.prepare(sampleRate_, maxBlock_);
+    engine_.setFriendTap([](void* user, int idx, const float* const* ch, int n, int64_t time, bool playing) noexcept {
+        static_cast<HubProcessor*>(user)->handleFriendAudio(idx, ch, n, time, playing);
+    }, this);
     pushStemNames();
     startTimerHz(20);
     latencyMeter_.startThread(juce::Thread::Priority::low);
@@ -62,6 +65,10 @@ HubProcessor::HubProcessor()
 HubProcessor::~HubProcessor() {
     control_.stop();
     share_.stop();
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) {
+        friendRecActive_[j].store(false, std::memory_order_relaxed);
+        friendRec_[j].close();
+    }
     muteAllBut(-1, -1);   // never leave Tracks muted behind
     latencyMeter_.stopThread(3000);
     stopTimer();
@@ -78,6 +85,7 @@ void HubProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     maxBlock_ = juce::jmax(16, samplesPerBlock);
     engine_.prepare(sampleRate_, maxBlock_);
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) friendRec_[j].prepare(sampleRate_);
     headphoneGain_.reset(sampleRate_, 0.020);
     headphoneGain_.setCurrentAndTargetValue(ssdsp::dbToGain(headphones_->load()));
     setLatencySamples(0);   // the master output itself is never delayed
@@ -319,6 +327,15 @@ void HubProcessor::timerCallback() {
         if (engine_.role() != before) { if (engine_.role() == HubEngine::Role::Owner) pushStemNames(); stateChanged.sendChangeMessage(); }
     }
     FriendDirectory::update(engine_.bus());
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) {
+        double shift = 0.0;
+        if (auto* bus = engine_.bus()) {
+            const float d = ssbus::bitsFloat(bus->friends[j].delayBits.load(std::memory_order_relaxed));
+            const float bufMs = ssbus::bitsFloat(engine_.friendInfo(j).bufferMsBits.load(std::memory_order_relaxed));
+            if (d >= 0.0f) shift = double(d) + double(bufMs);
+        }
+        friendRec_[j].setShiftFrames(int64_t(shift * sampleRate_ * 0.001 + 0.5));
+    }
     serviceRemote();
     serviceRequests();
     serviceFeeders();
@@ -502,6 +519,7 @@ uint32_t HubProcessor::addFriend(const juce::String& name) {
 }
 
 void HubProcessor::removeFriend(uint32_t id) {
+    stopFriendRecording(id);
     friendRoom_.remove(id);
     serviceShare();
     updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
@@ -560,6 +578,44 @@ void HubProcessor::bringBackFriend(uint32_t id) {
     auto& f = bus->feeders[feeder];
     f.hubCommand.store(1, std::memory_order_relaxed);   // "go back to this track's own sound"
     f.hubCommandSeq.fetch_add(1, std::memory_order_release);
+}
+
+void HubProcessor::handleFriendAudio(int idx, const float* const* ch, int n, int64_t time, bool playing) noexcept {
+    if (idx >= 0 && idx < ssbus::kMaxFriends) {
+        const bool want = friendRecActive_[size_t(idx)].load(std::memory_order_relaxed);
+        friendRec_[size_t(idx)].write(ch, n, want, time, playing && time != ssengine::kNoTime);
+    }
+}
+
+void HubProcessor::startFriendRecording(uint32_t id) {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return;
+    if (friendRecActive_[size_t(slot)].load(std::memory_order_relaxed)) return;
+    const auto* e = friendRoom_.find(id);
+    const juce::String name = (e && e->name.isNotEmpty()) ? e->name : ("Friend " + juce::String(id));
+    if (!friendRec_[size_t(slot)].isOpen() && !friendRec_[size_t(slot)].open(name)) return;
+    friendRecActive_[size_t(slot)].store(true, std::memory_order_relaxed);
+    stateChanged.sendChangeMessage();
+}
+
+void HubProcessor::stopFriendRecording(uint32_t id) {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return;
+    if (!friendRecActive_[size_t(slot)].exchange(false) && !friendRec_[size_t(slot)].isOpen()) return;
+    friendRec_[size_t(slot)].close();
+    stateChanged.sendChangeMessage();
+}
+
+bool HubProcessor::isFriendRecording(uint32_t id) const {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return false;
+    return friendRecActive_[size_t(slot)].load(std::memory_order_relaxed);
+}
+
+double HubProcessor::friendRecordSec(uint32_t id) const {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return 0.0;
+    return friendRec_[size_t(slot)].isOpen() ? friendRec_[size_t(slot)].seconds() : friendRec_[size_t(slot)].lastSeconds();
 }
 
 int HubProcessor::lineUpSlowestFriend() const {

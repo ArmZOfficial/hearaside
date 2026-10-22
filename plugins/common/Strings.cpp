@@ -734,6 +734,8 @@ Table build() {
     s(Str::PairBusy, "Hub ยังไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่", "The Hub is busy. Try again in a moment.");
     s(Str::PairRateHigh, "จับคู่อัตโนมัติใช้ได้ที่ 44.1 หรือ 48 kHz เลือก Track เอง", "Auto-pair works at 44.1 or 48 kHz. Pick the Track by hand.");
     s(Str::DawYours, "DAW ของคุณ", "your DAW");
+    s(Str::FriendRecordEchoNote, "ปิด monitor ของแทร็กที่อัดเพื่อน (เสียงจะออกแทร็กเมื่อกดอัดหรือเปิด “เฉพาะเสียงโปรแกรม” เพื่อกันเสียงสะท้อน)", "Turn off monitoring on this track (audio only leaves the plug-in while recording or with “Program only” enabled to prevent echo).");
+    s(Str::FriendBufferWarning, "ตั้ง buffer 128–256 เพื่อให้เพื่อนหน่วงน้อย", "Set DAW buffer to 128–256 for lower friend latency");
     return t;
 }
 

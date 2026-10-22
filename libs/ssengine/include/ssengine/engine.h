@@ -168,6 +168,13 @@ public:
     // The Line-up delay changed (ms): lets the Hub say so on screen. Counts changes; read lineUpMs() for the value.
     uint32_t lineUpChanges() const noexcept { return lineUpChanges_.load(std::memory_order_relaxed); }
 
+    // Audio tap for recording / metering friends: called on the audio thread during friendsMix.
+    using FriendTap = void (*)(void* user, int friendIndex, const float* const* ch, int n, int64_t timeSamples, bool playing) noexcept;
+    void setFriendTap(FriendTap tap, void* user) noexcept {
+        friendTap_ = tap;
+        friendTapUser_ = user;
+    }
+
     // ---- pairing a friend input with the Track at the end of its channel (S7) --------------
     // Message thread. By hand: arg = slot of that Track, or ssbus::kPairAutomatic to let the Hub find it by name /
     // sound again. false = refused (no such friend input, the slot is not an active Track, an App Audio, or it
@@ -221,7 +228,8 @@ private:
     void friendsPrepare();
     void friendsReset() noexcept;
     bool friendsSoloActive() const noexcept;
-    void friendsMix(int n, const HubParams& p, std::array<bool, ssbus::kNumStreamOuts>& used, bool soloActive) noexcept;
+    void friendsMix(int n, const HubParams& p, std::array<bool, ssbus::kNumStreamOuts>& used, bool soloActive,
+                    int64_t timeSamples = ssengine::kNoTime, bool playing = false) noexcept;
     uint64_t anchorFor(int i, int n, int64_t timeSamples, bool playing, bool& viaTimeline) noexcept;
     void startCrossfade(SlotState& s, uint64_t oldReadPos) noexcept;
 
@@ -315,6 +323,8 @@ private:
     std::vector<float> voice_[ssbus::kMaxFriends];   // each friend's voice for the other friends (mono, undelayed)
     std::vector<float> delayScratch_[2];
     uint32_t delayCap_ = 0;
+    FriendTap friendTap_ = nullptr;
+    void* friendTapUser_ = nullptr;
 
     bool    wasPlaying_ = false;
     int64_t expectedTime_ = kNoTime;

@@ -9,6 +9,7 @@
 #include "ShareDirectory.h"
 #include "ShareServer.h"
 #include "Strings.h"
+#include "app/TakeRecorder.h"
 #include "ssengine/engine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -173,6 +174,12 @@ public:
     juce::String feederTrackName(int feeder) const;             // the DAW track a feeder sits on ("" = unknown)
     void bringBackFriend(uint32_t id);                          // the DAW track plays its own sound again; the Hub plays the friend
 
+    // ---- per-friend WAV recording (1.10) ----------------------------------------------------
+    void startFriendRecording(uint32_t id);
+    void stopFriendRecording(uint32_t id);
+    bool isFriendRecording(uint32_t id) const;
+    double friendRecordSec(uint32_t id) const;
+
     // "Viewers hear nothing" (docs/ux-roadmap.md 7.3): the Stream Mix has been silent for 5 s while a
     // track that goes to the viewers has signal. From the meters, on the message thread.
     bool viewersSilent() const noexcept { return viewersSilent_; }
@@ -266,6 +273,9 @@ private:
     ssbus::BusLayout* remoteBus_ = nullptr;   // bus the cursor belongs to
     uint32_t requestCursor_ = 0;
     ssbus::BusLayout* requestBus_ = nullptr;
+    void handleFriendAudio(int idx, const float* const* ch, int n, int64_t time, bool playing) noexcept;
+    std::array<TakeRecorder, ssbus::kMaxFriends> friendRec_;
+    std::array<std::atomic<bool>, ssbus::kMaxFriends> friendRecActive_{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HubProcessor)
 };

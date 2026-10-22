@@ -112,6 +112,7 @@ hearaside_add_plugin(HearasideHub
         hub/ShareDirectory.cpp
         hub/ControlServer.cpp
         hub/HubRestApi.cpp
+        app/TakeRecorder.cpp
         app/AppCapture.cpp)   # program list for the App Audio rows
 target_include_directories(HearasideHub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(HearasideHub PRIVATE hearaside_web)

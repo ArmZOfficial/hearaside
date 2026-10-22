@@ -31,22 +31,7 @@ juce_add_binary_data(hearaside_web
         ${CMAKE_CURRENT_SOURCE_DIR}/hub/web/send.html)
 set_target_properties(hearaside_web PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-set(hearaside_common_sources
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/Settings.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/Strings.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ValueText.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/LookAndFeel.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Focus.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Controls.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Overlay.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/ScrollArea.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Backdrop.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Components.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/Icons.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/SettingsPanel.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/AccountManager.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/AccountPanel.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/ui/qrcodegen.cpp)
+add_subdirectory(common)
 
 function(hearaside_add_plugin target)
     cmake_parse_arguments(P "" "PRODUCT_NAME;PLUGIN_CODE;DESCRIPTION" "SOURCES" ${ARGN})
@@ -68,30 +53,21 @@ function(hearaside_add_plugin target)
         VST2_CATEGORY           kPlugCategEffect
         COPY_PLUGIN_AFTER_BUILD FALSE)
 
-    target_sources(${target} PRIVATE ${P_SOURCES} ${hearaside_common_sources})
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common)
+    target_sources(${target} PRIVATE ${P_SOURCES})
     target_compile_definitions(${target} PUBLIC
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0
-        JUCE_REPORT_APP_USAGE=0
         # keep VST3 class IDs independent of the VST2 build so projects never change identity
-        JUCE_VST3_CAN_REPLACE_VST2=0
-        HEARASIDE_VERSION="${PROJECT_VERSION}"
-        HEARASIDE_SHARE_BASE="${HEARASIDE_SHARE_BASE}")
+        JUCE_VST3_CAN_REPLACE_VST2=0)
     target_link_libraries(${target}
         PRIVATE
-            hearaside_assets
+            hearaside_common
             ssengine
-            ssnet
-            juce::juce_audio_utils
-            juce::juce_gui_extra
         PUBLIC
             juce::juce_recommended_config_flags
             juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags)
 endfunction()
 
+if(HEARASIDE_BUILD_PLUGINS)
 hearaside_add_plugin(HearasideTrack
     PRODUCT_NAME "HEARASIDE Track"
     PLUGIN_CODE  HrTk
@@ -109,7 +85,6 @@ hearaside_add_plugin(HearasideHub
         hub/HubEditor.cpp
         hub/HubPages.cpp
         hub/HubPages2.cpp
-        hub/ShareServer.cpp
         hub/FriendRoom.cpp
         hub/ShareDirectory.cpp
         hub/ControlServer.cpp
@@ -117,14 +92,11 @@ hearaside_add_plugin(HearasideHub
         app/TakeRecorder.cpp
         app/AppCapture.cpp)   # program list for the App Audio rows
 target_include_directories(HearasideHub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(HearasideHub PRIVATE hearaside_web)
 
 # App Audio: an effect that adds what one program (or the whole computer) plays to its track
 # (WASAPI process loopback, Windows 10 2004+), and prints it to WAV takes. Same plug-in code as
 # the earlier instrument version, so saved projects keep finding it.
 if(WIN32)
-    target_link_libraries(HearasideHub PRIVATE ole32 mmdevapi avrt crypt32)
-    target_link_libraries(HearasideTrack PRIVATE crypt32)
     hearaside_add_plugin(HearasideAppAudio
         PRODUCT_NAME "HEARASIDE App Audio"
         PLUGIN_CODE  HrAp
@@ -135,26 +107,26 @@ if(WIN32)
             app/AppCapture.cpp
             app/LinkReceiver.cpp
             app/TakeRecorder.cpp)
-    target_link_libraries(HearasideAppAudio PRIVATE ssdsp ole32 mmdevapi avrt winhttp crypt32)
+    target_link_libraries(HearasideAppAudio PRIVATE ssdsp)
 endif()
+endif()
+
 # ui-snapshot: renders both editors to PNG (design QA without a DAW)
 if(HEARASIDE_BUILD_TOOLS)
     juce_add_console_app(hearaside_ui_snapshot PRODUCT_NAME "ui-snapshot")
     target_sources(hearaside_ui_snapshot PRIVATE
         ${CMAKE_SOURCE_DIR}/tools/ui-snapshot/main.cpp
         track/TrackProcessor.cpp track/TrackEditor.cpp
-        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/ShareServer.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp
-        ${hearaside_common_sources})
-    target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common ${CMAKE_CURRENT_SOURCE_DIR})
+        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp)
+    target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hearaside_ui_snapshot PRIVATE
-        HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
-        HEARASIDE_VERSION="${PROJECT_VERSION}")
+        HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(hearaside_ui_snapshot PRIVATE
-        hearaside_assets hearaside_web ssengine ssnet juce::juce_audio_utils juce::juce_gui_extra
+        hearaside_common ssengine
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     if(WIN32)   # App Audio editor + --test-app-audio
         target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/AppAudioEditor.cpp app/LinkReceiver.cpp app/TakeRecorder.cpp)
-        target_link_libraries(hearaside_ui_snapshot PRIVATE ole32 mmdevapi avrt winhttp crypt32)
+        target_link_libraries(hearaside_ui_snapshot PRIVATE ssdsp)
     endif()
 endif()
 

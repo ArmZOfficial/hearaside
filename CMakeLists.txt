@@ -22,6 +22,7 @@ if(MSVC)
 endif()
 
 option(HEARASIDE_BUILD_PLUGINS "Build the JUCE plug-ins (Track + Hub)" ON)
+option(HEARASIDE_BUILD_KARAOKE "Build HAS Karaoke standalone executable" ON)
 option(HEARASIDE_BUILD_OBS     "Build the OBS source plug-in" ON)
 option(HEARASIDE_BUILD_TOOLS   "Build bus-inspector and other tools" ON)
 option(HEARASIDE_BUILD_TESTS   "Build unit / integration tests" ON)
@@ -36,9 +37,15 @@ endif()
 
 add_subdirectory(libs)
 
-if(HEARASIDE_BUILD_PLUGINS)
-    add_subdirectory(${SS_EXTERNAL}/JUCE ${CMAKE_BINARY_DIR}/JUCE EXCLUDE_FROM_ALL)
+if(HEARASIDE_BUILD_PLUGINS OR HEARASIDE_BUILD_KARAOKE)
+    if(NOT TARGET juce::juce_core)
+        add_subdirectory(${SS_EXTERNAL}/JUCE ${CMAKE_BINARY_DIR}/JUCE EXCLUDE_FROM_ALL)
+    endif()
     add_subdirectory(plugins)
+endif()
+
+if(HEARASIDE_BUILD_KARAOKE)
+    add_subdirectory(apps/karaoke)
 endif()
 
 if(HEARASIDE_BUILD_OBS)

@@ -49,8 +49,8 @@ public:
     struct Listener {
         virtual ~Listener() = default;
         virtual void accountStateChanged(State newState) = 0;
-        virtual void accountProfileChanged(const Profile& profile) {}
-        virtual void accountDeviceCodeUpdated(const DeviceCode& code) {}
+        virtual void accountProfileChanged(const Profile& /*profile*/) {}
+        virtual void accountDeviceCodeUpdated(const DeviceCode& /*code*/) {}
     };
 
     static AccountManager& get();
@@ -96,7 +96,7 @@ public:
 private:
     AccountManager();
     ~AccountManager() override;
-    friend class juce::SingletonHolder<AccountManager, juce::CriticalSection, false>;
+    friend struct juce::SingletonHolder<AccountManager, juce::CriticalSection, false>;
     JUCE_DECLARE_SINGLETON(AccountManager, false)
 
     void run() override;

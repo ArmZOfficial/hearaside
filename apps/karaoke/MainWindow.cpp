@@ -1146,10 +1146,11 @@ private:
 
 MainWindow::MainWindow()
     : DocumentWindow("HAS Karaoke",
-                     lnf_.pal().paper,
+                     theme::dark().paper,
                      DocumentWindow::allButtons) {
     setLookAndFeel(&lnf_);
     lnf_.setDark(settings_->isDark());
+    setBackgroundColour(lnf_.pal().paper);
     settings_->addChangeListener(this);
 
     // Initialise audio device manager from saved settings or defaults

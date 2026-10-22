@@ -1131,7 +1131,8 @@ int main(int argc, char** argv) {
                     std::memcpy(&mg, m.data(), 4); std::memcpy(&rate, m.data() + 4, 4); std::memcpy(&fr, m.data() + 12, 4); std::memcpy(&pos, m.data() + 16, 8);
                     if (mg != 0x32415248) {   // text: the hello ({"v":2,"name":...}) or the delay report
                         const juce::String text(reinterpret_cast<const char*>(m.data()), m.size());
-                        if (juce::JSON::parse(text)["v"].toString() == "2") { sawHello = true; helloName = juce::JSON::parse(text)["name"].toString(); }
+                        const auto v = int(juce::JSON::parse(text)["v"]);
+                        if (v >= 2) { sawHello = true; helloName = juce::JSON::parse(text)["name"].toString(); }
                         continue;
                     }
                     magicOk &= true;

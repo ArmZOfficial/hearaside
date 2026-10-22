@@ -261,15 +261,27 @@ class Duplex extends AudioWorkletProcessor {
   }
   down(m) {
     this.rate = m.rate;
-    const s = m.pcm, n = s.length / 2;
-    this.pkt = Math.max(this.pkt * 0.995, n / m.rate);   // the Hub sends a DAW block at a time: never wait less
-    if (m.pos !== undefined && m.pos !== this.expect) { this.posOff = m.pos - this.w; this.havePos = true; this.lates.length = 0; }   // the Hub skipped ahead: measure again
-    if (m.pos !== undefined) this.expect = m.pos + n;
-    for (let i = 0; i < n; i++) {
-      const k = (this.w + i) % this.cap;
-      this.l[k] = s[i * 2] / 32768; this.r[k] = s[i * 2 + 1] / 32768;
+    if (m.fl && m.fr) {
+      const fl = m.fl, fr = m.fr, n = fl.length;
+      this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
+      if (m.pos !== undefined && m.pos !== this.expect) { this.posOff = m.pos - this.w; this.havePos = true; this.lates.length = 0; }
+      if (m.pos !== undefined) this.expect = m.pos + n;
+      for (let i = 0; i < n; i++) {
+        const k = (this.w + i) % this.cap;
+        this.l[k] = fl[i]; this.r[k] = fr[i];
+      }
+      this.w += n;
+    } else if (m.pcm) {
+      const s = m.pcm, n = s.length / 2;
+      this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
+      if (m.pos !== undefined && m.pos !== this.expect) { this.posOff = m.pos - this.w; this.havePos = true; this.lates.length = 0; }
+      if (m.pos !== undefined) this.expect = m.pos + n;
+      for (let i = 0; i < n; i++) {
+        const k = (this.w + i) % this.cap;
+        this.l[k] = s[i * 2] / 32768; this.r[k] = s[i * 2 + 1] / 32768;
+      }
+      this.w += n;
     }
-    this.w += n;
     this.lates.push(this.t, this.t - this.w / this.rate);   // when the packet showed up, against a steady flow
     if (this.lates.length > 4000) this.lates.splice(0, 2000);   // ideal() prunes it, but only while playing
     if (this.w - this.rd > this.cap - 4096) { this.rd = this.w - this.target * this.rate; this.primed = false; }
@@ -462,12 +474,102 @@ async function start() {
   meter();
 }
 
+let encoder = null, decoder = null, useOpus = false, upSeq = 0, echoQueue = [], downPosQueue = [];
+
+async function setupOpus(chans) {
+  if (typeof AudioEncoder === "undefined" || typeof AudioDecoder === "undefined") return false;
+  try {
+    const encSupport = await AudioEncoder.isConfigSupported({
+      codec: "opus",
+      sampleRate: 48000,
+      numberOfChannels: chans,
+      bitrate: chans === 2 ? 128000 : 64000
+    });
+    const decSupport = await AudioDecoder.isConfigSupported({
+      codec: "opus",
+      sampleRate: 48000,
+      numberOfChannels: 2
+    });
+    if (!encSupport.supported || !decSupport.supported) return false;
+
+    if (encoder) { try { encoder.close(); } catch (e) {} encoder = null; }
+    if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
+    echoQueue = [];
+    downPosQueue = [];
+
+    decoder = new AudioDecoder({
+      output: audioData => {
+        const n = audioData.numberOfFrames, ch = audioData.numberOfChannels;
+        const fl = new Float32Array(n), fr = new Float32Array(n);
+        if (audioData.format && audioData.format.includes("planar")) {
+          audioData.copyTo(fl, { planeIndex: 0 });
+          if (ch > 1) audioData.copyTo(fr, { planeIndex: 1 });
+          else fr.set(fl);
+        } else {
+          const interleaved = new Float32Array(n * ch);
+          audioData.copyTo(interleaved, { planeIndex: 0 });
+          if (ch > 1) {
+            for (let i = 0; i < n; i++) { fl[i] = interleaved[i * 2]; fr[i] = interleaved[i * 2 + 1]; }
+          } else {
+            fl.set(interleaved); fr.set(interleaved);
+          }
+        }
+        const pos = downPosQueue.length > 0 ? downPosQueue.shift() : undefined;
+        if (node) node.port.postMessage({ rate: audioData.sampleRate, fl, fr, pos }, [fl.buffer, fr.buffer]);
+        audioData.close();
+      },
+      error: e => { console.warn("AudioDecoder error:", e); downPosQueue.length = 0; }
+    });
+    decoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+
+    encoder = new AudioEncoder({
+      output: chunk => {
+        const echo = echoQueue.length > 0 ? echoQueue.shift() : 0;
+        if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 40000) return;
+        const payload = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(payload);
+        const hdr = 22;
+        const buf = new ArrayBuffer(hdr + payload.length);
+        const v = new DataView(buf);
+        v.setUint32(0, 0x33415248, true);   // "HRA3"
+        v.setUint8(4, 1);                   // CodecOpus
+        v.setUint8(5, chans);               // chans (1 or 2)
+        v.setUint16(6, 1, true);            // FlagFec
+        v.setUint32(8, upSeq++, true);      // seq
+        v.setBigUint64(12, BigInt(Math.max(0, Math.round(echo || 0))), true); // pos / echo
+        v.setUint16(20, 480, true);         // frames per packet
+        new Uint8Array(buf, hdr).set(payload);
+        ws.send(buf);
+      },
+      error: e => console.warn("AudioEncoder error:", e)
+    });
+    encoder.configure({
+      codec: "opus",
+      sampleRate: 48000,
+      numberOfChannels: chans,
+      bitrate: chans === 2 ? 128000 : 64000,
+      opus: {
+        application: "voip",
+        frameDuration: 10000,
+        packetlossperc: 5,
+        useinbandfec: true
+      }
+    });
+    useOpus = true;
+    return true;
+  } catch (e) {
+    useOpus = false;
+    return false;
+  }
+}
+
 async function connect() {
   const mine = ++gen;
   const url = await locate("s");
   if (mine !== gen || !running) return;
   if (!url) { status(L.offline); later(connect); return; }
   duplex = false;
+  useOpus = false;
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
@@ -482,24 +584,69 @@ async function connect() {
       let m = null;
       try { m = JSON.parse(e.data); } catch (x) {}
       if (!m) return;
-      if (m.v === 2) { duplex = true; room = { name: m.name || "", host: m.host || "" }; applyLang(); }
+      if (m.v >= 2) {
+        duplex = true;
+        room = { name: m.name || "", host: m.host || "" };
+        applyLang();
+        if (m.codecs && m.codecs.includes("opus")) {
+          const ch = $("stereo").checked ? 2 : 1;
+          setupOpus(ch).then(ok => {
+            if (ok && ws && ws.readyState === 1) {
+              ws.send(JSON.stringify({ codec: "opus" }));
+            }
+          });
+        }
+      }
       if (m.delay !== undefined) { behindMs = m.delay >= 0 ? m.delay : null; showBehind(); }
       if (m.ping !== undefined) ws.send(JSON.stringify({ pong: m.ping }));   // the Hub measures the round trip (an older Hub never asks)
       return;
     }
     const d = new DataView(e.data);
-    if (d.getUint32(0, true) !== 0x32415248 || !node) return;   // "HRA2": the Stream Mix with a position
+    const magic = d.getUint32(0, true);
+    if (magic === 0x33415248) {   // "HRA3"
+      if (!node) return;
+      const codec = d.getUint8(4);
+      if (codec === 1 && decoder && decoder.state === "configured") {
+        const pos = Number(d.getBigUint64(12, true));
+        const payload = new Uint8Array(e.data, 22);
+        try {
+          downPosQueue.push(pos);
+          decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
+        } catch (err) {
+          downPosQueue.pop();
+        }
+      }
+      return;
+    }
+    if (magic !== 0x32415248 || !node) return;   // "HRA2": the Stream Mix with a position
     const rate = d.getUint32(4, true), frames = d.getUint32(12, true);
     if (!frames) return;
     const pos = Number(d.getBigUint64(16, true));
     const pcm = new Int16Array(e.data.slice(24));
     node.port.postMessage({ rate, pcm, pos }, [pcm.buffer]);
   };
-  ws.onclose = () => { if (!running) return; clearTimeout(legacyTimer); behindMs = null; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
+  ws.onclose = () => { if (!running) return; clearTimeout(legacyTimer); behindMs = null; echoQueue.length = 0; downPosQueue.length = 0; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
 }
 
 function send(f, echo, chans) {
   if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 40000) return;   // a slow line: drop rather than sing 200 ms+ late
+  if (useOpus && encoder && encoder.state === "configured") {
+    try {
+      const data = muted ? new Float32Array(f.length) : f;
+      const audioData = new AudioData({
+        format: "f32",
+        sampleRate: 48000,
+        numberOfFrames: 480,
+        numberOfChannels: chans,
+        timestamp: upSeq * 10000,
+        data: data
+      });
+      echoQueue.push(echo);
+      encoder.encode(audioData);
+      audioData.close();
+      return;
+    } catch (e) {}
+  }
   const v2 = duplex, hdr = v2 ? 24 : 16, n = f.length / chans;
   const buf = new ArrayBuffer(hdr + f.length * 2), d = new DataView(buf), s = new Int16Array(buf, hdr);
   d.setUint32(0, v2 ? 0x32415248 : 0x31415248, true); d.setUint32(4, ctx.sampleRate, true); d.setUint16(8, chans, true);
@@ -514,7 +661,7 @@ function meter() {
   const lv = muted ? 0 : Math.max(0, Math.min(1, (20 * Math.log10(Math.max(peak, 1e-6)) + 50) / 50));
   $("level").style.opacity = (0.15 + lv * 0.6).toFixed(2);
   $("level").style.transform = "scale(" + (0.92 + lv * 0.28).toFixed(3) + ")";
-  if (ctx) $("foot").textContent = (ctx.sampleRate / 1000).toFixed(1) + " kHz · 16-bit";
+  if (ctx) $("foot").textContent = (ctx.sampleRate / 1000).toFixed(1) + " kHz · " + (useOpus ? "Opus" : "16-bit");
   requestAnimationFrame(meter);
 }
 
@@ -524,6 +671,10 @@ function stop() {
   clearTimeout(legacyTimer);
   gen++;
   backoff = 2000;
+  useOpus = false;
+  echoQueue = [];
+  if (encoder) { try { encoder.close(); } catch (e) {} encoder = null; }
+  if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   if (ctx) { ctx.close(); ctx = null; node = null; outGain = null; }

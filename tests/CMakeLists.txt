@@ -6,8 +6,9 @@ add_executable(ss_unit_tests
     unit/test_friends.cpp
     unit/test_jitter.cpp
     unit/test_autosync.cpp
-    unit/test_paced_send.cpp)
-target_link_libraries(ss_unit_tests PRIVATE ssengine ssdsp ssbus)
+    unit/test_paced_send.cpp
+    unit/test_net.cpp)
+target_link_libraries(ss_unit_tests PRIVATE ssengine ssdsp ssbus ssnet)
 add_test(NAME unit COMMAND ss_unit_tests)
 
 add_executable(ss_ipc_test integration/ipc_test.cpp)

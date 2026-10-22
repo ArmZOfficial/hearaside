@@ -16,6 +16,9 @@ try {
     if (-not (Test-Path speexdsp)) {
         git clone --depth 1 https://github.com/xiph/speexdsp.git speexdsp
     }
+    if (-not (Test-Path opus)) {
+        git -c advice.detachedHead=false clone --depth 1 --branch v1.5.2 https://github.com/xiph/opus.git opus
+    }
     # Local fixes to third-party code (idempotent: skipped when already applied)
     foreach ($patch in Get-ChildItem (Join-Path $PSScriptRoot 'patches') -Filter 'juce-*.patch' -ErrorAction SilentlyContinue) {
         git -C JUCE apply --reverse --check $patch.FullName 2>$null

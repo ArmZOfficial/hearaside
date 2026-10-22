@@ -118,6 +118,15 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
       <input type="range" id="vol" min="0" max="100" value="80">
     </div>
     <div>
+      <div class="row" style="margin-bottom:8px"><span class="label" data-t="quality"></span></div>
+      <div class="seg" id="codec" style="grid-template-columns: repeat(4, 1fr);">
+        <button data-c="auto" data-b="128000" class="on">Auto</button>
+        <button data-c="opus" data-b="128000">Opus 128</button>
+        <button data-c="opus" data-b="256000">Opus 256</button>
+        <button data-c="pcm16" data-b="0">PCM 16</button>
+      </div>
+    </div>
+    <div>
       <div class="row" style="margin-bottom:8px"><span class="label" data-t="mode"></span></div>
       <div class="seg" id="mode">
         <button data-v="0.12" data-t="fast"></button>
@@ -132,14 +141,14 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 <script>
 const T = {
   th: { title: "ฟังสด", subtitle: "เสียงเดียวกับที่คนดูได้ยิน ส่งตรงจาก DAW", volume: "ระดับเสียง", mode: "ความหน่วง",
-        fast: "เร็วสุด", balanced: "สมดุล", smooth: "ลื่นสุด", tap: "แตะเพื่อฟัง", connecting: "กำลังเชื่อมต่อ...",
+        quality: "คุณภาพเสียง", fast: "เร็วสุด", balanced: "สมดุล", smooth: "ลื่นสุด", tap: "แตะเพื่อฟัง", connecting: "กำลังเชื่อมต่อ...",
         playing: "กำลังฟังสด", waiting: "รอเสียงจาก DAW", lost: "หลุด กำลังต่อใหม่...", stopped: "หยุดอยู่",
-        stopHint: "แตะเพื่อหยุด", delay: "ดีเลย์", quality: "ไม่บีบอัด",
+        stopHint: "แตะเพื่อหยุด", delay: "ดีเลย์", lossless: "ไม่บีบอัด",
         offline: "ผู้สตรีมยังไม่ได้เปิดแชร์ หน้านี้จะเริ่มเล่นเองเมื่อพร้อม", offlineIdle: "ผู้สตรีมยังไม่ได้เปิดแชร์ แตะไว้ได้เลย จะเริ่มเล่นเองเมื่อพร้อม" },
   en: { title: "Listen live", subtitle: "What the viewers hear, straight from the DAW", volume: "Volume", mode: "Latency",
-        fast: "Fastest", balanced: "Balanced", smooth: "Smoothest", tap: "Tap to listen", connecting: "Connecting...",
+        quality: "Quality", fast: "Fastest", balanced: "Balanced", smooth: "Smoothest", tap: "Tap to listen", connecting: "Connecting...",
         playing: "Listening live", waiting: "Waiting for the DAW", lost: "Connection lost, retrying...", stopped: "Stopped",
-        stopHint: "Tap to stop", delay: "Delay", quality: "lossless",
+        stopHint: "Tap to stop", delay: "Delay", lossless: "lossless",
         offline: "The streamer isn't sharing yet. This page starts playing by itself when they are.",
         offlineIdle: "The streamer isn't sharing yet. Tap now and it starts playing by itself when they are." }
 };
@@ -225,13 +234,23 @@ class Core {
   message(m) {
     if (m.target) { this.base = this.target = m.target; this.primed = false; return; }
     this.rate = m.rate;
-    const s = m.pcm, ch = m.ch, n = s.length / ch;
-    this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
-    for (let i = 0; i < n; i++) {
-      const k = (this.w + i) % this.cap;
-      this.l[k] = s[i * ch] / 32768; this.r[k] = s[i * ch + ch - 1] / 32768;
+    if (m.fl && m.fr) {
+      const fl = m.fl, fr = m.fr, n = fl.length;
+      this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
+      for (let i = 0; i < n; i++) {
+        const k = (this.w + i) % this.cap;
+        this.l[k] = fl[i]; this.r[k] = fr[i];
+      }
+      this.w += n;
+    } else if (m.pcm) {
+      const s = m.pcm, ch = m.ch || 2, n = s.length / ch;
+      this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
+      for (let i = 0; i < n; i++) {
+        const k = (this.w + i) % this.cap;
+        this.l[k] = s[i * ch] / 32768; this.r[k] = s[i * ch + ch - 1] / 32768;
+      }
+      this.w += n;
     }
-    this.w += n;
     this.lates.push(this.t, this.t - this.w / this.rate);   // when the packet showed up, against a steady flow
     if (this.lates.length > 4000) this.lates.splice(0, 2000);   // ideal() prunes it, but only while playing
     if (this.w - this.rd > this.cap - 4096) { this.rd = this.w - this.target * this.rate; this.primed = false; }   // fell far behind
@@ -391,17 +410,91 @@ async function start() {
   connect();
 }
 
+let decoder = null, useOpus = false, activeCodec = "auto", activeBitrate = 128000;
+
+async function checkOpusDecoder() {
+  if (typeof AudioDecoder === "undefined") return false;
+  try {
+    const s = await AudioDecoder.isConfigSupported({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    return !!s.supported;
+  } catch (e) { return false; }
+}
+
+function initDecoder() {
+  if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
+  try {
+    decoder = new AudioDecoder({
+      output: audioData => {
+        const n = audioData.numberOfFrames, ch = audioData.numberOfChannels;
+        const fl = new Float32Array(n), fr = new Float32Array(n);
+        if (audioData.format && audioData.format.includes("planar")) {
+          audioData.copyTo(fl, { planeIndex: 0 });
+          if (ch > 1) audioData.copyTo(fr, { planeIndex: 1 });
+          else fr.set(fl);
+        } else {
+          const interleaved = new Float32Array(n * ch);
+          audioData.copyTo(interleaved, { planeIndex: 0 });
+          if (ch > 1) {
+            for (let i = 0; i < n; i++) { fl[i] = interleaved[i * 2]; fr[i] = interleaved[i * 2 + 1]; }
+          } else {
+            fl.set(interleaved); fr.set(interleaved);
+          }
+        }
+        lastAudio = performance.now();
+        rate = audioData.sampleRate;
+        if (node) node.port.postMessage({ rate, fl, fr }, [fl.buffer, fr.buffer]);
+        audioData.close();
+      },
+      error: e => console.warn("listen AudioDecoder error:", e)
+    });
+    decoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    return true;
+  } catch (e) {
+    decoder = null;
+    return false;
+  }
+}
+
 async function connect() {
   const mine = ++gen;
   const url = await locate("l");
   if (mine !== gen || state === "idle") return;
   if (!url) { view("connecting", L.offline); later(connect); return; }
+  useOpus = false;
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); };
   ws.onmessage = e => {
+    if (typeof e.data === "string") {
+      let m = null;
+      try { m = JSON.parse(e.data); } catch (x) {}
+      if (!m) return;
+      if (m.codecs && m.codecs.includes("opus") && (activeCodec === "opus" || activeCodec === "auto")) {
+        checkOpusDecoder().then(supported => {
+          if (supported && initDecoder()) {
+            useOpus = true;
+            if (ws && ws.readyState === 1) {
+              ws.send(JSON.stringify({ codec: "opus", bitrate: activeBitrate }));
+            }
+          }
+        });
+      }
+      return;
+    }
     const d = new DataView(e.data);
-    if (d.getUint32(0, true) !== 0x31415248) return;   // "HRA1"
+    const magic = d.getUint32(0, true);
+    if (magic === 0x33415248) {   // "HRA3"
+      if (!node) return;
+      const c = d.getUint8(4);
+      if (c === 1 && decoder && decoder.state === "configured") {
+        const payload = new Uint8Array(e.data, 22);
+        try {
+          decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
+        } catch (err) {}
+      }
+      return;
+    }
+    if (magic !== 0x31415248) return;   // "HRA1"
     rate = d.getUint32(4, true);
     const ch = d.getUint16(8, true), frames = d.getUint32(12, true);
     if (!frames) return;
@@ -420,6 +513,8 @@ function stop() {
   clearTimeout(retry);
   gen++;
   backoff = 2000;
+  useOpus = false;
+  if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (ctx) { ctx.close(); ctx = null; node = null; }
   releaseAudio();
@@ -438,7 +533,7 @@ function stats(s) {
   $("ml").style.width = pos(s.pl);
   $("mr").style.width = pos(s.pr);
   if (fresh) $("delay").textContent = L.delay + " ~" + (s.fill + (ctx ? ctx.baseLatency || 0 : 0)).toFixed(2) + " s";
-  if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · 16-bit · " + L.quality;
+  if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · " + (useOpus ? "Opus " + Math.round(activeBitrate / 1000) + "k" : "16-bit · " + L.lossless);
 }
 
 function setVolume() {
@@ -455,6 +550,25 @@ document.querySelectorAll("#mode button").forEach(b => b.onclick = () => {
   document.querySelectorAll("#mode button").forEach(x => x.classList.toggle("on", x === b));
   target = parseFloat(b.dataset.v);
   if (node) node.port.postMessage({ target });
+});
+document.querySelectorAll("#codec button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#codec button").forEach(x => x.classList.toggle("on", x === b));
+  activeCodec = b.dataset.c;
+  activeBitrate = Number(b.dataset.b) || 128000;
+  if (ws && ws.readyState === 1) {
+    if (activeCodec === "opus" || activeCodec === "auto") {
+      checkOpusDecoder().then(supported => {
+        if (supported && initDecoder()) {
+          useOpus = true;
+          ws.send(JSON.stringify({ codec: "opus", bitrate: activeBitrate }));
+        }
+      });
+    } else {
+      useOpus = false;
+      if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
+      ws.send(JSON.stringify({ codec: "pcm16" }));
+    }
+  }
 });
 </script>
 </body>

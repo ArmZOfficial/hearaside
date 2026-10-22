@@ -38,3 +38,19 @@ add_library(ssengine STATIC
     ssengine/src/friend_reader.cpp)
 target_include_directories(ssengine PUBLIC ssengine/include)
 target_link_libraries(ssengine PUBLIC ssbus ssdsp)
+
+# ---- opus: audio codec (BSD-3) -------------------------------------------------------------
+set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_FILE OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+add_subdirectory(${SS_EXTERNAL}/opus ${CMAKE_CURRENT_BINARY_DIR}/opus EXCLUDE_FROM_ALL)
+
+# ---- ssnet: network wire formats and codec wrappers (MIT, no JUCE) --------------------------
+add_library(ssnet STATIC
+    ssnet/src/opus_codec.cpp)
+target_include_directories(ssnet PUBLIC ssnet/include)
+target_link_libraries(ssnet PUBLIC opus)
+
+

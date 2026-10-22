@@ -8,6 +8,8 @@
 
 #include "BinaryData_web.h"
 #include "ssbus/paced_send.h"
+#include "ssnet/wire.h"
+#include "ssnet/opus_codec.h"
 
 #ifdef _WIN32
 #include <winsock2.h>   // setsockopt, send, WSAPoll: after juce_core (as everywhere), before windows.h
@@ -669,6 +671,17 @@ void ShareServer::streamTo(Conn& c) {
     const auto sendNow = [&s](const uint8_t* p, size_t n) { return trySend(s, p, n); };
     uint64_t cursor = sh.writePos[0].load();
     int idle = 0;
+
+    static const char kListenHello[] = "{\"v\":3,\"codecs\":[\"opus\",\"pcm16\"]}";
+    frameInto(packet, 1, kListenHello, sizeof(kListenHello) - 1);
+    out.append(packet.data(), packet.size());
+
+    uint8_t codec = ssnet::CodecPcm16;
+    int bitrate = 128000;
+    ssnet::OpusEnc opusEnc;
+    bool opusReady = false;
+    uint32_t seq = 0;
+
     while (running_.load()) {
         if (s.waitUntilReady(true, out.idle() ? 10 : 2) == 1) {   // the browser closed or pinged
             const uint8_t op = readMessage(s, incoming, 1000, running_, [&out](const uint8_t* p, size_t n) {
@@ -677,6 +690,22 @@ void ShareServer::streamTo(Conn& c) {
                 out.appendIfRoom(pong.data(), pong.size(), kMaxControlQueue);
             });
             if (op == 8 || op == 0) break;
+            if (op == 1) {
+                const juce::String text(reinterpret_cast<const char*>(incoming.data()), incoming.size());
+                const auto j = juce::JSON::parse(text);
+                if (j.hasProperty("codec")) {
+                    const auto cName = j["codec"].toString();
+                    if (cName == "opus") {
+                        codec = ssnet::CodecOpus;
+                        if (j.hasProperty("bitrate")) {
+                            bitrate = std::clamp(int(j["bitrate"]), 32000, 320000);
+                            if (opusReady) opusEnc.setBitrate(bitrate);
+                        }
+                    } else if (cName == "pcm16") {
+                        codec = ssnet::CodecPcm16;
+                    }
+                }
+            }
         }
         if (!out.flush(sendNow)) break;
         const uint32_t rate = std::max<uint32_t>(8000, sh.sampleRate.load());
@@ -698,25 +727,71 @@ void ShareServer::streamTo(Conn& c) {
             continue;
         }
         if (w - cursor > uint64_t(rate) * 2) cursor = w - rate / 10;   // fell far behind: jump to now
-        const uint32_t n = uint32_t(std::min<uint64_t>(w - cursor, l.size()));
-        if (n < rate / 200) continue;   // wait for ~5 ms of audio
+
+        if (codec == ssnet::CodecOpus && !opusReady) {
+            if (rate == 48000 || rate == 24000 || rate == 16000 || rate == 12000 || rate == 8000) {
+                if (opusEnc.init(int(rate), 2, ssnet::OpusEnc::App::Audio)) {
+                    opusEnc.setBitrate(bitrate);
+                    opusEnc.setComplexity(5);
+                    opusReady = true;
+                }
+            }
+        }
+        const bool useOpus = (codec == ssnet::CodecOpus && opusReady);
+        const uint32_t step = rate / 100;
+        const uint32_t n = useOpus ? step : uint32_t(std::min<uint64_t>(w - cursor, l.size()));
+        if (!useOpus && n < rate / 200) continue;   // wait for ~5 ms of audio
+        if (useOpus && w - cursor < step) continue;
+
         float* dst[2] = { l.data(), r.data() };
         if (ssbus::ringReadAt(bus_->streamAudio[0], sh.writePos[0], cursor, dst, n) == ssbus::ReadResult::Overrun) {
             cursor = sh.writePos[0].load() - rate / 10;
             continue;
         }
         cursor += n;
-        packet.resize(16 + size_t(n) * 4);
-        const uint16_t chans = 2;
-        std::memcpy(packet.data(), &kMagic, 4);
-        std::memcpy(packet.data() + 4, &rate, 4);
-        std::memcpy(packet.data() + 8, &chans, 2);
-        std::memset(packet.data() + 10, 0, 2);
-        std::memcpy(packet.data() + 12, &n, 4);
-        auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 16);
-        for (uint32_t i = 0; i < n; ++i) {
-            pcm[2 * i]     = int16_t(std::lround(std::clamp(l[i], -1.0f, 1.0f) * 32767.0f));
-            pcm[2 * i + 1] = int16_t(std::lround(std::clamp(r[i], -1.0f, 1.0f) * 32767.0f));
+
+        if (useOpus) {
+            const float* const encCh[2] = { l.data(), r.data() };
+            uint8_t opusPayload[1275];
+            const int encodedBytes = opusEnc.encode(encCh, int(n), opusPayload, sizeof(opusPayload));
+            if (encodedBytes > 0) {
+                packet.resize(sizeof(ssnet::Hra3Header) + size_t(encodedBytes));
+                ssnet::Hra3Header h3{};
+                h3.magic = ssnet::kMagic3;
+                h3.codec = ssnet::CodecOpus;
+                h3.chans = 2;
+                h3.flags = 0;
+                h3.seq = seq++;
+                h3.pos = cursor;
+                h3.frames = uint16_t(n);
+                ssnet::writeHra3(packet.data(), h3, opusPayload, size_t(encodedBytes));
+            } else {
+                packet.resize(16 + size_t(n) * 4);
+                const uint16_t chans = 2;
+                std::memcpy(packet.data(), &kMagic, 4);
+                std::memcpy(packet.data() + 4, &rate, 4);
+                std::memcpy(packet.data() + 8, &chans, 2);
+                std::memset(packet.data() + 10, 0, 2);
+                std::memcpy(packet.data() + 12, &n, 4);
+                auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 16);
+                for (uint32_t i = 0; i < n; ++i) {
+                    pcm[2 * i]     = int16_t(std::lround(std::clamp(l[i], -1.0f, 1.0f) * 32767.0f));
+                    pcm[2 * i + 1] = int16_t(std::lround(std::clamp(r[i], -1.0f, 1.0f) * 32767.0f));
+                }
+            }
+        } else {
+            packet.resize(16 + size_t(n) * 4);
+            const uint16_t chans = 2;
+            std::memcpy(packet.data(), &kMagic, 4);
+            std::memcpy(packet.data() + 4, &rate, 4);
+            std::memcpy(packet.data() + 8, &chans, 2);
+            std::memset(packet.data() + 10, 0, 2);
+            std::memcpy(packet.data() + 12, &n, 4);
+            auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 16);
+            for (uint32_t i = 0; i < n; ++i) {
+                pcm[2 * i]     = int16_t(std::lround(std::clamp(l[i], -1.0f, 1.0f) * 32767.0f));
+                pcm[2 * i + 1] = int16_t(std::lround(std::clamp(r[i], -1.0f, 1.0f) * 32767.0f));
+            }
         }
         thread_local std::vector<uint8_t> framed;
         frameInto(framed, 2, packet.data(), packet.size());
@@ -770,6 +845,7 @@ struct ShareServer::FriendOut {
     std::mutex lock;
     ssbus::SendQueue q;
     std::atomic<bool> over { false };   // either thread: the session is finished
+    std::atomic<uint8_t> codec { ssnet::CodecPcm16 };   // negotiated codec: CodecOpus or CodecPcm16
 };
 
 // A friend's browser: the microphone comes in (HRA1 or HRA2), the Stream Mix as the DAW makes it goes out
@@ -801,14 +877,22 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
     uint32_t lastCheck = juce::Time::getMillisecondCounter(), lastMic = 0;
     FriendOut out;
     bool closing = false;
-    {   // hello: a Hub that knows friends tells the page who they are (an older Hub says nothing)
+    ssnet::OpusDec opusDec;
+    bool opusDecInited = false;
+    uint32_t lastSeq = 0;
+    bool lastSeqValid = false;
+    {   // hello v3: tells the friend who they are and which codecs are supported
         juce::String name, host;
         uint32_t ignore = 0;
         friendSlotFor(token, &ignore, &name, &host);
         auto* o = new juce::DynamicObject();
-        o->setProperty("v", 2);
+        o->setProperty("v", 3);
         o->setProperty("name", name);
         o->setProperty("host", host);
+        juce::Array<juce::var> codecs;
+        codecs.add("opus");
+        codecs.add("pcm16");
+        o->setProperty("codecs", codecs);
         const auto json = juce::JSON::toString(juce::var(o), true);
         if (!sendFrame(s, 1, json.toRawUTF8(), json.getNumBytesAsUTF8())) closing = true;
     }
@@ -845,9 +929,85 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
                     net.rtt.store(sorted[sorted.size() / 2], std::memory_order_relaxed);
                 }
+            } else if (op == 1) {   // client codec announcement e.g. {"codec":"opus"}
+                const juce::String text(reinterpret_cast<const char*>(msg.data()), msg.size());
+                const auto j = juce::JSON::parse(text);
+                if (j.hasProperty("codec")) {
+                    const auto codecName = j["codec"].toString();
+                    if (codecName == "opus") out.codec.store(ssnet::CodecOpus);
+                    else if (codecName == "pcm16") out.codec.store(ssnet::CodecPcm16);
+                }
             }
-            const size_t hdr = msg.size() >= 4 && std::memcmp(msg.data(), &kMagic2, 4) == 0 ? 24 : 16;
-            if (op == 2 && msg.size() >= hdr) {
+            ssnet::Hra3Header h3{};
+            const uint8_t* h3Payload = nullptr;
+            size_t h3PayloadSize = 0;
+            if (op == 2 && ssnet::parseHra3(msg.data(), msg.size(), h3, h3Payload, h3PayloadSize)) {
+                out.codec.store(h3.codec);
+                if (h3.codec == ssnet::CodecOpus) {
+                    if (!opusDecInited || opusDec.channels() != h3.chans) {
+                        opusDec.init(48000, h3.chans);
+                        opusDecInited = true;
+                        lastSeq = h3.seq;
+                        lastSeqValid = true;
+                    } else if (lastSeqValid && h3.seq > lastSeq + 1) {
+                        const uint32_t missed = std::min<uint32_t>(h3.seq - lastSeq - 1, 10);
+                        l.resize(h3.frames);
+                        r.resize(h3.frames);
+                        for (uint32_t m = 0; m < missed; ++m) {
+                            float* const plcCh[2] = { l.data(), r.data() };
+                            opusDec.decodePlc(plcCh, h3.frames);
+                            const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+                            if (friendGen_[idx].load() != gen) break;
+                            const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
+                            ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, h3.frames);
+                        }
+                    }
+                    lastSeq = h3.seq;
+                    lastSeqValid = true;
+
+                    l.resize(h3.frames);
+                    r.resize(h3.frames);
+                    float* const decCh[2] = { l.data(), r.data() };
+                    const int decFrames = opusDec.decode(h3Payload, int(h3PayloadSize), decCh, h3.frames);
+                    if (decFrames > 0) {
+                        const auto t = juce::Time::getMillisecondCounter();
+                        if (lastMic != 0 && float(t - lastMic) > net.micGap.load(std::memory_order_relaxed))
+                            net.micGap.store(float(t - lastMic), std::memory_order_relaxed);
+                        lastMic = t;
+                        float pk = 0.0f;
+                        for (int i = 0; i < decFrames; ++i) {
+                            pk = std::max(pk, std::abs(l[size_t(i)]));
+                            if (h3.chans == 2) pk = std::max(pk, std::abs(r[size_t(i)]));
+                        }
+                        const uint64_t W = bus_->friendMixWrite.load(std::memory_order_acquire);
+                        const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
+                        {
+                            const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+                            if (friendGen_[idx].load() != gen) break;
+                            const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
+                            h.sampleRate.store(48000, std::memory_order_relaxed);
+                            ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, uint32_t(decFrames));
+                            h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+                            h.peakBits.store(ssbus::floatBits(pk), std::memory_order_relaxed);
+                        }
+                        if (h3.pos != 0 && W >= h3.pos && decFrames > 0) {
+                            const double ms = double(W - h3.pos) * 1000.0 / double(hubRate) - double(decFrames) * 500.0 / 48000.0;
+                            if (ms >= 0.0 && ms < 3000.0) {
+                                history.push_back(ms);
+                                if (history.size() > 41) history.erase(history.begin());
+                                if (history.size() >= 8) {
+                                    auto sorted = history;
+                                    std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
+                                    const double med = sorted[sorted.size() / 2];
+                                    smooth = smooth < 0.0 ? med : smooth + (med - smooth) * 0.15;
+                                    h.delayBits.store(ssbus::floatBits(float(smooth)), std::memory_order_relaxed);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (op == 2 && msg.size() >= (msg.size() >= 4 && std::memcmp(msg.data(), &kMagic2, 4) == 0 ? 24 : 16)) {
+                const size_t hdr = msg.size() >= 4 && std::memcmp(msg.data(), &kMagic2, 4) == 0 ? 24 : 16;
                 uint32_t magic = 0, rate = 0, frames = 0;
                 uint16_t chans = 0;
                 uint64_t echo = 0;
@@ -921,6 +1081,9 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
     std::vector<float> voices[ssbus::kMaxFriends];   // the other friends (friendVoiceAudio), same positions as ml / mr
     for (auto& v : voices) v.assign(ml.size(), 0.0f);
     std::vector<uint8_t> packet, framed;
+    ssnet::OpusEnc opusEnc;
+    bool opusReady = false;
+    uint32_t downSeq = 0;
     uint64_t mixCursor = bus_->friendMixWrite.load() > 2400 ? bus_->friendMixWrite.load() - 960 : 0;
     const auto sendNow = [&s, &net](const uint8_t* p, size_t n) {
         const int w = trySend(s, p, n);
@@ -970,8 +1133,22 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
         const float lagMs = float(mw - mixCursor) * 1000.0f / float(hubRate);
         if (lagMs > net.lag.load(std::memory_order_relaxed)) net.lag.store(lagMs, std::memory_order_relaxed);
 
+        const uint8_t curCodec = out.codec.load(std::memory_order_relaxed);
+        if (curCodec == ssnet::CodecOpus && !opusReady) {
+            if (hubRate == 48000 || hubRate == 24000 || hubRate == 16000 || hubRate == 12000 || hubRate == 8000) {
+                if (opusEnc.init(int(hubRate), 2, ssnet::OpusEnc::App::Audio)) {
+                    opusEnc.setBitrate(128000);   // 128 kbps stereo
+                    opusEnc.setComplexity(5);
+                    opusEnc.setInbandFec(true);
+                    opusEnc.setPacketLossPerc(5);
+                    opusReady = true;
+                }
+            }
+        }
+
         while (!blocked && mw - mixCursor >= hubRate / 100 && running_.load()) {
-            const uint32_t n = uint32_t(std::min<uint64_t>(mw - mixCursor, ml.size()));
+            const bool useOpus = (curCodec == ssnet::CodecOpus && opusReady);
+            const uint32_t n = useOpus ? (hubRate / 100) : uint32_t(std::min<uint64_t>(mw - mixCursor, ml.size()));
             float* dst[2] = { ml.data(), mr.data() };
             if (ssbus::ringReadAt(bus_->friendMixAudio, bus_->friendMixWrite, mixCursor, dst, n) == ssbus::ReadResult::Overrun) { mixCursor = mw - hubRate / 10; break; }
             for (int k = 0; k < ssbus::kMaxFriends / 2; ++k) {
@@ -983,18 +1160,51 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
                 const float* v = voices[size_t(j)].data();
                 for (uint32_t i = 0; i < n; ++i) { ml[i] += v[i]; mr[i] += v[i]; }
             }
-            packet.resize(24 + size_t(n) * 4);
-            const uint16_t chans = 2, flags = 0;
-            std::memcpy(packet.data(), &kMagic2, 4);
-            std::memcpy(packet.data() + 4, &hubRate, 4);
-            std::memcpy(packet.data() + 8, &chans, 2);
-            std::memcpy(packet.data() + 10, &flags, 2);
-            std::memcpy(packet.data() + 12, &n, 4);
-            std::memcpy(packet.data() + 16, &mixCursor, 8);
-            auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 24);
-            for (uint32_t i = 0; i < n; ++i) {
-                pcm[2 * i]     = int16_t(std::lround(std::clamp(ml[i], -1.0f, 1.0f) * 32767.0f));
-                pcm[2 * i + 1] = int16_t(std::lround(std::clamp(mr[i], -1.0f, 1.0f) * 32767.0f));
+            if (useOpus) {
+                const float* const encCh[2] = { ml.data(), mr.data() };
+                uint8_t opusPayload[1275];
+                const int encodedBytes = opusEnc.encode(encCh, int(n), opusPayload, sizeof(opusPayload));
+                if (encodedBytes > 0) {
+                    packet.resize(sizeof(ssnet::Hra3Header) + size_t(encodedBytes));
+                    ssnet::Hra3Header h3{};
+                    h3.magic = ssnet::kMagic3;
+                    h3.codec = ssnet::CodecOpus;
+                    h3.chans = 2;
+                    h3.flags = ssnet::FlagFec;
+                    h3.seq = downSeq++;
+                    h3.pos = mixCursor;
+                    h3.frames = uint16_t(n);
+                    ssnet::writeHra3(packet.data(), h3, opusPayload, size_t(encodedBytes));
+                } else {
+                    // Fallback to PCM16 on encode error
+                    packet.resize(24 + size_t(n) * 4);
+                    const uint16_t chans = 2, flags = 0;
+                    std::memcpy(packet.data(), &kMagic2, 4);
+                    std::memcpy(packet.data() + 4, &hubRate, 4);
+                    std::memcpy(packet.data() + 8, &chans, 2);
+                    std::memcpy(packet.data() + 10, &flags, 2);
+                    std::memcpy(packet.data() + 12, &n, 4);
+                    std::memcpy(packet.data() + 16, &mixCursor, 8);
+                    auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 24);
+                    for (uint32_t i = 0; i < n; ++i) {
+                        pcm[2 * i]     = int16_t(std::lround(std::clamp(ml[i], -1.0f, 1.0f) * 32767.0f));
+                        pcm[2 * i + 1] = int16_t(std::lround(std::clamp(mr[i], -1.0f, 1.0f) * 32767.0f));
+                    }
+                }
+            } else {
+                packet.resize(24 + size_t(n) * 4);
+                const uint16_t chans = 2, flags = 0;
+                std::memcpy(packet.data(), &kMagic2, 4);
+                std::memcpy(packet.data() + 4, &hubRate, 4);
+                std::memcpy(packet.data() + 8, &chans, 2);
+                std::memcpy(packet.data() + 10, &flags, 2);
+                std::memcpy(packet.data() + 12, &n, 4);
+                std::memcpy(packet.data() + 16, &mixCursor, 8);
+                auto* pcm = reinterpret_cast<int16_t*>(packet.data() + 24);
+                for (uint32_t i = 0; i < n; ++i) {
+                    pcm[2 * i]     = int16_t(std::lround(std::clamp(ml[i], -1.0f, 1.0f) * 32767.0f));
+                    pcm[2 * i + 1] = int16_t(std::lround(std::clamp(mr[i], -1.0f, 1.0f) * 32767.0f));
+                }
             }
             frameInto(framed, 2, packet.data(), packet.size());
             const std::lock_guard<std::mutex> lock(out.lock);

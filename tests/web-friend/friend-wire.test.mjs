@@ -61,7 +61,7 @@ sock.on('data', d => {
     if (op === 1) {
       try {
         const j = JSON.parse(p.toString());
-        if (j.v === 2) hello = j;
+        if (j.v >= 2) hello = j;
         if (j.ping !== undefined) { pings++; sock.write(maskedFrame(1, JSON.stringify({ pong: j.ping }))); }
       } catch { badFrames++; }
     }

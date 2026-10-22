@@ -82,6 +82,7 @@ function(hearaside_add_plugin target)
         PRIVATE
             hearaside_assets
             ssengine
+            ssnet
             juce::juce_audio_utils
             juce::juce_gui_extra
         PUBLIC
@@ -148,7 +149,7 @@ if(HEARASIDE_BUILD_TOOLS)
         HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
         HEARASIDE_VERSION="${PROJECT_VERSION}")
     target_link_libraries(hearaside_ui_snapshot PRIVATE
-        hearaside_assets hearaside_web ssengine juce::juce_audio_utils juce::juce_gui_extra
+        hearaside_assets hearaside_web ssengine ssnet juce::juce_audio_utils juce::juce_gui_extra
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     if(WIN32)   # App Audio editor + --test-app-audio
         target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/AppAudioEditor.cpp app/LinkReceiver.cpp app/TakeRecorder.cpp)
@@ -164,7 +165,8 @@ if(HEARASIDE_BUILD_TOOLS AND HEARASIDE_BUILD_TESTS)
     if(NODE_FOR_FRIEND_PAGE)   # the friend's page in real Chrome against a real Hub (skips when Chrome / Playwright are missing)
         add_test(NAME friend_page COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-page.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)
         add_test(NAME friend_wire COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-wire.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)   # the same wire without a browser: ping / pong, a stuck line down
-        set_tests_properties(friend_page friend_wire PROPERTIES RESOURCE_LOCK hearaside_hub_share)   # both start a Hub on the share ports
+        add_test(NAME friend_opus COMMAND ${NODE_FOR_FRIEND_PAGE} ${CMAKE_SOURCE_DIR}/tests/web-friend/friend-opus.test.mjs $<TARGET_FILE:hearaside_ui_snapshot>)   # HRA3 Opus handshake and stream
+        set_tests_properties(friend_page friend_wire friend_opus PROPERTIES RESOURCE_LOCK hearaside_hub_share)   # all start a Hub on the share ports
     endif()
     if(WIN32)
         add_test(NAME friend_app_source COMMAND hearaside_ui_snapshot --test-friend-app)   # S5: a friend as App Audio's source

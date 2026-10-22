@@ -391,6 +391,9 @@ void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm
         for (int i = 0; i < 4; ++i) rig.block(0.5f, 0.0f);
         std::vector<uint8_t> f;
         while (lis.s.waitUntilReady(true, 15) == 1 && lis.frame(f) && f.size() >= 16) {
+            uint32_t magic = 0;
+            std::memcpy(&magic, f.data(), 4);
+            if (magic != 0x31415248) continue;   // ignore hello JSON or control frames
             std::memcpy(&rate, f.data() + 4, 4);
             const auto* s = reinterpret_cast<const int16_t*>(f.data() + 16);
             for (size_t i = 0; i < (f.size() - 16) / 2; ++i) got = std::max(got, std::abs(s[i]) / 32768.0f);

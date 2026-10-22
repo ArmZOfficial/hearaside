@@ -49,6 +49,7 @@ english.CompVst3=HEARASIDE VST3 (Hub, Track, App Audio)
 english.CompVst2=HEARASIDE VST2 (Hub, Track, App Audio)
 english.CompObs=HEARASIDE for OBS (source and control dock)
 english.CompCloudflared=cloudflared (links over the internet)
+english.CompKaraoke=HAS Karaoke (standalone room client)
 english.Vst2Page=VST2 folder
 english.Vst2PageText=Where should the VST2 plug-ins go?
 english.Vst2PageHint=Choose the folder your DAW scans for VST2 plug-ins. A HEARASIDE folder is made inside it.
@@ -64,6 +65,7 @@ thai.CompVst3=HEARASIDE VST3 (Hub, Track, App Audio)
 thai.CompVst2=HEARASIDE VST2 (Hub, Track, App Audio)
 thai.CompObs=HEARASIDE สำหรับ OBS (source และ control dock)
 thai.CompCloudflared=cloudflared (ลิงก์ผ่านอินเทอร์เน็ต)
+thai.CompKaraoke=HAS Karaoke (แอปคาราโอเกะเข้าห้องเดี่ยว)
 thai.Vst2Page=โฟลเดอร์ VST2
 thai.Vst2PageText=จะวางปลั๊กอิน VST2 ไว้ที่ไหน
 thai.Vst2PageHint=เลือกโฟลเดอร์ที่ DAW ใช้สแกนปลั๊กอิน VST2 ตัวติดตั้งจะสร้างโฟลเดอร์ HEARASIDE ไว้ข้างใน
@@ -86,6 +88,10 @@ Name: "vst2"; Description: "{cm:CompVst2}"; Types: full; Flags: fixed
 #endif
 Name: "obs"; Description: "{cm:CompObs}"; Types: full; Flags: fixed
 Name: "cloudflared"; Description: "{cm:CompCloudflared}"; Types: full; Flags: fixed
+Name: "karaoke"; Description: "{cm:CompKaraoke}"; Types: full; Flags: fixed
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Dirs]
 Name: "{commoncf64}\VST3\HEARASIDE"; Components: vst3
@@ -101,6 +107,8 @@ Source: "{#BuildDir}\plugins\HearasideHub_artefacts\Release\VST\HEARASIDE Hub.dl
 Source: "{#BuildDir}\plugins\HearasideTrack_artefacts\Release\VST\HEARASIDE Track.dll"; DestDir: "{code:Vst2Dir}\HEARASIDE"; Flags: ignoreversion; Components: vst2
 Source: "{#BuildDir}\plugins\HearasideAppAudio_artefacts\Release\VST\HEARASIDE App Audio.dll"; DestDir: "{code:Vst2Dir}\HEARASIDE"; Flags: ignoreversion; Components: vst2
 #endif
+; HAS Karaoke (.exe)
+Source: "{#BuildDir}\apps\karaoke\HearasideKaraoke_artefacts\Release\HAS Karaoke.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: karaoke
 ; OBS (same place install.ps1 uses)
 Source: "{#BuildDir}\obs\hearaside-obs\hearaside-obs.dll"; DestDir: "{commonappdata}\obs-studio\plugins\hearaside-obs\bin\64bit"; Flags: ignoreversion; Components: obs
 ; cloudflared (pinned and hash-checked at build time, never committed)
@@ -108,10 +116,19 @@ Source: "{#Cloudflared}"; DestDir: "{app}\cloudflared"; DestName: "cloudflared.e
 Source: "{#CloudflaredLicense}"; DestDir: "{app}\cloudflared"; DestName: "LICENSE.txt"; Flags: ignoreversion; Components: cloudflared
 Source: "{#RootDir}\installer\windows\licenses.txt"; DestDir: "{app}"; DestName: "licenses.txt"; Flags: ignoreversion
 
+[Icons]
+Name: "{autoprograms}\HEARASIDE\HAS Karaoke"; Filename: "{app}\HAS Karaoke.exe"; Components: karaoke
+Name: "{autodesktop}\HAS Karaoke"; Filename: "{app}\HAS Karaoke.exe"; Components: karaoke; Tasks: desktopicon
+
 [Registry]
 ; remember the VST2 folder for upgrades and the uninstaller
 Root: HKLM; Subkey: "Software\HEARASIDE"; ValueType: string; ValueName: "Vst2Dir"; ValueData: "{code:Vst2Dir}"; Flags: uninsdeletekey; Components: vst2
 Root: HKLM; Subkey: "Software\HEARASIDE"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey
+; deep link protocol handler has://join?u=...
+Root: HKCR; Subkey: "has"; ValueType: string; ValueData: "URL:HEARASIDE Protocol"; Flags: uninsdeletekey; Components: karaoke
+Root: HKCR; Subkey: "has"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey; Components: karaoke
+Root: HKCR; Subkey: "has\DefaultIcon"; ValueType: string; ValueData: "{app}\HAS Karaoke.exe,0"; Flags: uninsdeletekey; Components: karaoke
+Root: HKCR; Subkey: "has\shell\open\command"; ValueType: string; ValueData: """{app}\HAS Karaoke.exe"" ""%1"""; Flags: uninsdeletekey; Components: karaoke
 
 [Run]
 Filename: "{code:ObsExe}"; Description: "{cm:OpenObs}"; Flags: postinstall nowait skipifsilent unchecked; Check: ObsInstalled

@@ -37,7 +37,7 @@
 | Phase | ชื่อ | ขึ้นกับ | สถานะ |
 |---|---|---|---|
 | K0 | โครงโปรเจกต์ + แยก UI/Share เป็น library | — | ✅ |
-| K1 | โหมดเข้าห้อง MVP (PCM, ต่อ Hub เดิมได้) | K0 | ⏳ |
+| K1 | โหมดเข้าห้อง MVP (PCM, ต่อ Hub เดิมได้) | K0 | ✅ |
 | K2 | คุณภาพเสียง: Opus, jitter buffer, AEC, เช็กก่อนร้อง | K1, PLAN-v2 Phase 1–3 | ⏳ |
 | K3 | โหมดเปิดห้อง (ไม่ต้องมี DAW) | K1 | ⏳ |
 | K4 | ตัวติดตั้ง, อัปเดต, เซ็นรหัส | K1 | ⏳ |
@@ -148,13 +148,13 @@
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| K1.1 | `apps/karaoke/AudioSettings.*` | เลือกไดรเวอร์ (WASAPI shared/exclusive, DirectSound), input/output, ช่องไมค์, sample rate, buffer + แสดง latency ที่ไดรเวอร์รายงาน | สลับอุปกรณ์ขณะเปิดอยู่ได้ไม่ crash | M |
-| K1.2 | `apps/karaoke/JoinClient.*` | วางลิงก์ `https://…/s/<token>` หรือ `…/ws/s/<token>` → ถ้าเป็นเว็บลิงก์ถาวร เรียก `/api/resolve/<token>` เหมือน `send.html` `locate()` → ต่อ WebSocket (TLS ผ่าน `juce::URL`/WinHTTP หรือ lib WS ขนาดเล็กที่ไลเซนส์ MIT) | ต่อ Hub 1.0.4 ได้ทั้งลิงก์ cloudflared, ลิงก์ในวงแลน, ลิงก์ถาวร | M |
-| K1.3 | `JoinClient` (wire) | ส่งไมค์ HRA2 (mono, 10 ms, `pos` = ตำแหน่งเพลงที่กำลังได้ยินลบ latency ของเครื่อง เหมือน worklet) รับ HRA2 ขาลง → `FriendReader` → หูฟัง; อ่าน JSON `{"v":2}`, `{"delay":…}` | Hub แสดงชื่อเพื่อน + "ช้าราว X ms" ถูกต้อง; test เทียบกับหน้าเว็บ | M |
-| K1.4 | `apps/karaoke/VocalChain.*` | เสียงตัวเองในหูฟังทันที: gate, EQ 3 แบนด์, comp, **reverb + echo** (ใช้ `juce::dsp::Reverb`, delay line) + ปุ่มปิดเสียงตัวเองในหูฟัง; เลือกส่ง dry/wet (X3) | latency ไมค์ → หูฟัง ≤ 30 ms (WASAPI shared) วัดด้วย loopback | M |
-| K1.5 | `MainWindow` | หน้าจอเดียวใหญ่ ๆ: ช่องวางลิงก์ · ปุ่ม "เข้าห้อง" · มิเตอร์ไมค์ · แถบ "เพลง" / "เสียงฉัน" / "เสียงเพื่อน" · ไฟสถานะเขียว/เหลือง/แดง · ปุ่มปิดไมค์ (hotkey ตั้งได้) | ผู้ใช้ใหม่เข้าห้องได้โดยไม่อ่านคู่มือ | M |
-| K1.6 | `apps/karaoke/` deep link | ลงทะเบียน `has://join?u=<link>` ใน installer: หน้าเว็บ `send.html` มีปุ่ม "เปิดในโปรแกรม" | คลิกจากเว็บแล้วแอปเปิดพร้อมเข้าห้อง | S |
-| K1.7 | `tests/` | test ที่ไม่ต้องมีการ์ดเสียง: `JoinClient` กับ `ShareServer` จริงใน process เดียว (loopback) ตรวจ mix-minus, ตำแหน่ง `pos`, การต่อใหม่ | ผ่านบน Linux + Windows | M |
+| K1.1 | `apps/karaoke/AudioSettings.*` | เลือกไดรเวอร์ (WASAPI shared/exclusive, DirectSound), input/output, ช่องไมค์, sample rate, buffer + แสดง latency ที่ไดรเวอร์รายงาน | สลับอุปกรณ์ขณะเปิดอยู่ได้ไม่ crash ✅ | M |
+| K1.2 | `apps/karaoke/JoinClient.*` | วางลิงก์ `https://…/s/<token>` หรือ `…/ws/s/<token>` → ถ้าเป็นเว็บลิงก์ถาวร เรียก `/api/resolve/<token>` เหมือน `send.html` `locate()` → ต่อ WebSocket (TLS ผ่าน `juce::URL`/WinHTTP หรือ lib WS ขนาดเล็กที่ไลเซนส์ MIT) | ต่อ Hub 1.0.4 ได้ทั้งลิงก์ cloudflared, ลิงก์ในวงแลน, ลิงก์ถาวร ✅ | M |
+| K1.3 | `JoinClient` (wire) | ส่งไมค์ HRA2 (mono, 10 ms, `pos` = ตำแหน่งเพลงที่กำลังได้ยินลบ latency ของเครื่อง เหมือน worklet) รับ HRA2 ขาลง → `FriendReader` → หูฟัง; อ่าน JSON `{"v":2}`, `{"delay":…}` | Hub แสดงชื่อเพื่อน + "ช้าราว X ms" ถูกต้อง; test เทียบกับหน้าเว็บ ✅ | M |
+| K1.4 | `apps/karaoke/VocalChain.*` | เสียงตัวเองในหูฟังทันที: gate, EQ 3 แบนด์, comp, **reverb + echo** (ใช้ `juce::dsp::Reverb`, delay line) + ปุ่มปิดเสียงตัวเองในหูฟัง; เลือกส่ง dry/wet (X3) | latency ไมค์ → หูฟัง ≤ 30 ms (WASAPI shared) วัดด้วย loopback ✅ | M |
+| K1.5 | `MainWindow` | หน้าจอเดียวใหญ่ ๆ: ช่องวางลิงก์ · ปุ่ม "เข้าห้อง" · มิเตอร์ไมค์ · แถบ "เพลง" / "เสียงฉัน" / "เสียงเพื่อน" · ไฟสถานะเขียว/เหลือง/แดง · ปุ่มปิดไมค์ (hotkey ตั้งได้) | ผู้ใช้ใหม่เข้าห้องได้โดยไม่อ่านคู่มือ ✅ | M |
+| K1.6 | `apps/karaoke/` deep link | ลงทะเบียน `has://join?u=<link>` ใน installer: หน้าเว็บ `send.html` มีปุ่ม "เปิดในโปรแกรม" | คลิกจากเว็บแล้วแอปเปิดพร้อมเข้าห้อง ✅ | S |
+| K1.7 | `tests/` | test ที่ไม่ต้องมีการ์ดเสียง: `JoinClient` กับ `ShareServer` จริงใน process เดียว (loopback) ตรวจ mix-minus, ตำแหน่ง `pos`, การต่อใหม่ | ผ่านบน Linux + Windows ✅ | M |
 
 ### K2: คุณภาพเสียง (หลัง PLAN-v2 Phase 1–3)
 

@@ -32,3 +32,45 @@ if(Python3_FOUND AND EXISTS ${CMAKE_SOURCE_DIR}/design/gen_theme.py)
     add_test(NAME design_contrast   # WCAG 4.5:1 for every text colour (docs/ux-roadmap.md 6.2)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/design/gen_theme.py --contrast)
 endif()
+
+if(HEARASIDE_BUILD_KARAOKE)
+    juce_add_console_app(hearaside_karaoke_test PRODUCT_NAME "karaoke-test")
+    target_sources(hearaside_karaoke_test PRIVATE
+        unit/main.cpp
+        unit/test_karaoke.cpp
+        ${CMAKE_SOURCE_DIR}/apps/karaoke/AudioSettings.cpp
+        ${CMAKE_SOURCE_DIR}/apps/karaoke/VocalChain.cpp
+        ${CMAKE_SOURCE_DIR}/apps/karaoke/JoinClient.cpp
+    )
+    target_include_directories(hearaside_karaoke_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/apps/karaoke
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit
+    )
+    target_compile_definitions(hearaside_karaoke_test PRIVATE
+        JUCE_MODAL_LOOPS_PERMITTED=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_REPORT_APP_USAGE=0
+        HEARASIDE_VERSION="${PROJECT_VERSION}"
+        HEARASIDE_SHARE_BASE="${HEARASIDE_SHARE_BASE}"
+    )
+    target_link_libraries(hearaside_karaoke_test PRIVATE
+        hearaside_common
+        ssengine
+        ssdsp
+        ssbus
+        juce::juce_audio_devices
+        juce::juce_audio_utils
+        juce::juce_gui_extra
+        juce::juce_dsp
+        juce::juce_recommended_config_flags
+    )
+    if(WIN32)
+        target_link_libraries(hearaside_karaoke_test PRIVATE
+            ole32 mmdevapi avrt winhttp crypt32
+        )
+    endif()
+    add_test(NAME karaoke_loopback COMMAND hearaside_karaoke_test "karaoke:")
+endif()
+

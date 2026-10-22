@@ -68,6 +68,10 @@ public:
     bool flag(const juce::String& key) const { return file_->getBoolValue("flag." + key, false); }
     void setFlag(const juce::String& key, bool on) { if (flag(key) != on) file_->setValue("flag." + key, on); }
 
+    // Audio device state (e.g. for standalone HAS Karaoke app)
+    juce::String audioDeviceState(const juce::String& key = "karaoke") const { return file_->getValue("audioDeviceState." + key); }
+    void setAudioDeviceState(const juce::String& key, const juce::String& stateXml) { file_->setValue("audioDeviceState." + key, stateXml); }
+
     // Resolved theme (Auto follows the OS).
     bool isDark() const;
 

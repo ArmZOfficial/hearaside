@@ -11,6 +11,12 @@ target_sources(HearasideKaraoke PRIVATE
     Main.cpp
     MainWindow.h
     MainWindow.cpp
+    AudioSettings.h
+    AudioSettings.cpp
+    VocalChain.h
+    VocalChain.cpp
+    JoinClient.h
+    JoinClient.cpp
 )
 
 target_include_directories(HearasideKaraoke PRIVATE
@@ -33,6 +39,7 @@ target_link_libraries(HearasideKaraoke PRIVATE
     juce::juce_audio_devices
     juce::juce_audio_utils
     juce::juce_gui_extra
+    juce::juce_dsp
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags

@@ -815,18 +815,23 @@ public:
     void paintSingerView(juce::Graphics& g, const theme::Palette& p, float margin, float contentW) {
         const float bannerOffset = updateBanner_.isVisible() ? 34.0f : 0.0f;
 
-        // Badges in Header if Live
-        const auto cState = joinClient_.state();
-        const auto room = joinClient_.roomInfo();
-        if (cState == ConnectionState::Live) {
-            float badgeX = 660.0f;
-            const juce::String codecLabel = room.codec.isNotEmpty() ? room.codec.toUpperCase() : "OPUS";
-            drawBadge(g, juce::Rectangle<float>(badgeX, 19.0f, 52.0f, 20.0f), codecLabel, BadgeStyle::Chip, p);
-        }
-
         // Card 1: Join Box (Inset)
         const auto joinCard = juce::Rectangle<float>(margin, 74.0f + bannerOffset, contentW, 118.0f);
         drawInset(g, joinCard, 14.0f, p);
+
+        // Badges in Join Card if Live
+        const auto cState = joinClient_.state();
+        const auto room = joinClient_.roomInfo();
+        if (cState == ConnectionState::Live) {
+            const float badgeY = joinCard.getY() + 14.0f;
+            const float badgeR = joinCard.getRight() - 18.0f;
+            const juce::String protoLabel = room.isUdp ? "UDP" : "WS";
+            const juce::String codecLabel = room.codec.isNotEmpty() ? room.codec.toUpperCase() : "OPUS";
+            drawBadge(g, juce::Rectangle<float>(badgeR - 98.0f, badgeY, 42.0f, 20.0f), protoLabel,
+                      room.isUdp ? BadgeStyle::Ok : BadgeStyle::Chip, p);
+            drawBadge(g, juce::Rectangle<float>(badgeR - 52.0f, badgeY, 52.0f, 20.0f), codecLabel,
+                      BadgeStyle::Chip, p);
+        }
 
         g.setColour(p.ink);
         g.setFont(uiFont(15.0f, Weight::SemiBold));

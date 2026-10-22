@@ -271,10 +271,22 @@ TEST_CASE("karaoke: JoinClient and ShareServer loopback in-process connection") 
     CHECK(connected);
 
     // Verify negotiated room metrics
-    const auto info = client.roomInfo();
+    auto info = client.roomInfo();
     CHECK(info.name == "Singer");
     CHECK(info.host == "Host");
     CHECK(info.codec == "opus");
+
+    // Wait up to 3 seconds for WebRTC DataChannel (UDP) to establish loopback
+    for (int i = 0; i < 60 && !client.isUdp(); ++i) {
+        if (juce::MessageManager::getInstanceWithoutCreating()) {
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    CHECK(client.isUdp());
+    info = client.roomInfo();
+    CHECK(info.isUdp);
+    CHECK(info.transport == "WebRTC UDP");
 
     // Test speaker mode toggle
     client.setSpeakerMode(true);

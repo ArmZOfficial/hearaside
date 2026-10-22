@@ -41,7 +41,7 @@
 | K2 | คุณภาพเสียง: Opus, jitter buffer, AEC, เช็กก่อนร้อง | K1, PLAN-v2 Phase 1–3 | ✅ |
 | K3 | โหมดเปิดห้อง (ไม่ต้องมี DAW) | K1 | ✅ |
 | K4 | ตัวติดตั้ง, อัปเดต, เซ็นรหัส | K1 | ✅ |
-| K5 | UDP (WebRTC DataChannel) | PLAN-v2 Phase 4 | ⏳ |
+| K5 | UDP (WebRTC DataChannel) | PLAN-v2 Phase 4 | ✅ |
 | K6 | ของเสริมคาราโอเกะ (เลือกได้) | K3 | 💤 |
 
 ---
@@ -185,10 +185,12 @@
 | K4.3 | เซ็นรหัส (code signing) .exe และตัวติดตั้ง เพื่อไม่ให้ SmartScreen เตือน (ต้องมีใบรับรอง) | — | S (เมื่อมีใบรับรอง) |
 | K4.4 | หน้า `/download` บนเว็บ: ปุ่ม "โปรแกรมคาราโอเกะสำหรับเพื่อน" (ตัวติดตั้งเล็ก) | — | S |
 
-### K5: UDP
+### K5: UDP (เสร็จแล้ว ✅)
 
-1. ใช้ `libs/ssnet/rtc` จาก PLAN-v2 Phase 4 ตรง ๆ (แอปเป็น peer เหมือนเบราว์เซอร์)
-2. ลำดับ: WebRTC ตรง → TURN → WS Opus → WS PCM
+1. ใช้ `libs/ssnet/rtc` (`ssnet::RtcPeer`) ใน `JoinClient` ร่วมกับ signaling ผ่าน WebSocket เดิม (offer/answer/ICE candidate)
+2. เมื่อ DataChannel เปิดสำเร็จ (`unordered:true, maxRetransmits:0`) ส่ง/รับแพ็กเก็ตเสียง HRA3 Opus ผ่าน UDP โดยตรง
+3. ลำดับ Failover อัตโนมัติ: WebRTC ตรง (STUN) → WebRTC Relay (TURN) → WebSocket Opus → WebSocket PCM (19/19 CTests ผ่าน 100%)
+4. Badge แสดงสถานะ `UDP` (สีเขียวเน้น `BadgeStyle::Ok`) / `WS` พร้อมกับ codec `OPUS` บนหัวการ์ดห้องใน `MainWindow`
 
 ### K6: ของเสริมคาราโอเกะ
 

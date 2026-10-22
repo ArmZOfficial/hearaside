@@ -5,6 +5,7 @@
 #include "ssnet/wire.h"
 #include "ssnet/opus_codec.h"
 #include "ssnet/aec.h"
+#include "ssnet/rtc.h"
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
@@ -45,6 +46,10 @@ struct RoomInfo {
     bool speakerMode = false;
     float erleDb = 0.0f;
     bool leakDetected = false;
+
+    // K5 WebRTC transport
+    bool isUdp = false;
+    juce::String transport; // "WebRTC UDP", "WebSocket Opus", "WebSocket PCM"
 };
 
 class JoinClient {
@@ -58,6 +63,7 @@ public:
 
     ConnectionState state() const noexcept { return state_.load(std::memory_order_relaxed); }
     bool isLive() const noexcept { return state_.load(std::memory_order_relaxed) == ConnectionState::Live; }
+    bool isUdp() const noexcept { return isUdp_.load(std::memory_order_relaxed); }
     RoomInfo roomInfo() const;
 
     // Speaker mode & AEC control
@@ -114,6 +120,11 @@ private:
     std::atomic<uint64_t> upWritePos_{ 0 };
     uint64_t upReadPos_ = 0;
     std::atomic<uint64_t> lastEchoPos_{ 0 };
+
+    // K5 WebRTC UDP Peer
+    std::atomic<bool> isUdp_{ false };
+    mutable std::mutex rtcMutex_;
+    std::shared_ptr<ssnet::RtcPeer> rtcPeer_;
 
     std::thread workerThread_;
 };

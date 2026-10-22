@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "AudioSettings.h"
 #include "JoinClient.h"
+#include "PreflightChecker.h"
 #include "VocalChain.h"
 
 #include <cmath>
@@ -18,7 +19,8 @@ public:
           themeToggleBtn_(icons::Icon::Sliders, "เปลี่ยนธีม สว่าง / มืด"),
           settingsBtn_(icons::Icon::Sliders, "ตั้งค่าอุปกรณ์เสียง (Audio Settings)"),
           muteBtn_(),
-          micMeter_(6.0f, false) {
+          micMeter_(6.0f, false),
+          preflightBtn_(icons::Icon::Check, 34.0f) {
         setWantsKeyboardFocus(true);
         settings_->addChangeListener(this);
         deviceManager_.addAudioCallback(this);
@@ -55,6 +57,33 @@ public:
             overlay_.toast(m ? "ปิดไมค์แล้ว (Muted)" : "เปิดไมค์แล้ว (Unmuted)", 1500);
         };
         addAndMakeVisible(muteBtn_);
+
+        preflightBtn_.setButtonText("เช็กก่อนร้อง");
+        preflightBtn_.onClick = [this] {
+            if (preflight_.isTesting()) {
+                preflight_.cancel();
+                preflightBtn_.setButtonText("เช็กก่อนร้อง");
+                preflightBtn_.setActive(false);
+                overlay_.toast("ยกเลิกการตรวจเสียง", 1200);
+            } else {
+                const auto room = joinClient_.roomInfo();
+                preflight_.startCheck(room.rttMs, room.jitterP95Ms, joinClient_.isSpeakerMode());
+                preflightBtn_.setButtonText("กำลังตรวจ...");
+                preflightBtn_.setActive(true);
+                overlay_.toast("กำลังตรวจไมค์และลำโพง...", 1500);
+            }
+            repaint();
+        };
+        addAndMakeVisible(preflightBtn_);
+
+        speakerModeSwitch_.onClick = [this] {
+            const bool spk = !speakerModeSwitch_.isOn();
+            speakerModeSwitch_.setOn(spk, true);
+            joinClient_.setSpeakerMode(spk);
+            overlay_.toast(spk ? "เปิดโหมดลำโพง (ตัดเสียงสะท้อน AEC)" : "ปิดโหมดลำโพง (โหมดหูฟัง)", 2000);
+            repaint();
+        };
+        addAndMakeVisible(speakerModeSwitch_);
 
         vocalSlider_.setRange(-30.0, 6.0, 0.5);
         vocalSlider_.setValue(0.0, juce::dontSendNotification);
@@ -105,6 +134,7 @@ public:
 
     ~KaraokeContent() override {
         stopTimer();
+        preflight_.cancel();
         joinClient_.disconnect();
         deviceManager_.removeAudioCallback(this);
         settings_->removeChangeListener(this);
@@ -162,6 +192,7 @@ public:
 
             vocalChain_.prepare(sampleRate_, buf);
             joinClient_.prepare(sampleRate_, buf);
+            preflight_.prepare(sampleRate_);
 
             const int allocSize = std::max(buf, 2048);
             scratchVocalL_.assign(allocSize, 0.0f);
@@ -206,6 +237,9 @@ public:
             std::fill_n(scratchDownR_.data(), n, 0.0f);
         }
         timelineCounter_ += n;
+
+        // Preflight acoustic test chirp injection & mic monitoring
+        preflight_.processAudio(inMic, scratchDownL_.data(), scratchDownR_.data(), n);
 
         // Step 3: Mix to headphone output
         const float vocG = vocalGainLinear_;
@@ -256,6 +290,14 @@ public:
             joinBtn_.setActive(false);
         }
 
+        if (preflight_.isTesting()) {
+            preflightBtn_.setButtonText("กำลังตรวจ...");
+            preflightBtn_.setActive(true);
+        } else {
+            preflightBtn_.setButtonText("เช็กก่อนร้อง");
+            preflightBtn_.setActive(false);
+        }
+
         updateDeviceInfo();
     }
 
@@ -266,6 +308,7 @@ public:
                           " (" + juce::String(info.sampleRate / 1000) + " kHz, " +
                           juce::String(info.bufferSize) + " smp, latency ~" +
                           juce::String(info.totalMs, 1) + " ms)";
+            joinClient_.setLocalLatencyMs(info.totalMs);
         } else {
             deviceInfo_ = "ไม่มีอุปกรณ์เสียง (No audio device)";
         }
@@ -314,7 +357,26 @@ public:
         drawStatusDot(g, juce::Point<float>(264.0f, 29.0f), dot, p, 7.0f);
         g.setColour(p.graphite);
         g.setFont(uiFont(13.0f, Weight::Medium));
-        g.drawText(statusText, juce::Rectangle<float>(276.0f, 17.0f, 280.0f, 24.0f), juce::Justification::centredLeft);
+        g.drawText(statusText, juce::Rectangle<float>(276.0f, 17.0f, 220.0f, 24.0f), juce::Justification::centredLeft);
+
+        // Badges in Header if Live (K2.1 & K2.2)
+        if (cState == ConnectionState::Live) {
+            float badgeX = 500.0f;
+            const juce::String codecLabel = room.codec.isNotEmpty() ? room.codec.toUpperCase() : "OPUS";
+            drawBadge(g, juce::Rectangle<float>(badgeX, 19.0f, 52.0f, 20.0f), codecLabel, BadgeStyle::Chip, p);
+            badgeX += 58.0f;
+
+            if (room.jitterP95Ms >= 0.0f) {
+                const juce::String jitStr = "Jit " + juce::String(juce::roundToInt(room.jitterP95Ms)) + "ms";
+                drawBadge(g, juce::Rectangle<float>(badgeX, 19.0f, 64.0f, 20.0f), jitStr, BadgeStyle::Chip, p);
+                badgeX += 70.0f;
+            }
+
+            if (room.bufferMs > 0.0f) {
+                const juce::String bufStr = "Buf " + juce::String(juce::roundToInt(room.bufferMs)) + "ms";
+                drawBadge(g, juce::Rectangle<float>(badgeX, 19.0f, 62.0f, 20.0f), bufStr, BadgeStyle::Chip, p);
+            }
+        }
 
         // Divider
         g.setColour(p.hairline1);
@@ -325,7 +387,7 @@ public:
         const float contentW = float(getWidth()) - (margin * 2.0f);
 
         // Card 1: Join Box (Inset)
-        const auto joinCard = juce::Rectangle<float>(margin, 76.0f, contentW, 136.0f);
+        const auto joinCard = juce::Rectangle<float>(margin, 74.0f, contentW, 118.0f);
         drawInset(g, joinCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -333,28 +395,53 @@ public:
         g.drawText("เข้าร่วมห้องร้องเพลง (Join Room)", joinCard.reduced(18.0f, 14.0f).removeFromTop(22.0f), juce::Justification::topLeft);
 
         g.setColour(p.graphite);
-        g.setFont(uiFont(12.5f, Weight::Regular));
+        g.setFont(uiFont(12.0f, Weight::Regular));
         g.drawText("วางลิงก์ส่งเสียงที่ได้รับจากเพื่อนเพื่อเริ่มร้องเพลงร่วมกัน (รองรับทั้ง /s/ และ has://join)",
-                   juce::Rectangle<float>(joinCard.getX() + 18.0f, joinCard.getY() + 38.0f, contentW - 36.0f, 20.0f), juce::Justification::topLeft);
+                   juce::Rectangle<float>(joinCard.getX() + 18.0f, joinCard.getY() + 36.0f, contentW - 36.0f, 20.0f), juce::Justification::topLeft);
 
-        // Card 2: Audio & Microphone Inset
-        const auto audioCard = juce::Rectangle<float>(margin, 226.0f, contentW, 110.0f);
+        // Card 2: Audio & Microphone Inset (K2.3 & K2.4)
+        const auto audioCard = juce::Rectangle<float>(margin, 204.0f, contentW, 148.0f);
         drawInset(g, audioCard, 14.0f, p);
 
         g.setColour(p.ink);
         g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText("ไมโครโฟนและอุปกรณ์เสียง", audioCard.reduced(18.0f, 14.0f).removeFromTop(22.0f), juce::Justification::topLeft);
+        g.drawText("ไมโครโฟนและอุปกรณ์เสียง", audioCard.reduced(18.0f, 12.0f).removeFromTop(22.0f), juce::Justification::topLeft);
 
         g.setColour(p.graphite);
         g.setFont(uiFont(12.0f, Weight::Regular));
-        g.drawText(deviceInfo_, juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 38.0f, contentW - 140.0f, 20.0f), juce::Justification::topLeft);
+        g.drawText(deviceInfo_, juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 34.0f, contentW - 150.0f, 20.0f), juce::Justification::topLeft);
 
         g.setColour(p.muted);
         g.setFont(uiFont(11.0f, Weight::Regular));
-        g.drawText("ไมค์:", juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 72.0f, 32.0f, 20.0f), juce::Justification::centredLeft);
+        g.drawText("ไมค์:", juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 66.0f, 32.0f, 20.0f), juce::Justification::centredLeft);
+
+        // Speaker mode toggle label
+        g.setColour(p.ink);
+        g.setFont(uiFont(12.0f, Weight::Medium));
+        g.drawText("โหมดลำโพง (ตัดเสียงสะท้อน AEC)",
+                   juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 92.0f, 180.0f, 22.0f), juce::Justification::centredLeft);
+
+        // Preflight Report line
+        const auto pf = preflight_.result();
+        if (pf.leakStatus != LeakStatus::Untested) {
+            Dot pfDot = pf.isReady ? Dot::Ok : Dot::Warn;
+            drawStatusDot(g, juce::Point<float>(audioCard.getX() + 260.0f, audioCard.getY() + 103.0f), pfDot, p, 6.0f);
+            g.setColour(pf.isReady ? p.ok : p.ink);
+            g.setFont(uiFont(12.0f, Weight::SemiBold));
+            g.drawText(pf.summary, juce::Rectangle<float>(audioCard.getX() + 272.0f, audioCard.getY() + 92.0f, 140.0f, 22.0f), juce::Justification::centredLeft);
+
+            g.setColour(p.graphite);
+            g.setFont(uiFont(11.5f, Weight::Regular));
+            g.drawText(pf.advice, juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 118.0f, contentW - 36.0f, 20.0f), juce::Justification::centredLeft);
+        } else {
+            g.setColour(p.muted);
+            g.setFont(uiFont(11.5f, Weight::Regular));
+            g.drawText("กด 'เช็กก่อนร้อง' เพื่อตรวจไมค์ เสียงลำโพงสะท้อน และสัญญาณเน็ต",
+                       juce::Rectangle<float>(audioCard.getX() + 260.0f, audioCard.getY() + 92.0f, contentW - 278.0f, 22.0f), juce::Justification::centredLeft);
+        }
 
         // Card 3: Headphone Monitor Balance Inset
-        const auto monitorCard = juce::Rectangle<float>(margin, 350.0f, contentW, 172.0f);
+        const auto monitorCard = juce::Rectangle<float>(margin, 364.0f, contentW, 178.0f);
         drawInset(g, monitorCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -381,22 +468,24 @@ public:
         const int margin = 24;
         const int contentW = w - (margin * 2);
 
-        // Join Row
-        linkInput_.setBounds(margin + 18, 138, contentW - 146, 38);
-        joinBtn_.setBounds(w - margin - 118, 138, 100, 38);
+        // Card 1: Join Row
+        linkInput_.setBounds(margin + 18, 130, contentW - 146, 38);
+        joinBtn_.setBounds(w - margin - 118, 130, 100, 38);
 
-        // Mic card
-        micMeter_.setBounds(margin + 54, 301, contentW - 190, 8);
-        muteBtn_.setBounds(w - margin - 118, 286, 100, 36);
+        // Card 2: Audio & Mic
+        preflightBtn_.setBounds(w - margin - 128, 226, 110, 32);
+        micMeter_.setBounds(margin + 54, 272, contentW - 190, 8);
+        muteBtn_.setBounds(w - margin - 118, 258, 100, 34);
+        speakerModeSwitch_.setBounds(margin + 204, 298, 44, 22);
 
-        // Sliders
+        // Card 3: Sliders
         const int sliderX = margin + 140;
         const int sliderW = contentW - 160;
-        vocalSlider_.setBounds(sliderX, 388, sliderW, 22);
-        musicSlider_.setBounds(sliderX, 416, sliderW, 22);
-        reverbSlider_.setBounds(sliderX, 444, sliderW, 22);
-        echoSlider_.setBounds(sliderX, 472, sliderW, 22);
-        sendWetSwitch_.setBounds(margin + 170, 498, 44, 22);
+        vocalSlider_.setBounds(sliderX, 402, sliderW, 22);
+        musicSlider_.setBounds(sliderX, 430, sliderW, 22);
+        reverbSlider_.setBounds(sliderX, 458, sliderW, 22);
+        echoSlider_.setBounds(sliderX, 486, sliderW, 22);
+        sendWetSwitch_.setBounds(margin + 170, 512, 44, 22);
     }
 
 private:
@@ -410,6 +499,8 @@ private:
     IconButton themeToggleBtn_;
     IconButton settingsBtn_;
     MuteButton muteBtn_;
+    PrimaryButton preflightBtn_;
+    Switch speakerModeSwitch_;
 
     MeterBar micMeter_;
     LevelSlider vocalSlider_;
@@ -420,6 +511,7 @@ private:
 
     VocalChain vocalChain_;
     JoinClient joinClient_;
+    PreflightChecker preflight_;
 
     double sampleRate_ = 48000.0;
     float vocalGainLinear_ = 1.0f;
@@ -455,13 +547,13 @@ MainWindow::MainWindow()
 
     setUsingNativeTitleBar(false);
     setResizable(true, true);
-    setResizeLimits(580, 520, 1920, 1080);
+    setResizeLimits(600, 560, 1920, 1080);
 
     const auto saved = settings_->windowSize("karaoke");
-    if (saved.x >= 580 && saved.y >= 520) {
+    if (saved.x >= 600 && saved.y >= 560) {
         setSize(saved.x, saved.y);
     } else {
-        setSize(740, 560);
+        setSize(760, 580);
     }
 
     centreWithSize(getWidth(), getHeight());

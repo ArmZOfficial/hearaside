@@ -2,9 +2,13 @@
 
 #include "AudioSettings.h"
 #include "JoinClient.h"
+#include "PreflightChecker.h"
 #include "VocalChain.h"
 #include "ShareServer.h"
 #include "ssbus/bus.h"
+#include "ssnet/wire.h"
+#include "ssnet/opus_codec.h"
+#include "ssnet/aec.h"
 
 #include <chrono>
 #include <cmath>
@@ -77,6 +81,150 @@ TEST_CASE("karaoke: VocalChain gate, EQ, compressor, reverb, echo, and routing")
     CHECK(wetHeadphonePeak > 0.01f); // headphones still ring with reverb tail!
 }
 
+TEST_CASE("karaoke: PreflightChecker acoustic leak detector (closed headphones, open headphones, speakers)") {
+    constexpr double kSampleRate = 48000.0;
+    constexpr int kChirpLen = 2400; // 50 ms
+    constexpr int kTotalLen = 12000; // 250 ms
+
+    // Synthesize test chirp reference
+    std::vector<float> chirpRef(kChirpLen);
+    const double f0 = 500.0, f1 = 2500.0, T = double(kChirpLen) / kSampleRate;
+    const double kSweep = (f1 - f0) / T;
+    const double twoPi = 2.0 * 3.14159265358979323846;
+    for (int i = 0; i < kChirpLen; ++i) {
+        const double t = double(i) / kSampleRate;
+        const double phase = twoPi * (f0 * t + 0.5 * kSweep * t * t);
+        const double win = 0.5 * (1.0 - std::cos(twoPi * double(i) / double(kChirpLen)));
+        chirpRef[size_t(i)] = float(0.125 * win * std::sin(phase));
+    }
+
+    // 1. Scenario 1: Closed Headphones (clean)
+    // Mic picks up low ambient noise / clean room voice only, zero chirp leak
+    {
+        std::vector<float> micClosed(kTotalLen, 0.0f);
+        uint32_t seed = 12345;
+        for (int i = 0; i < kTotalLen; ++i) {
+            seed = seed * 1664525u + 1013904223u;
+            // -55 dB ambient noise
+            micClosed[size_t(i)] = 0.0018f * (float(int(seed >> 16) - 32768) / 32768.0f);
+        }
+
+        const auto res = PreflightChecker::evaluate(micClosed.data(), kTotalLen,
+                                                    chirpRef.data(), kChirpLen,
+                                                    kSampleRate, 35.0f, 4.0f, false);
+        CHECK(res.leakStatus == LeakStatus::HeadphonesClean);
+        CHECK(res.correlationPeak < 0.08f);
+        CHECK(res.isReady);
+        CHECK(res.summary == juce::String::fromUTF8("พร้อมร้อง ✓"));
+    }
+
+    // 2. Scenario 2: Open-back Headphones (slight leak, safe)
+    // Chirp leaks at -42 dB relative to reference (slight bleed from earcup)
+    {
+        std::vector<float> micOpen(kTotalLen, 0.0f);
+        constexpr int kDelay = 480; // 10 ms delay
+        for (int i = 0; i < kChirpLen; ++i) {
+            // Bleed attenuated by 0.008x (~ -42 dB)
+            micOpen[size_t(kDelay + i)] = chirpRef[size_t(i)] * 0.008f;
+        }
+
+        const auto res = PreflightChecker::evaluate(micOpen.data(), kTotalLen,
+                                                    chirpRef.data(), kChirpLen,
+                                                    kSampleRate, 40.0f, 6.0f, false);
+        CHECK(res.leakStatus != LeakStatus::SpeakerLeakDetected);
+        CHECK(res.isReady);
+        CHECK(res.summary == juce::String::fromUTF8("พร้อมร้อง ✓"));
+    }
+
+    // 3. Scenario 3: External Speakers (loud acoustic leak into microphone)
+    // Speaker sound leaks into mic at -18 dB with 12 ms delay + acoustic room reflections
+    {
+        std::vector<float> micSpeaker(kTotalLen, 0.0f);
+        constexpr int kDelay = 576; // 12 ms speaker-to-mic flight time
+        for (int i = 0; i < kChirpLen; ++i) {
+            micSpeaker[size_t(kDelay + i)] += chirpRef[size_t(i)] * 0.35f; // direct speaker leak
+            if (kDelay + i + 144 < kTotalLen) {
+                micSpeaker[size_t(kDelay + i + 144)] -= chirpRef[size_t(i)] * 0.12f; // room wall reflection 1
+            }
+            if (kDelay + i + 384 < kTotalLen) {
+                micSpeaker[size_t(kDelay + i + 384)] += chirpRef[size_t(i)] * 0.06f; // room wall reflection 2
+            }
+        }
+
+        // Test without AEC: should detect speaker leak and advise user
+        const auto resNoAec = PreflightChecker::evaluate(micSpeaker.data(), kTotalLen,
+                                                         chirpRef.data(), kChirpLen,
+                                                         kSampleRate, 40.0f, 6.0f, false);
+        CHECK(resNoAec.leakStatus == LeakStatus::SpeakerLeakDetected);
+        CHECK(resNoAec.correlationPeak >= 0.20f);
+        CHECK(!resNoAec.isReady);
+        CHECK(resNoAec.advice.contains("AEC"));
+
+        // Test with AEC active: system is ready because AEC is handling the speaker echo
+        const auto resWithAec = PreflightChecker::evaluate(micSpeaker.data(), kTotalLen,
+                                                           chirpRef.data(), kChirpLen,
+                                                           kSampleRate, 40.0f, 6.0f, true);
+        CHECK(resWithAec.leakStatus == LeakStatus::SpeakerLeakDetected);
+        CHECK(resWithAec.isReady);
+        CHECK(resWithAec.summary == juce::String::fromUTF8("พร้อมร้อง ✓"));
+    }
+}
+
+TEST_CASE("karaoke: Opus HRA3 encode/decode round-trip, PLC, and framing") {
+    // 1. HRA3 wire framing
+    ssnet::Hra3Header hdr{};
+    hdr.magic = ssnet::kMagic3;
+    hdr.codec = ssnet::CodecOpus;
+    hdr.chans = 1;
+    hdr.flags = ssnet::FlagFec;
+    hdr.seq = 100;
+    hdr.pos = 960000ull;
+    hdr.frames = 480;
+
+    const uint8_t testPayload[] = { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE };
+    uint8_t packet[sizeof(ssnet::Hra3Header) + sizeof(testPayload)];
+    ssnet::writeHra3(packet, hdr, testPayload, sizeof(testPayload));
+
+    ssnet::Hra3Header parsed{};
+    const uint8_t* parsedPayload = nullptr;
+    size_t parsedPayloadSize = 0;
+    REQUIRE(ssnet::parseHra3(packet, sizeof(packet), parsed, parsedPayload, parsedPayloadSize));
+    CHECK(parsed.magic == ssnet::kMagic3);
+    CHECK(parsed.codec == ssnet::CodecOpus);
+    CHECK(parsed.seq == 100);
+    CHECK(parsedPayloadSize == sizeof(testPayload));
+    CHECK(std::memcmp(parsedPayload, testPayload, sizeof(testPayload)) == 0);
+
+    // 2. Opus Voip encode / decode round trip
+    ssnet::OpusEnc enc;
+    REQUIRE(enc.init(48000, 1, ssnet::OpusEnc::App::Voip));
+    enc.setBitrate(96000); // 96 kbps
+    enc.setInbandFec(true);
+
+    ssnet::OpusDec dec;
+    REQUIRE(dec.init(48000, 1));
+
+    std::vector<float> inPcm(480);
+    for (int i = 0; i < 480; ++i) {
+        inPcm[size_t(i)] = 0.5f * std::sin(2.0f * 3.14159265f * 1000.0f * float(i) / 48000.0f);
+    }
+    const float* const encCh[1] = { inPcm.data() };
+    uint8_t opusBuf[1275];
+    const int bytes = enc.encode(encCh, 480, opusBuf, sizeof(opusBuf));
+    REQUIRE(bytes > 0);
+
+    std::vector<float> outPcm(480, 0.0f);
+    float* const decCh[1] = { outPcm.data() };
+    const int decFrames = dec.decode(opusBuf, bytes, decCh, 480);
+    CHECK(decFrames == 480);
+
+    // 3. PLC on missing packet
+    std::vector<float> plcPcm(480, 0.0f);
+    float* const plcCh[1] = { plcPcm.data() };
+    const int plcFrames = dec.decodePlc(plcCh, 480);
+    CHECK(plcFrames == 480);
+}
+
 TEST_CASE("karaoke: JoinClient and ShareServer loopback in-process connection") {
 #if JUCE_WINDOWS
     _putenv_s("HEARASIDE_NO_TUNNEL", "1");
@@ -119,7 +267,17 @@ TEST_CASE("karaoke: JoinClient and ShareServer loopback in-process connection") 
     }
     CHECK(connected);
 
-    // Send audio upstream
+    // Verify negotiated room metrics
+    const auto info = client.roomInfo();
+    CHECK(info.name == "Singer");
+    CHECK(info.host == "Host");
+    CHECK(info.codec == "opus");
+
+    // Test speaker mode toggle
+    client.setSpeakerMode(true);
+    CHECK(client.isSpeakerMode());
+
+    // Send audio upstream (Opus encoded via HRA3)
     std::vector<float> micChunk(480, 0.25f);
     for (int i = 0; i < 5; ++i) {
         client.pushUpstream(micChunk.data(), 480, i * 480);
@@ -129,7 +287,7 @@ TEST_CASE("karaoke: JoinClient and ShareServer loopback in-process connection") 
         std::this_thread::sleep_for(std::chrono::milliseconds(15));
     }
 
-    // Pull downstream (should not crash, executes cleanly)
+    // Pull downstream (Opus decoded via HRA3 -> FriendReader)
     std::vector<float> downL(256, 0.0f), downR(256, 0.0f);
     client.pullDownstream(downL.data(), downR.data(), 256);
 

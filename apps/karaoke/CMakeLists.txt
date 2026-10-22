@@ -17,6 +17,8 @@ target_sources(HearasideKaraoke PRIVATE
     VocalChain.cpp
     JoinClient.h
     JoinClient.cpp
+    PreflightChecker.h
+    PreflightChecker.cpp
 )
 
 target_include_directories(HearasideKaraoke PRIVATE
@@ -32,10 +34,17 @@ target_compile_definitions(HearasideKaraoke PRIVATE
     HEARASIDE_SHARE_BASE="${HEARASIDE_SHARE_BASE}"
 )
 
+set(HEARASIDE_ASIO_SDK "" CACHE PATH "Path to Steinberg ASIO SDK directory")
+if(HEARASIDE_ASIO_SDK)
+    target_compile_definitions(HearasideKaraoke PRIVATE JUCE_ASIO=1)
+    target_include_directories(HearasideKaraoke PRIVATE "${HEARASIDE_ASIO_SDK}")
+endif()
+
 target_link_libraries(HearasideKaraoke PRIVATE
     hearaside_common
     ssengine
     ssdsp
+    ssnet
     juce::juce_audio_devices
     juce::juce_audio_utils
     juce::juce_gui_extra

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { motion, useReducedMotion } from 'motion/react';
-import { Download as DownloadIcon } from 'lucide-react';
+import { Download as DownloadIcon, Mic } from 'lucide-react';
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
 import { AppleIcon, WindowsIcon } from '../components/ui/Icons';
@@ -18,6 +18,7 @@ export default function Download() {
   const { t, lang } = useT();
   const reduce = useReducedMotion();
   const [phase, setPhase] = useState<'idle' | 'starting' | 'started'>('idle');
+  const [kPhase, setKPhase] = useState<'idle' | 'starting' | 'started'>('idle');
   const [lit, setLit] = useState(-1);
   const ready = !placeholder(release.version);
 
@@ -26,12 +27,19 @@ export default function Download() {
     const id = window.setTimeout(() => setPhase('started'), reduce ? 50 : 1300);
     return () => window.clearTimeout(id);
   }, [phase, reduce]);
+
   useEffect(() => {
-    if (phase !== 'started') return;
+    if (kPhase !== 'starting') return;
+    const id = window.setTimeout(() => setKPhase('started'), reduce ? 50 : 1300);
+    return () => window.clearTimeout(id);
+  }, [kPhase, reduce]);
+
+  useEffect(() => {
+    if (phase !== 'started' && kPhase !== 'started') return;
     setLit(0);
     const ids = [1, 2].map(n => window.setTimeout(() => setLit(n), n * 700));
     return () => ids.forEach(window.clearTimeout);
-  }, [phase]);
+  }, [phase, kPhase]);
 
   const steps = [1, 2, 3] as const;
   return (
@@ -46,7 +54,7 @@ export default function Download() {
           </p>
         </header>
 
-        <section className="grid gap-4 pb-14" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))' }}>
+        <section className="grid gap-4 pb-14" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))' }}>
           <Reveal className="card p-7 flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <span className="tile solid"><WindowsIcon size={20} /></span>
@@ -72,7 +80,34 @@ export default function Download() {
             )}
             <span className="text-xs muted break-all">{t('dl.size', { size: release.sizeMb, checksum: release.sha256 })}</span>
           </Reveal>
-          <Reveal className="card p-7 flex flex-col gap-4" delay={80}>
+
+          <Reveal className="card p-7 flex flex-col gap-4" delay={60}>
+            <div className="flex items-center gap-3">
+              <span className="tile solid"><Mic size={20} /></span>
+              <div><div className="text-xl font-semibold">{t('dl.karaoke')}</div><div className="text-[13px] muted">{t('dl.karaokeSub')}</div></div>
+            </div>
+            <p className="m-0 text-[15px] leading-relaxed text-ink2">{t('dl.karaokeText')}</p>
+            {ready ? (
+              <a className={`btn solid big self-start dl-btn ${kPhase}`} href={release.karaokeInstaller || release.installer} download
+                 onClick={() => kPhase === 'idle' && setKPhase('starting')} aria-live="polite">
+                {kPhase === 'starting' && <motion.span className="dl-fill" aria-hidden="true" initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: reduce ? 0 : 1.2, ease: 'easeInOut' }} />}
+                <span className="relative flex items-center gap-2">
+                  {kPhase === 'started' ? <Check /> : <DownloadIcon size={18} strokeWidth={1.8} aria-hidden="true" />}
+                  {kPhase === 'idle' ? t('dl.karaokeButton') : kPhase === 'starting' ? t('dl.downloading') : t('dl.downloaded')}
+                </span>
+              </a>
+            ) : (
+              <>
+                <button type="button" className="btn solid big self-start" disabled>
+                  <DownloadIcon size={18} strokeWidth={1.8} aria-hidden="true" />{t('dl.karaokeButton')}
+                </button>
+                <span className="text-[13px] muted">{t('dl.notReady')}</span>
+              </>
+            )}
+            <span className="text-xs muted break-all">{t('dl.karaokeSize', { size: release.karaokeSizeMb || '8.1', checksum: release.karaokeSha256 || release.sha256 })}</span>
+          </Reveal>
+
+          <Reveal className="card p-7 flex flex-col gap-4" delay={120}>
             <div className="flex items-center gap-3">
               <span className="tile"><AppleIcon size={20} /></span>
               <div><div className="text-xl font-semibold">{t('dl.mac')}</div><div className="text-[13px] muted">{t('dl.macSub')}</div></div>

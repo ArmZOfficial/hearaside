@@ -6,6 +6,7 @@
 #include "VocalChain.h"
 #include "MusicPlayer.h"
 #include "RoomHost.h"
+#include "UpdateChecker.h"
 #include "ShareServer.h"
 #include "ssbus/bus.h"
 #include "ssnet/wire.h"
@@ -447,5 +448,28 @@ TEST_CASE("karaoke: RoomHost bus initialization, friend slot management, streamA
     // Stop room
     host.stopRoom();
     CHECK(!host.isRoomRunning());
+}
+
+TEST_CASE("karaoke: UpdateChecker semver comparison") {
+    // Equal versions
+    CHECK(UpdateChecker::compareVersions("1.0.5", "1.0.5") == 0);
+    CHECK(UpdateChecker::compareVersions("1.0.0", "1.0") == 0);
+    CHECK(UpdateChecker::compareVersions("2.0.0.0", "2.0") == 0);
+
+    // Newer remote versions
+    CHECK(UpdateChecker::compareVersions("1.0.6", "1.0.5") == 1);
+    CHECK(UpdateChecker::compareVersions("1.1.0", "1.0.5") == 1);
+    CHECK(UpdateChecker::compareVersions("2.0.0", "1.99.99") == 1);
+    CHECK(UpdateChecker::compareVersions("1.0.5.1", "1.0.5") == 1);
+    CHECK(UpdateChecker::compareVersions("1.0.5-beta", "1.0.4") == 1);
+
+    // Older remote versions
+    CHECK(UpdateChecker::compareVersions("1.0.4", "1.0.5") == -1);
+    CHECK(UpdateChecker::compareVersions("0.9.9", "1.0.0") == -1);
+    CHECK(UpdateChecker::compareVersions("1.0.4.9", "1.0.5") == -1);
+
+    // Empty or edge cases
+    CHECK(UpdateChecker::compareVersions("", "1.0.0") == -1);
+    CHECK(UpdateChecker::compareVersions("1.0.0", "") == 1);
 }
 

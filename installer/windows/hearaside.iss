@@ -3,7 +3,7 @@
 ; AppId never changes, so a newer installer upgrades the old one in place.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.5"
+  #define AppVersion "1.0.6"
 #endif
 #ifndef BuildDir
   #error BuildDir is required (use build-installer.ps1)
@@ -50,6 +50,11 @@ english.CompVst2=HEARASIDE VST2 (Hub, Track, App Audio)
 english.CompObs=HEARASIDE for OBS (source and control dock)
 english.CompCloudflared=cloudflared (links over the internet)
 english.CompKaraoke=HAS Karaoke (standalone room client)
+english.TypeFull=Full studio suite (VST3, VST2, OBS, Karaoke, cloudflared)
+english.TypeKaraoke=HAS Karaoke only (standalone karaoke app for friends)
+english.TypeCustom=Custom installation
+english.NextKaraoke=Launch HAS Karaoke and paste a room link to join your friends!
+english.OpenKaraoke=Open HAS Karaoke now
 english.Vst2Page=VST2 folder
 english.Vst2PageText=Where should the VST2 plug-ins go?
 english.Vst2PageHint=Choose the folder your DAW scans for VST2 plug-ins. A HEARASIDE folder is made inside it.
@@ -66,6 +71,11 @@ thai.CompVst2=HEARASIDE VST2 (Hub, Track, App Audio)
 thai.CompObs=HEARASIDE สำหรับ OBS (source และ control dock)
 thai.CompCloudflared=cloudflared (ลิงก์ผ่านอินเทอร์เน็ต)
 thai.CompKaraoke=HAS Karaoke (แอปคาราโอเกะเข้าห้องเดี่ยว)
+thai.TypeFull=ครบชุดสตูดิโอ (VST3, VST2, OBS, Karaoke, cloudflared)
+thai.TypeKaraoke=เฉพาะโปรแกรมคาราโอเกะ (HAS Karaoke สำหรับเพื่อน)
+thai.TypeCustom=กำหนดเอง
+thai.NextKaraoke=เปิด HAS Karaoke แล้ววางลิงก์ห้องเพื่อร่วมร้องกับเพื่อนได้เลย!
+thai.OpenKaraoke=เปิด HAS Karaoke ตอนนี้
 thai.Vst2Page=โฟลเดอร์ VST2
 thai.Vst2PageText=จะวางปลั๊กอิน VST2 ไว้ที่ไหน
 thai.Vst2PageHint=เลือกโฟลเดอร์ที่ DAW ใช้สแกนปลั๊กอิน VST2 ตัวติดตั้งจะสร้างโฟลเดอร์ HEARASIDE ไว้ข้างใน
@@ -79,16 +89,18 @@ thai.OpenGuide=เปิดคู่มือเริ่มต้นใช้�
 thai.RemoveSettings=ลบการตั้งค่า HEARASIDE ของฉันด้วย (ไฟล์อัดเสียงจะไม่ถูกลบ)
 
 [Types]
-Name: "full"; Description: "Full"
+Name: "full"; Description: "{cm:TypeFull}"
+Name: "karaoke"; Description: "{cm:TypeKaraoke}"
+Name: "custom"; Description: "{cm:TypeCustom}"; Flags: iscustom
 
 [Components]
-Name: "vst3"; Description: "{cm:CompVst3}"; Types: full; Flags: fixed
+Name: "vst3"; Description: "{cm:CompVst3}"; Types: full
 #ifdef WithVst2
-Name: "vst2"; Description: "{cm:CompVst2}"; Types: full; Flags: fixed
+Name: "vst2"; Description: "{cm:CompVst2}"; Types: full
 #endif
-Name: "obs"; Description: "{cm:CompObs}"; Types: full; Flags: fixed
-Name: "cloudflared"; Description: "{cm:CompCloudflared}"; Types: full; Flags: fixed
-Name: "karaoke"; Description: "{cm:CompKaraoke}"; Types: full; Flags: fixed
+Name: "obs"; Description: "{cm:CompObs}"; Types: full
+Name: "karaoke"; Description: "{cm:CompKaraoke}"; Types: full karaoke
+Name: "cloudflared"; Description: "{cm:CompCloudflared}"; Types: full karaoke
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -129,9 +141,15 @@ Root: HKCR; Subkey: "has"; ValueType: string; ValueData: "URL:HEARASIDE Protocol
 Root: HKCR; Subkey: "has"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey; Components: karaoke
 Root: HKCR; Subkey: "has\DefaultIcon"; ValueType: string; ValueData: "{app}\HAS Karaoke.exe,0"; Flags: uninsdeletekey; Components: karaoke
 Root: HKCR; Subkey: "has\shell\open\command"; ValueType: string; ValueData: """{app}\HAS Karaoke.exe"" ""%1"""; Flags: uninsdeletekey; Components: karaoke
+; deep link protocol handler hearaside://join?url=...
+Root: HKCR; Subkey: "hearaside"; ValueType: string; ValueData: "URL:HEARASIDE Protocol"; Flags: uninsdeletekey; Components: karaoke
+Root: HKCR; Subkey: "hearaside"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey; Components: karaoke
+Root: HKCR; Subkey: "hearaside\DefaultIcon"; ValueType: string; ValueData: "{app}\HAS Karaoke.exe,0"; Flags: uninsdeletekey; Components: karaoke
+Root: HKCR; Subkey: "hearaside\shell\open\command"; ValueType: string; ValueData: """{app}\HAS Karaoke.exe"" ""%1"""; Flags: uninsdeletekey; Components: karaoke
 
 [Run]
-Filename: "{code:ObsExe}"; Description: "{cm:OpenObs}"; Flags: postinstall nowait skipifsilent unchecked; Check: ObsInstalled
+Filename: "{app}\HAS Karaoke.exe"; Description: "{cm:OpenKaraoke}"; Flags: postinstall nowait skipifsilent unchecked; Components: karaoke
+Filename: "{code:ObsExe}"; Description: "{cm:OpenObs}"; Flags: postinstall nowait skipifsilent unchecked; Check: ObsInstalled; Components: obs
 Filename: "https://hearaside.netlify.app/guides/getting-started"; Description: "{cm:OpenGuide}"; Flags: postinstall shellexec nowait skipifsilent unchecked
 
 [Code]
@@ -203,11 +221,18 @@ end;
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpFinished then
-    WizardForm.FinishedLabel.Caption :=
-      CustomMessage('ReadyTitle') + #13#10#13#10 +
-      '1. ' + CustomMessage('Next1') + #13#10 +
-      '2. ' + CustomMessage('Next2') + #13#10 +
-      '3. ' + CustomMessage('Next3');
+  begin
+    if WizardIsComponentSelected('karaoke') and not WizardIsComponentSelected('vst3') then
+      WizardForm.FinishedLabel.Caption :=
+        CustomMessage('ReadyTitle') + #13#10#13#10 +
+        CustomMessage('NextKaraoke')
+    else
+      WizardForm.FinishedLabel.Caption :=
+        CustomMessage('ReadyTitle') + #13#10#13#10 +
+        '1. ' + CustomMessage('Next1') + #13#10 +
+        '2. ' + CustomMessage('Next2') + #13#10 +
+        '3. ' + CustomMessage('Next3');
+  end;
 end;
 
 // --- uninstall: settings are optional, recordings are never touched ---

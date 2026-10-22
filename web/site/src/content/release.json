@@ -1,11 +1,16 @@
 {
-    "version":  "1.0.5",
-    "date":  "21 Oct 2026",
-    "installer":  "/downloads/HEARASIDE-Setup-1.0.5.exe",
-    "sizeMb":  "19.3",
-    "sha256":  "ee389c2e2c3b31acca31ebc9c527c9c7d2764bf0e1f408c74a3463e232e4584d",
+    "version":  "1.0.6",
+    "date":  "22 Oct 2026",
+    "installer":  "/downloads/HEARASIDE-Setup-1.0.6.exe",
+    "sizeMb":  "24.2",
+    "sha256":  "ebc4b16d6bde024a56dfa59f3ea541f1e37ffc5e28c89fb964e130a904d44312",
     "obsMin":  "32",
     "notes":  [
+                  {
+                      "version":  "1.0.6",
+                      "en":  "Introduces HAS Karaoke standalone desktop app (8 MB, no DAW or OBS needed) for friends to sing together with built-in vocal effects, plus automatic version check and modular installer types.",
+                      "th":  "เพิ่มแอป HAS Karaoke สำหรับเพื่อนแบบเดี่ยว (8 MB ไม่ต้องมี DAW หรือ OBS) พร้อมเอฟเฟกต์เสียงในตัว ระบบแจ้งเตือนเมื่อมีเวอร์ชันใหม่ และตัวเลือกติดตั้งแบบแยกชุดใน installer"
+                  },
                   {
                       "version":  "1.0.5",
                       "en":  "The website moves to its permanent home (hearaside.netlify.app, old links redirect) and the logo is refreshed as a clean black-and-white H. Plug-ins and protocol are unchanged, so 1.0.4 and 1.0.5 work together.",
@@ -37,5 +42,8 @@
                       "th":  "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง"
                   }
               ],
-    "vst2":  true
+    "vst2":  true,
+    "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.6.exe",
+    "karaokeSizeMb":  "8.1",
+    "karaokeSha256":  "63c8ff40f8fd333e3c770fb9473cf3126dd3b79d8a8d8e3a88fd2d0c86b528a7"
 }

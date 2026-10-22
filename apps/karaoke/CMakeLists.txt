@@ -23,6 +23,8 @@ target_sources(HearasideKaraoke PRIVATE
     MusicPlayer.cpp
     RoomHost.h
     RoomHost.cpp
+    UpdateChecker.h
+    UpdateChecker.cpp
     ${CMAKE_SOURCE_DIR}/plugins/app/AppCapture.cpp
 )
 

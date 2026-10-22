@@ -4,6 +4,7 @@
 #include "MusicPlayer.h"
 #include "PreflightChecker.h"
 #include "RoomHost.h"
+#include "UpdateChecker.h"
 #include "VocalChain.h"
 
 #include <algorithm>
@@ -14,6 +15,105 @@ namespace hearaside::karaoke {
 enum class AppMode {
     Singer,
     Host
+};
+
+class UpdateBanner : public juce::Component {
+public:
+    UpdateBanner() {
+        downloadBtn_.onClick = [this] {
+            if (info_.downloadUrl.isNotEmpty()) {
+                juce::URL(info_.downloadUrl).launchInDefaultBrowser();
+            }
+        };
+        downloadBtn_.setTooltip("เปิดหน้าดาวน์โหลด HEARASIDE รุ่นล่าสุด");
+        addAndMakeVisible(downloadBtn_);
+
+        dismissBtn_.onClick = [this] {
+            setVisible(false);
+            if (onDismiss) onDismiss();
+        };
+        dismissBtn_.setTooltip("ปิดการแจ้งเตือน");
+        addAndMakeVisible(dismissBtn_);
+    }
+
+    void showUpdate(const ReleaseInfo& info, const theme::Palette& p) {
+        info_ = info;
+        pal_ = &p;
+        setVisible(true);
+        repaint();
+    }
+
+    void setPalette(const theme::Palette& p) {
+        pal_ = &p;
+        repaint();
+    }
+
+    std::function<void()> onDismiss;
+
+    void paint(juce::Graphics& g) override {
+        if (pal_ == nullptr) return;
+        const auto& p = *pal_;
+        const auto b = getLocalBounds().toFloat();
+
+        // Subtle frosted accent background
+        g.setColour(juce::Colour(0xff2d68ff).withAlpha(0.12f));
+        g.fillRoundedRectangle(b, 6.0f);
+        g.setColour(juce::Colour(0xff2d68ff).withAlpha(0.45f));
+        g.drawRoundedRectangle(b.reduced(0.5f), 6.0f, 1.0f);
+
+        drawStatusDot(g, juce::Point<float>(b.getX() + 14.0f, b.getCentreY()), Dot::Rec, p, 4.0f);
+
+        g.setColour(p.ink);
+        g.setFont(uiFont(12.0f, Weight::Medium));
+        juce::String text = "พบ HEARASIDE รุ่นใหม่ " + info_.latestVersion + " (รุ่นปัจจุบัน " + info_.currentVersion + ")";
+        if (info_.releaseDate.isNotEmpty()) text += " · " + info_.releaseDate;
+        g.drawText(text, juce::Rectangle<float>(b.getX() + 26.0f, b.getY(), b.getWidth() - 170.0f, b.getHeight()),
+                   juce::Justification::centredLeft);
+    }
+
+    void resized() override {
+        const int w = getWidth();
+        const int h = getHeight();
+        downloadBtn_.setBounds(w - 110, (h - 22) / 2, 78, 22);
+        dismissBtn_.setBounds(w - 28, (h - 22) / 2, 22, 22);
+    }
+
+private:
+    ReleaseInfo info_;
+    const theme::Palette* pal_ = nullptr;
+
+    class ActionBtn : public juce::Button {
+    public:
+        ActionBtn(const juce::String& text) : juce::Button(text), text_(text) {}
+        void paintButton(juce::Graphics& g, bool highlighted, bool down) override {
+            auto b = getLocalBounds().toFloat();
+            g.setColour(down ? juce::Colour(0xff1e50d0) : (highlighted ? juce::Colour(0xff3b73ff) : juce::Colour(0xff2d68ff)));
+            g.fillRoundedRectangle(b, 5.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(uiFont(11.0f, Weight::SemiBold));
+            g.drawText(text_, b, juce::Justification::centred);
+        }
+    private:
+        juce::String text_;
+    };
+
+    class CloseBtn : public juce::Button {
+    public:
+        CloseBtn() : juce::Button("close") {}
+        void paintButton(juce::Graphics& g, bool highlighted, bool /*down*/) override {
+            auto b = getLocalBounds().toFloat();
+            if (highlighted) {
+                g.setColour(juce::Colours::black.withAlpha(0.08f));
+                g.fillRoundedRectangle(b, 4.0f);
+            }
+            g.setColour(highlighted ? juce::Colours::black : juce::Colours::grey);
+            g.setFont(uiFont(12.0f, Weight::SemiBold));
+            g.drawText("✕", b, juce::Justification::centred);
+        }
+    };
+
+    ActionBtn downloadBtn_ { "ดาวน์โหลด" };
+    CloseBtn dismissBtn_;
 };
 
 class KaraokeContent : public juce::Component,
@@ -361,6 +461,21 @@ public:
 
         addAndMakeVisible(overlay_);
 
+        addChildComponent(updateBanner_);
+        updateBanner_.onDismiss = [this] {
+            resized();
+            repaint();
+        };
+
+        updateChecker_.checkForUpdates([this](const ReleaseInfo& info) {
+            if (info.hasUpdate) {
+                updateBanner_.showUpdate(info, pal());
+                overlay_.toast("พบ HEARASIDE รุ่นใหม่ " + info.latestVersion + " (คลิกที่แถบด้านบนเพื่อดาวน์โหลด)", 3500);
+                resized();
+                repaint();
+            }
+        });
+
         updateModeVisibility();
         startTimerHz(30);
         updateDeviceInfo();
@@ -625,6 +740,7 @@ public:
     }
 
     void changeListenerCallback(juce::ChangeBroadcaster*) override {
+        updateBanner_.setPalette(pal());
         repaint();
     }
 
@@ -697,6 +813,8 @@ public:
     }
 
     void paintSingerView(juce::Graphics& g, const theme::Palette& p, float margin, float contentW) {
+        const float bannerOffset = updateBanner_.isVisible() ? 34.0f : 0.0f;
+
         // Badges in Header if Live
         const auto cState = joinClient_.state();
         const auto room = joinClient_.roomInfo();
@@ -707,7 +825,7 @@ public:
         }
 
         // Card 1: Join Box (Inset)
-        const auto joinCard = juce::Rectangle<float>(margin, 74.0f, contentW, 118.0f);
+        const auto joinCard = juce::Rectangle<float>(margin, 74.0f + bannerOffset, contentW, 118.0f);
         drawInset(g, joinCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -720,7 +838,7 @@ public:
                    juce::Rectangle<float>(joinCard.getX() + 18.0f, joinCard.getY() + 36.0f, contentW - 36.0f, 20.0f), juce::Justification::topLeft);
 
         // Card 2: Audio & Microphone Inset
-        const auto audioCard = juce::Rectangle<float>(margin, 204.0f, contentW, 148.0f);
+        const auto audioCard = juce::Rectangle<float>(margin, 204.0f + bannerOffset, contentW, 148.0f);
         drawInset(g, audioCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -759,7 +877,7 @@ public:
         }
 
         // Card 3: Headphone Monitor Balance Inset
-        const auto monitorCard = juce::Rectangle<float>(margin, 364.0f, contentW, 178.0f);
+        const auto monitorCard = juce::Rectangle<float>(margin, 364.0f + bannerOffset, contentW, 178.0f);
         drawInset(g, monitorCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -776,8 +894,10 @@ public:
     }
 
     void paintHostView(juce::Graphics& g, const theme::Palette& p, float margin, float contentW) {
+        const float bannerOffset = updateBanner_.isVisible() ? 34.0f : 0.0f;
+
         // Card 1: Music Player
-        const auto musicCard = juce::Rectangle<float>(margin, 70.0f, contentW, 102.0f);
+        const auto musicCard = juce::Rectangle<float>(margin, 70.0f + bannerOffset, contentW, 102.0f);
         drawInset(g, musicCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -805,7 +925,7 @@ public:
         g.drawText(trackTitle, juce::Rectangle<float>(musicCard.getX() + 16.0f, musicCard.getY() + 72.0f, contentW - 200.0f, 22.0f), juce::Justification::centredLeft);
 
         // Card 2: Host Room & OBS Broadcast
-        const auto hostCard = juce::Rectangle<float>(margin, 180.0f, contentW, 82.0f);
+        const auto hostCard = juce::Rectangle<float>(margin, 180.0f + bannerOffset, contentW, 82.0f);
         drawInset(g, hostCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -820,7 +940,7 @@ public:
         }
 
         // Card 3: Friends Room (8 Slots)
-        const auto friendCard = juce::Rectangle<float>(margin, 270.0f, contentW, 166.0f);
+        const auto friendCard = juce::Rectangle<float>(margin, 270.0f + bannerOffset, contentW, 166.0f);
         drawInset(g, friendCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -849,7 +969,7 @@ public:
         }
 
         // Card 4: Host Microphone & Monitor Balance
-        const auto monitorCard = juce::Rectangle<float>(margin, 444.0f, contentW, 126.0f);
+        const auto monitorCard = juce::Rectangle<float>(margin, 444.0f + bannerOffset, contentW, 126.0f);
         drawInset(g, monitorCard, 14.0f, p);
 
         g.setColour(p.ink);
@@ -877,40 +997,45 @@ public:
         const int margin = 24;
         const int contentW = w - (margin * 2);
 
+        const int bannerOffset = updateBanner_.isVisible() ? 34 : 0;
+        if (updateBanner_.isVisible()) {
+            updateBanner_.setBounds(margin, 64, contentW, 28);
+        }
+
         if (appMode_ == AppMode::Singer) {
             // Card 1: Join Row
-            linkInput_.setBounds(margin + 18, 130, contentW - 146, 38);
-            joinBtn_.setBounds(w - margin - 118, 130, 100, 38);
+            linkInput_.setBounds(margin + 18, 130 + bannerOffset, contentW - 146, 38);
+            joinBtn_.setBounds(w - margin - 118, 130 + bannerOffset, 100, 38);
 
             // Card 2: Audio & Mic
-            preflightBtn_.setBounds(w - margin - 128, 226, 110, 32);
-            micMeter_.setBounds(margin + 54, 272, contentW - 190, 8);
-            muteBtn_.setBounds(w - margin - 118, 258, 100, 34);
-            speakerModeSwitch_.setBounds(margin + 204, 298, 44, 22);
+            preflightBtn_.setBounds(w - margin - 128, 226 + bannerOffset, 110, 32);
+            micMeter_.setBounds(margin + 54, 272 + bannerOffset, contentW - 190, 8);
+            muteBtn_.setBounds(w - margin - 118, 258 + bannerOffset, 100, 34);
+            speakerModeSwitch_.setBounds(margin + 204, 298 + bannerOffset, 44, 22);
 
             // Card 3: Sliders
             const int sliderX = margin + 140;
             const int sliderW = contentW - 160;
-            vocalSlider_.setBounds(sliderX, 402, sliderW, 22);
-            musicSlider_.setBounds(sliderX, 430, sliderW, 22);
-            reverbSlider_.setBounds(sliderX, 458, sliderW, 22);
-            echoSlider_.setBounds(sliderX, 486, sliderW, 22);
-            sendWetSwitch_.setBounds(margin + 170, 512, 44, 22);
+            vocalSlider_.setBounds(sliderX, 402 + bannerOffset, sliderW, 22);
+            musicSlider_.setBounds(sliderX, 430 + bannerOffset, sliderW, 22);
+            reverbSlider_.setBounds(sliderX, 458 + bannerOffset, sliderW, 22);
+            echoSlider_.setBounds(sliderX, 486 + bannerOffset, sliderW, 22);
+            sendWetSwitch_.setBounds(margin + 170, 512 + bannerOffset, 44, 22);
         } else {
             // Host Mode Layout
             // Card 1: Music Player
-            openFileBtn_.setBounds(margin + 16, 100, 110, 28);
-            captureAppBtn_.setBounds(margin + 134, 100, 180, 28);
-            prevBtn_.setBounds(margin + 322, 100, 28, 28);
-            playPauseBtn_.setBounds(margin + 356, 100, 84, 28);
-            stopBtn_.setBounds(margin + 446, 100, 56, 28);
-            nextBtn_.setBounds(margin + 508, 100, 28, 28);
+            openFileBtn_.setBounds(margin + 16, 100 + bannerOffset, 110, 28);
+            captureAppBtn_.setBounds(margin + 134, 100 + bannerOffset, 180, 28);
+            prevBtn_.setBounds(margin + 322, 100 + bannerOffset, 28, 28);
+            playPauseBtn_.setBounds(margin + 356, 100 + bannerOffset, 84, 28);
+            stopBtn_.setBounds(margin + 446, 100 + bannerOffset, 56, 28);
+            nextBtn_.setBounds(margin + 508, 100 + bannerOffset, 28, 28);
 
             // Card 2: Room Host & OBS
-            startStopRoomBtn_.setBounds(margin + 16, 218, 130, 32);
-            copyFriendLinkBtn_.setBounds(margin + 154, 218, 126, 32);
-            copyListenLinkBtn_.setBounds(margin + 288, 218, 126, 32);
-            recordRoomBtn_.setBounds(margin + 422, 218, 150, 32);
+            startStopRoomBtn_.setBounds(margin + 16, 218 + bannerOffset, 130, 32);
+            copyFriendLinkBtn_.setBounds(margin + 154, 218 + bannerOffset, 126, 32);
+            copyListenLinkBtn_.setBounds(margin + 288, 218 + bannerOffset, 126, 32);
+            recordRoomBtn_.setBounds(margin + 422, 218 + bannerOffset, 150, 32);
 
             // Card 3: Friends Room (8 Slots)
             const int colW = (contentW - 40) / 2;
@@ -918,7 +1043,7 @@ public:
                 const int col = i / 4;
                 const int row = i % 4;
                 const int sx = margin + 16 + col * (colW + 16);
-                const int sy = 304 + row * 31;
+                const int sy = 304 + bannerOffset + row * 31;
 
                 auto& c = friendSlotControls_[i];
                 c.meter->setBounds(sx + 136, sy + 7, colW - 270, 6);
@@ -928,15 +1053,15 @@ public:
             }
 
             // Card 4: Host Microphone & Monitor Balance
-            micMeter_.setBounds(margin + 48, 546, 100, 6);
-            muteBtn_.setBounds(w - margin - 100, 472, 84, 28);
+            micMeter_.setBounds(margin + 48, 546 + bannerOffset, 100, 6);
+            muteBtn_.setBounds(w - margin - 100, 472 + bannerOffset, 84, 28);
 
             const int sliderX = margin + 110;
             const int sliderW = contentW - 230;
-            vocalSlider_.setBounds(sliderX, 476, sliderW, 20);
-            musicSlider_.setBounds(sliderX, 500, sliderW, 20);
-            reverbSlider_.setBounds(sliderX, 524, sliderW, 20);
-            echoSlider_.setBounds(sliderX, 548, sliderW, 20);
+            vocalSlider_.setBounds(sliderX, 476 + bannerOffset, sliderW, 20);
+            musicSlider_.setBounds(sliderX, 500 + bannerOffset, sliderW, 20);
+            reverbSlider_.setBounds(sliderX, 524 + bannerOffset, sliderW, 20);
+            echoSlider_.setBounds(sliderX, 548 + bannerOffset, sliderW, 20);
         }
     }
 
@@ -945,6 +1070,8 @@ private:
     juce::AudioDeviceManager& deviceManager_;
     SharedSettings settings_;
     Overlay overlay_;
+    UpdateChecker updateChecker_;
+    UpdateBanner updateBanner_;
 
     SegmentedControl modeSwitch_;
     AppMode appMode_ = AppMode::Singer;

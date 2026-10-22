@@ -39,7 +39,7 @@
 | 5 | โหมดคาราโอเกะ + UX ใหม่ | 1.1–1.2 | ไม่เปลี่ยน | ✅ |
 | 6 | Hub ถึง Hub (DAW ถึง DAW) | 2.0 | v15+ | 💤 ตัวเลือก |
 | 7 | Big optimize (RT safety, SIMD, thread) | ทยอย | ไม่เปลี่ยน | ✅ |
-| K | โปรแกรม HAS Karaoke (.exe) | แผนแยก [PLAN-karaoke-exe.md](PLAN-karaoke-exe.md) | ไม่เปลี่ยน | K0 ✅ / K1 ⏳ |
+| K | โปรแกรม HAS Karaoke (.exe) | แผนแยก [PLAN-karaoke-exe.md](PLAN-karaoke-exe.md) | ไม่เปลี่ยน | K0–K4 ✅ |
 
 ---
 

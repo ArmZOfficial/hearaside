@@ -112,6 +112,7 @@ hearaside_add_plugin(HearasideHub
         hub/ShareDirectory.cpp
         hub/ControlServer.cpp
         hub/HubRestApi.cpp
+        hub/VirtualMic.cpp
         app/AppCapture.cpp)   # program list for the App Audio rows
 target_include_directories(HearasideHub PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(HearasideHub PRIVATE hearaside_web)
@@ -140,7 +141,7 @@ if(HEARASIDE_BUILD_TOOLS)
     target_sources(hearaside_ui_snapshot PRIVATE
         ${CMAKE_SOURCE_DIR}/tools/ui-snapshot/main.cpp
         track/TrackProcessor.cpp track/TrackEditor.cpp
-        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/ShareServer.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp app/AppCapture.cpp
+        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/ShareServer.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp hub/VirtualMic.cpp app/AppCapture.cpp
         ${hearaside_common_sources})
     target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hearaside_ui_snapshot PRIVATE

@@ -118,6 +118,7 @@ enum class Str {
     BenefitLinksShort, BenefitFriendsShort, BenefitAppearanceShort, InvitedYou, AppearanceSynced, SignedInToast,
     SignedOutToast,
     DawYours,
+    VirtualMic, VirtualMicCap, VirtualMicOff, VirtualMicNoCable, VirtualMicSending, VirtualMicWaiting, VirtualMicFailed,
     Count
 };
 

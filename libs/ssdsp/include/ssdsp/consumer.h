@@ -46,6 +46,10 @@ public:
 
     ConsumerStatus status() const;   // snapshot (copy) - call from the same thread as pull()
 
+    // Off: don't stamp consumerHeartbeatNs / consumerBufferMs, so the Hub's "OBS connected" and
+    // "delay to OBS" keep meaning OBS (the Hub's own virtual mic reads the bus too).
+    void setReportToHub(bool on) { reportToHub_ = on; }
+
 private:
     void tryConnect();
     void resync(uint32_t dawRate);
@@ -60,6 +64,7 @@ private:
     double      windowSec_ = 0.0;
     int         lowerVotes_ = 0;
     uint32_t    outRate_ = 48000;
+    bool        reportToHub_ = true;
 
     std::unique_ptr<ssbus::SharedMemory> shm_;
     std::unique_ptr<VarResampler> rs_;

@@ -4,6 +4,8 @@
 #include "JoinClient.h"
 #include "PreflightChecker.h"
 #include "VocalChain.h"
+#include "MusicPlayer.h"
+#include "RoomHost.h"
 #include "ShareServer.h"
 #include "ssbus/bus.h"
 #include "ssnet/wire.h"
@@ -305,3 +307,145 @@ TEST_CASE("karaoke: JoinClient and ShareServer loopback in-process connection") 
 
     server.stop();
 }
+
+TEST_CASE("karaoke: MusicPlayer file loading, playlist navigation, transport controls, and RT pullAudio") {
+    const juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
+    const juce::File tempWav = tempDir.getNonexistentChildFile("test_karaoke_song", ".wav");
+
+    // Synthesize a valid 16-bit 48kHz WAV file (0.2s 440Hz sine)
+    {
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::OutputStream> outStream = tempWav.createOutputStream();
+        CHECK(outStream != nullptr);
+
+        auto options = juce::AudioFormatWriterOptions{}
+            .withSampleRate(48000.0)
+            .withNumChannels(2)
+            .withBitsPerSample(16);
+
+        auto writer = wav.createWriterFor(outStream, options);
+        CHECK(writer != nullptr);
+
+        std::vector<float> sine(9600); // 0.2s
+        for (size_t i = 0; i < sine.size(); ++i) {
+            sine[i] = 0.5f * std::sin(2.0f * 3.14159265f * 440.0f * float(i) / 48000.0f);
+        }
+        const float* chs[2] = { sine.data(), sine.data() };
+        writer->writeFromFloatArrays(chs, 2, 9600);
+    }
+    CHECK(tempWav.existsAsFile());
+
+    MusicPlayer player;
+    player.prepare(48000.0, 256);
+
+    player.addTrack(tempWav);
+    CHECK(player.trackCount() == 1);
+    CHECK(player.currentTrackIndex() == 0);
+    CHECK(player.lengthSeconds() > 0.15);
+
+    // Initial state: stopped
+    CHECK(!player.isPlaying());
+    std::vector<float> outL(256, 0.0f), outR(256, 0.0f);
+    player.pullAudio(outL.data(), outR.data(), 256);
+    float initialPeak = 0.0f;
+    for (int i = 0; i < 256; ++i) initialPeak = std::max(initialPeak, std::abs(outL[i]));
+    CHECK(initialPeak == 0.0f);
+
+    // Play
+    player.play();
+    CHECK(player.isPlaying());
+
+    // Pull audio blocks while playing
+    float playingPeak = 0.0f;
+    for (int b = 0; b < 10; ++b) {
+        player.pullAudio(outL.data(), outR.data(), 256);
+        for (int i = 0; i < 256; ++i) playingPeak = std::max(playingPeak, std::abs(outL[i]));
+    }
+    CHECK(playingPeak > 0.1f);
+    CHECK(player.currentPositionSec() > 0.0);
+
+    // Pause
+    player.pause();
+    CHECK(!player.isPlaying());
+
+    // Stop and verify reset position
+    player.stop();
+    CHECK(!player.isPlaying());
+    CHECK(player.currentPositionSec() == 0.0);
+
+    // Volume adjustment
+    player.setVolume(0.5f);
+    CHECK(std::abs(player.volume() - 0.5f) < 0.01f);
+
+    // Clear playlist and cleanup
+    player.clearPlaylist();
+    CHECK(player.trackCount() == 0);
+    CHECK(player.currentTrackIndex() == -1);
+
+    tempWav.deleteFile();
+}
+
+TEST_CASE("karaoke: RoomHost bus initialization, friend slot management, streamAudio for OBS, and master WAV recording") {
+    RoomHost host;
+    host.prepare(48000.0, 256);
+
+    CHECK(!host.isRoomRunning());
+
+    bool started = host.startRoom("Test Karaoke Room", 0);
+    CHECK(started);
+    CHECK(host.isRoomRunning());
+    CHECK(host.friendCount() == 8);
+    CHECK(host.serverPort() > 0);
+    CHECK(host.roomName() == "Test Karaoke Room");
+
+    // Verify friend slots
+    for (int i = 0; i < 8; ++i) {
+        auto s = host.slotInfo(i);
+        CHECK(s.slot == i);
+        CHECK(s.id == static_cast<uint32_t>(i + 1));
+        CHECK(s.name == "Friend " + juce::String(i + 1));
+        CHECK(!s.isMuted);
+        CHECK(host.friendUrl(i).isNotEmpty());
+        CHECK(host.friendDeepLink(i).startsWith("hearaside://join"));
+    }
+
+    // Mute/unmute slot
+    host.setSlotMuted(3, true);
+    CHECK(host.slotInfo(3).isMuted);
+    host.setSlotMuted(3, false);
+    CHECK(!host.slotInfo(3).isMuted);
+
+    // Audio processing & OBS stream writing
+    std::vector<float> vocL(256, 0.2f), vocR(256, 0.2f);
+    std::vector<float> musL(256, 0.1f), musR(256, 0.1f);
+    std::vector<float> hpL(256, 0.0f), hpR(256, 0.0f);
+
+    host.processAudio(vocL.data(), vocR.data(), musL.data(), musR.data(), hpL.data(), hpR.data(), 256);
+    CHECK(hpL[0] > 0.25f);
+    CHECK(hpR[0] > 0.25f);
+
+    // Master WAV Recording
+    const juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
+    const juce::File recFile = tempDir.getNonexistentChildFile("test_host_rec", ".wav");
+
+    bool recStarted = host.startRecording(recFile);
+    CHECK(recStarted);
+    CHECK(host.isRecording());
+
+    // Process blocks while recording
+    for (int b = 0; b < 20; ++b) {
+        host.processAudio(vocL.data(), vocR.data(), musL.data(), musR.data(), hpL.data(), hpR.data(), 256);
+    }
+
+    host.stopRecording();
+    CHECK(!host.isRecording());
+    CHECK(host.recordedSeconds() > 0.0);
+    CHECK(recFile.existsAsFile());
+
+    recFile.deleteFile();
+
+    // Stop room
+    host.stopRoom();
+    CHECK(!host.isRoomRunning());
+}
+

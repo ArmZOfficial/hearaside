@@ -19,10 +19,16 @@ target_sources(HearasideKaraoke PRIVATE
     JoinClient.cpp
     PreflightChecker.h
     PreflightChecker.cpp
+    MusicPlayer.h
+    MusicPlayer.cpp
+    RoomHost.h
+    RoomHost.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/app/AppCapture.cpp
 )
 
 target_include_directories(HearasideKaraoke PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/plugins/app
 )
 
 target_compile_definitions(HearasideKaraoke PRIVATE
@@ -47,6 +53,7 @@ target_link_libraries(HearasideKaraoke PRIVATE
     ssnet
     juce::juce_audio_devices
     juce::juce_audio_utils
+    juce::juce_audio_formats
     juce::juce_gui_extra
     juce::juce_dsp
     juce::juce_recommended_config_flags

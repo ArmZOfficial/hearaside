@@ -42,9 +42,13 @@ if(HEARASIDE_BUILD_KARAOKE)
         ${CMAKE_SOURCE_DIR}/apps/karaoke/VocalChain.cpp
         ${CMAKE_SOURCE_DIR}/apps/karaoke/JoinClient.cpp
         ${CMAKE_SOURCE_DIR}/apps/karaoke/PreflightChecker.cpp
+        ${CMAKE_SOURCE_DIR}/apps/karaoke/MusicPlayer.cpp
+        ${CMAKE_SOURCE_DIR}/apps/karaoke/RoomHost.cpp
+        ${CMAKE_SOURCE_DIR}/plugins/app/AppCapture.cpp
     )
     target_include_directories(hearaside_karaoke_test PRIVATE
         ${CMAKE_SOURCE_DIR}/apps/karaoke
+        ${CMAKE_SOURCE_DIR}/plugins/app
         ${CMAKE_CURRENT_SOURCE_DIR}/unit
     )
     target_compile_definitions(hearaside_karaoke_test PRIVATE
@@ -64,6 +68,7 @@ if(HEARASIDE_BUILD_KARAOKE)
         ssnet
         juce::juce_audio_devices
         juce::juce_audio_utils
+        juce::juce_audio_formats
         juce::juce_gui_extra
         juce::juce_dsp
         juce::juce_recommended_config_flags

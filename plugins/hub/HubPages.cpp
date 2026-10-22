@@ -61,6 +61,19 @@ public:
             }
             stemGrid_.fields = &stems_;
             list_.add(std::make_unique<SettingRow>(tr(Str::StemNames), tr(Str::StemNamesCap), &stemGrid_, 280, (ssbus::kMaxStems + 1) / 2 * 46 - 8));
+            directMon_.setOn(st->flag("directMonitoring"), false);
+            directMon_.setTitle(tr(Str::DirectMonSetting));
+            directMon_.onClick = [this] {
+                auto& s = ed_.settings();
+                const bool on = !s->flag("directMonitoring");
+                s->setFlag("directMonitoring", on);
+                directMon_.setOn(on, true);
+                if (on) {
+                    ed_.proc().muteVocalMonitor();
+                    ed_.toast(tr(Str::TurnedOffVocalMonToast));
+                }
+            };
+            list_.add(std::make_unique<SettingRow>(tr(Str::DirectMonSetting), tr(Str::DirectMonSettingCap), &directMon_, 44, 26));
         } else if (section == 2) {
             list_.add(std::make_unique<SettingRow>("OBS", tr(Str::ObsRowCap), &obs_, 280, 26));
             bus_.setText(proc.busName(), false);
@@ -191,7 +204,10 @@ private:
     void timerCallback() override {
         auto& proc = ed_.proc();
         if (ceilingLink_) { ceilingLink_->update(); ceilingValueLink_->update(); }
-        if (section_ == 1) stepper_.setValue(juce::roundToInt(paramPlain(*proc.params().getParameter(hubparam::SyncSafety))));
+        if (section_ == 1) {
+            stepper_.setValue(juce::roundToInt(paramPlain(*proc.params().getParameter(hubparam::SyncSafety))));
+            directMon_.setOn(ed_.settings()->flag("directMonitoring"), isShowing());
+        }
         if (section_ == 2) {
             const bool on = proc.obsConnected();
             obs_.setText(on ? tr(Str::ConnectedWord) : tr(Str::NotConnected));
@@ -214,6 +230,7 @@ private:
     Stepper stepper_ { 0, 2 };
     juce::OwnedArray<TextField> stems_;
     StemGrid stemGrid_;
+    Switch directMon_;
     TextLine obs_ { 13.0f, Weight::Regular, TextLine::Tone::Ink2 }, delay_ { 14.0f, Weight::Medium, TextLine::Tone::Ink };
     TextLine version_ { 13.0f };
     TextField bus_, shareBase_;
@@ -364,12 +381,46 @@ private:
     struct Item {
         int level = 0;   // 0 fine, 1 should be fixed, 2 the viewers are affected
         juce::String what, you, viewers, fix;
+        std::function<void()> onFix;
     };
     using Line = std::tuple<juce::String, juce::Font, juce::Colour>;
     struct List : juce::Component {
         SetupPage* page = nullptr;
         void paint(juce::Graphics& g) override { page->paintList(g); }
+        void mouseMove(const juce::MouseEvent& e) override {
+            int idx = page ? page->itemAt(float(e.y)) : -1;
+            setMouseCursor(idx >= 0 && idx < int(page->items_.size()) && page->items_[size_t(idx)].onFix != nullptr
+                               ? juce::MouseCursor::PointingHandCursor
+                               : juce::MouseCursor::NormalCursor);
+        }
+        void mouseExit(const juce::MouseEvent&) override {
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+        }
+        void mouseDown(const juce::MouseEvent& e) override {
+            int idx = page ? page->itemAt(float(e.y)) : -1;
+            if (idx >= 0 && idx < int(page->items_.size()) && page->items_[size_t(idx)].onFix != nullptr) {
+                auto fn = page->items_[size_t(idx)].onFix;
+                fn();
+                page->refresh();
+            }
+        }
     };
+
+    void refresh() {
+        items_ = check();
+        layoutList();
+    }
+
+    int itemAt(float y) const {
+        const float w = float(list_.getWidth());
+        float curY = 0.0f;
+        for (size_t i = 0; i < items_.size(); ++i) {
+            const float h = itemHeight(items_[i], w);
+            if (y >= curY && y < curY + h) return int(i);
+            curY += h + 8.0f;
+        }
+        return -1;
+    }
 
     std::vector<Line> lines(const Item& it, const theme::Palette& p) const {
         std::vector<Line> out { { it.what, uiFont(13.5f, it.level > 0 ? Weight::SemiBold : Weight::Regular), p.ink } };
@@ -415,7 +466,14 @@ private:
             in.removeFromLeft(10.0f);
             for (const auto& [text, font, colour] : lines(it, p)) {
                 const float th = wrappedHeight(font, text, in.getWidth(), 3.0f);
-                drawWrapped(g, text, font, colour, in.removeFromTop(th), 3.0f);
+                if (it.onFix && text.startsWith(juce::CharPointer_UTF8("\xe2\x86\x92 "))) {
+                    auto fixBox = in.removeFromTop(th).withTrimmedRight(8.0f);
+                    g.setColour(p.ink.withAlpha(0.08f));
+                    g.fillRoundedRectangle(fixBox.expanded(4.0f, 2.0f), 6.0f);
+                    drawWrapped(g, text, font, p.ink, fixBox, 3.0f);
+                } else {
+                    drawWrapped(g, text, font, colour, in.removeFromTop(th), 3.0f);
+                }
                 in.removeFromTop(3.0f);
             }
         }
@@ -456,13 +514,46 @@ private:
         else if (proc_.permanentLinksSet() && proc_.directory().state() == ShareDirectory::State::Unreachable)
             out.push_back({ 1, tr(Str::ShareDirOffline), {}, {}, tr(Str::SetupShareFix) });
         else out.push_back({ 0, tr(Str::SetupShareOk) });
+
+        // Direct monitoring check (PLAN-v2 3.6 / 3.B.3):
+        // If audio interface direct monitor is on, vocal track 'You hear' (mon) should be OFF to avoid comb filtering / echo.
+        const auto vocals = proc_.vocalSlots();
+        if (!vocals.empty()) {
+            juce::StringArray monOnVocals;
+            for (int s : vocals) {
+                for (const auto& v : ts) {
+                    if (v.slot == s && v.mon) monOnVocals.add(v.name);
+                }
+            }
+            if (monOnVocals.isEmpty()) {
+                juce::StringArray vocalNames;
+                for (int s : vocals) {
+                    for (const auto& v : ts) if (v.slot == s) vocalNames.add(v.name);
+                }
+                out.push_back({ 0, tr(Str::SetupDirectMonOk).replace("%t", vocalNames.joinIntoString(", ")) });
+            } else {
+                const auto nameStr = monOnVocals.joinIntoString(", ");
+                out.push_back(Item {
+                    1,
+                    tr(Str::SetupDirectMonTitle),
+                    tr(Str::SetupDirectMonYou),
+                    {},
+                    tr(Str::SetupDirectMonFix).replace("%t", nameStr),
+                    [this] {
+                        ed.proc().muteVocalMonitor();
+                        ed.toast(tr(Str::TurnedOffVocalMonToast));
+                    }
+                });
+            }
+        }
         return out;
     }
 
     void timerCallback() override {
         auto now = check();
         bool same = now.size() == items_.size();
-        for (size_t i = 0; same && i < now.size(); ++i) same = now[i].level == items_[i].level && now[i].what == items_[i].what;
+        for (size_t i = 0; same && i < now.size(); ++i)
+            same = now[i].level == items_[i].level && now[i].what == items_[i].what && now[i].fix == items_[i].fix;
         if (!same) { items_ = std::move(now); layoutList(); }
     }
 

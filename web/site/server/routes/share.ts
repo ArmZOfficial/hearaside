@@ -57,5 +57,52 @@ export function shareRoutes(store: Store, dir: () => DirStore = redisStore) {
     }
   });
 
+  const handleTurn = async (req: Request, res: any, next: any) => {
+    try {
+      if (await over('turn', clientIp(req), { perMinute: 30, perDay: 500 })) {
+        return res.status(429).json({ error: 'slow down' });
+      }
+      const userId = await signedInHub(req);
+      if (!userId) {
+        return res.status(401).json({ error: 'unauthorized' });
+      }
+
+      const keyId = process.env.CLOUDFLARE_TURN_KEY_ID;
+      const apiToken = process.env.CLOUDFLARE_TURN_API_TOKEN;
+
+      if (keyId && apiToken) {
+        try {
+          const cfRes = await fetch(
+            `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ ttl: 86400 }),
+            }
+          );
+          if (cfRes.ok) {
+            const data = await cfRes.json();
+            return res.status(200).json(data);
+          }
+        } catch (err) {
+          console.error('turn credential generation error:', err instanceof Error ? err.message : err);
+        }
+      }
+
+      return res.status(200).json({
+        iceServers: [
+          { urls: ['stun:stun.cloudflare.com:3478'] },
+          { urls: ['stun:stun.l.google.com:19302'] }
+        ]
+      });
+    } catch (e) { next(e); }
+  };
+
+  r.get('/turn', handleTurn);
+  r.post('/turn', handleTurn);
+
   return r;
 }

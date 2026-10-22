@@ -9,6 +9,7 @@
 #include "ShareDirectory.h"
 #include "ShareServer.h"
 #include "Strings.h"
+#include "app/TakeRecorder.h"
 #include "ssengine/engine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -95,6 +96,8 @@ public:
     std::vector<TrackView> tracks() const;       // active slots, in insertion order
     void send(int slot, ssbus::ParamId id, float value);
     void rename(int slot, const juce::String& name);
+    std::vector<int> vocalSlots() const;
+    void muteVocalMonitor();
     std::vector<SourceView> sources() const;     // App Audio instances, in insertion order
     void sendSource(int index, ssbus::SourceParam id, float value);
     void chooseSourceApp(int index, const juce::String& exe);
@@ -147,7 +150,12 @@ public:
     // ---- friends room (S2) ------------------------------------------------------------------
     // Each friend gets a send-in link of their own; the Hub plays them (headphones + Stream Mix) and
     // can line them up with the music for the viewers (Line up). Message thread.
-    std::vector<FriendView> friends() const { return friendRoom_.views(engine_.bus(), engine_); }
+    std::vector<FriendView> friends() const;
+    ssnet::AecMode friendAecMode(int slot) const { return share_.friendAecMode(slot); }
+    void setFriendAecMode(int slot, ssnet::AecMode mode) { share_.setFriendAecMode(slot, mode); }
+    enum class SessionPreset { Karaoke, Podcast, LiveJam };
+    void applySessionPreset(SessionPreset preset);
+    SessionPreset sessionPreset() const noexcept { return sessionPreset_; }
     int friendCount() const noexcept { return friendRoom_.count(); }
     bool roomFull() const noexcept { return friendRoom_.full(); }
     uint32_t addFriend(const juce::String& name = {});          // 0 = full
@@ -172,6 +180,12 @@ public:
     int friendsConnected() const noexcept { return share_.friendsConnected(); }
     juce::String feederTrackName(int feeder) const;             // the DAW track a feeder sits on ("" = unknown)
     void bringBackFriend(uint32_t id);                          // the DAW track plays its own sound again; the Hub plays the friend
+
+    // ---- per-friend WAV recording (1.10) ----------------------------------------------------
+    void startFriendRecording(uint32_t id);
+    void stopFriendRecording(uint32_t id);
+    bool isFriendRecording(uint32_t id) const;
+    double friendRecordSec(uint32_t id) const;
 
     // "Viewers hear nothing" (docs/ux-roadmap.md 7.3): the Stream Mix has been silent for 5 s while a
     // track that goes to the viewers has signal. From the meters, on the message thread.
@@ -220,7 +234,13 @@ private:
     // measures the plug-in latency 4x a second off the message thread
     struct LatencyMeter : juce::Thread {
         explicit LatencyMeter(HubProcessor& p) : juce::Thread("HEARASIDE latency"), proc(p) {}
-        void run() override { while (!threadShouldExit()) { proc.measureLatency(); wait(250); } }
+        void run() override {
+            while (!threadShouldExit()) {
+                const bool probing = proc.engine_.probing();   // a probe is short: step it often
+                if (probing) proc.engine_.probeStep(); else proc.measureLatency();
+                wait(probing ? 20 : 250);
+            }
+        }
         HubProcessor& proc;
     };
     void measureLatency();
@@ -252,6 +272,7 @@ private:
     SharedSettings settings_;
     bool shareWanted_ = false;
     FriendRoom friendRoom_;
+    SessionPreset sessionPreset_ = SessionPreset::Karaoke;
     bool lineUp_ = true;
     ssbus::BusLayout* shareBus_ = nullptr;
     juce::String listenToken_ = ShareServer::newToken(), sendToken_ = ShareServer::newToken();   // saved: links stay the same
@@ -260,6 +281,9 @@ private:
     ssbus::BusLayout* remoteBus_ = nullptr;   // bus the cursor belongs to
     uint32_t requestCursor_ = 0;
     ssbus::BusLayout* requestBus_ = nullptr;
+    void handleFriendAudio(int idx, const float* const* ch, int n, int64_t time, bool playing) noexcept;
+    std::array<TakeRecorder, ssbus::kMaxFriends> friendRec_;
+    std::array<std::atomic<bool>, ssbus::kMaxFriends> friendRecActive_{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HubProcessor)
 };

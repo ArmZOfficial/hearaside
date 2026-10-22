@@ -921,41 +921,89 @@ void HubEditor::showSettings(SettingsSection s) {
 namespace {
 class MixInDawPanel : public juce::Component {
 public:
-    explicit MixInDawPanel(const juce::String& name) : name_(name) { setSize(330, 20 + 12 + 3 * 52 + 12 + 70); }
+    MixInDawPanel(HubProcessor& proc, uint32_t id, const juce::String& name)
+        : proc_(proc), id_(id), name_(name) {
+        setSize(340, 20 + 12 + 4 * 48 + 8 + 32 + 8 + 1 + 6 + 40);
+        addAndMakeVisible(probeBtn_);
+        probeBtn_.setSmall(true);
+        probeBtn_.setIcon(icons::Icon::Waveform);
+        probeBtn_.setButtonText(tr(Str::RunProbeSweep));
+        probeBtn_.onClick = [this] {
+            proc_.remeasureFriend(id_);
+            probeBtn_.setButtonText(tr(Str::ProbeRunning));
+            probeBtn_.setEnabled(false);
+            juce::Component::SafePointer<MixInDawPanel> sp(this);
+            juce::Timer::callAfterDelay(2500, [sp] {
+                if (sp) {
+                    sp->probeBtn_.setButtonText(tr(Str::RunProbeSweep));
+                    sp->probeBtn_.setEnabled(true);
+                }
+            });
+        };
+    }
+
     void paint(juce::Graphics& g) override {
         const auto& p = paletteOf(*this);
-        auto r = getLocalBounds().toFloat();
+        auto r = getLocalBounds().toFloat().reduced(16.0f, 12.0f);
+
+        // Header Title with detected DAW name
         g.setColour(p.ink);
         g.setFont(uiFont(14.5f, Weight::SemiBold));
-        g.drawText(tr(Str::MixFriendTitle), r.removeFromTop(20.0f), juce::Justification::centredLeft, true);
+        juce::String dawName;
+        switch (currentDaw()) {
+            case Daw::StudioOne: dawName = "Studio One"; break;
+            case Daw::Cubase:    dawName = "Cubase"; break;
+            case Daw::Reaper:    dawName = "Reaper"; break;
+            case Daw::FlStudio:  dawName = "FL Studio"; break;
+            case Daw::Ableton:   dawName = "Ableton Live"; break;
+            default:             dawName = "DAW"; break;
+        }
+        g.drawText(tr(Str::MixFriendTitle) + " (" + dawName + ")", r.removeFromTop(20.0f), juce::Justification::centredLeft, true);
         r.removeFromTop(12.0f);
-        const juce::String steps[3] = { tr(Str::MixFriendStep1), trf(Str::MixFriendStep2, { name_ }), tr(Str::MixFriendStep3) };
-        for (int i = 0; i < 3; ++i) {
-            auto row = r.removeFromTop(52.0f);
-            const auto dot = row.removeFromLeft(24.0f).withHeight(24.0f).reduced(1.0f);
+
+        juce::String step1 = tr(Str::MixFriendStep1);
+        if (currentDaw() != Daw::Other) step1 << " (" << dawName << ")";
+        const juce::String steps[4] = {
+            step1,
+            trf(Str::MixFriendStep2, { name_ }),
+            tr(Str::MixFriendStep3),
+            tr(Str::MixFriendStep4)
+        };
+
+        for (int i = 0; i < 4; ++i) {
+            auto row = r.removeFromTop(48.0f);
+            const auto dot = row.removeFromLeft(22.0f).withHeight(22.0f).reduced(1.0f);
             g.setColour(p.ink);
             g.fillEllipse(dot);
             g.setColour(p.onInk);
-            g.setFont(uiFont(12.0f, Weight::SemiBold));
+            g.setFont(uiFont(11.5f, Weight::SemiBold));
             g.drawText(juce::String(i + 1), dot, juce::Justification::centred, false);
-            row.removeFromLeft(10.0f);
-            drawWrapped(g, steps[i], uiFont(13.0f), p.ink2, row.withTrimmedTop(2.0f), 3.0f);
+            row.removeFromLeft(8.0f);
+            drawWrapped(g, steps[i], uiFont(12.5f), p.ink2, row.withTrimmedTop(1.0f), 2.0f);
         }
-        r.removeFromTop(12.0f);
+
+        r.removeFromTop(6.0f);
+        probeBtn_.setBounds(r.removeFromTop(32.0f).toNearestInt());
+        r.removeFromTop(8.0f);
+
         g.setColour(p.hairline2);
         g.fillRect(r.removeFromTop(1.0f));
-        r.removeFromTop(10.0f);
-        drawWrapped(g, tr(Str::RecordFriendHint), uiFont(12.0f), p.graphite, r, 4.0f);
+        r.removeFromTop(6.0f);
+        drawWrapped(g, tr(Str::RecordFriendHint), uiFont(11.5f), p.graphite, r, 3.0f);
     }
+
 private:
+    HubProcessor& proc_;
+    uint32_t id_;
     juce::String name_;
+    GhostButton probeBtn_ { {}, GhostButton::Style::Solid };
 };
 } // namespace
 
 void HubEditor::showMixInDaw(uint32_t id, juce::Component& anchor) {
     juce::String name = "?";
     for (const auto& f : proc_.friends()) if (f.id == id) name = f.name;
-    overlay().showPopover(std::make_unique<MixInDawPanel>(name), anchor, true);
+    overlay().showPopover(std::make_unique<MixInDawPanel>(proc_, id, name), anchor, true);
 }
 
 void HubEditor::showObsPopover() {

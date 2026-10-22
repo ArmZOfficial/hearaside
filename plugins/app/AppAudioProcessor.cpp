@@ -123,10 +123,14 @@ void AppAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
     if (auto* s = src_.load(std::memory_order_acquire)) s->heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+    const auto in = Input(mode_.load(std::memory_order_relaxed));
     // a friend source: the Hub already plays that friend in your headphones (and for the viewers), so this slot
     // stays out of the headphones: you would hear them twice
-    pub_.mirror({ mon_->load() > 0.5f && Input(mode_.load(std::memory_order_relaxed)) != Input::Friend, str_->load() > 0.5f, false, strGain_->load(), 0.0f, delay_->load(), monTrim_->load(), -1, true });
-    const bool viewersOn = str_->load() > 0.5f && !busSolo_.load(std::memory_order_relaxed) && !hubMute_.load(std::memory_order_relaxed);
+    pub_.mirror({ mon_->load() > 0.5f && in != Input::Friend, str_->load() > 0.5f, false, strGain_->load(), 0.0f, delay_->load(), monTrim_->load(), -1, true });
+    // Friend mode echo prevention (PLAN 1.9): output to the DAW only while the host is recording
+    // or when "program only" is armed. Otherwise idle output stays silent so monitoring the track cannot leak back into master.
+    const bool friendOutput = in != Input::Friend || recording || (only_->load() > 0.5f);
+    const bool viewersOn = friendOutput && str_->load() > 0.5f && !busSolo_.load(std::memory_order_relaxed) && !hubMute_.load(std::memory_order_relaxed);
     viewers_.setTargetValue(viewersOn ? ssdsp::dbToGain(strGain_->load()) : 0.0f);
 
     for (int off = 0; off < n; off += maxBlock_) {

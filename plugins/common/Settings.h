@@ -46,6 +46,14 @@ public:
     bool permanentLinks() const { return !flag("permanentLinksOff"); }
     void setPermanentLinks(bool on) { setFlag("permanentLinksOff", !on); }
 
+    // Listen link password: if non-empty, web listeners must provide this password.
+    juce::String listenPassword() const { return file_->getValue("listenPassword"); }
+    void setListenPassword(const juce::String& p) { file_->setValue("listenPassword", p); }
+
+    // Friend approval: require host confirmation in Hub before accepting new friend audio.
+    bool friendApprovalRequired() const { return flag("friendApprovalRequired"); }
+    void setFriendApprovalRequired(bool on) { setFlag("friendApprovalRequired", on); }
+
     // REST API on 127.0.0.1 (docs/rest-api.md): off until switched on; the key is per user.
     bool restApi() const { return flag("restApi"); }
     void setRestApi(bool on) { setFlag("restApi", on); }

@@ -7,6 +7,9 @@ err.txt
 /external/JUCE/
 /external/obs-studio/
 /external/speexdsp/
+/external/opus/
+/external/mbedtls/
+/external/libdatachannel/
 /external/fonts/Anuphan-VF.ttf
 
 # IDE

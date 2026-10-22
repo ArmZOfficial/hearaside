@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 #include "ssengine/engine.h"
 
+#include <bit>
 #include <cmath>
+#include <numbers>
 #include <cstring>
 
 namespace ssengine {
@@ -11,6 +13,51 @@ using namespace ssbus;
 namespace {
 constexpr uint64_t kHubStaleNs  = 2000000000ull;   // another Hub may take over after 2 s silence
 constexpr uint64_t kSlotStaleNs = 5000000000ull;
+
+// A manual pair in one word: slot + 1 (8 bits), the slot's claim (32), the friend id (24). Valid while the slot
+// still has the same claim, so a Track that took over the index is not mistaken for the one that was chosen.
+uint64_t pairWord(const BusLayout& b, int slot, uint32_t fid) {
+    const uint64_t claim = b.slots[slot].claimNs.load(std::memory_order_relaxed);
+    return uint64_t(slot + 1) | uint64_t(uint32_t(claim ^ (claim >> 32))) << 8 | uint64_t(fid & 0xFFFFFFu) << 40;
+}
+int pairSlot(uint64_t word) { return int(word & 0xFFu) - 1; }
+
+// the Track at the end of the channel carries this friend: let go of it when the pairing ends
+void unpairSlot(BusLayout& b, int slot, uint32_t fid) {
+    if (slot < 0 || slot >= kMaxSlots || b.slots[slot].fedBy.load(std::memory_order_relaxed) != fid) return;
+    b.slots[slot].fedBy.store(0, std::memory_order_release);
+    b.slots[slot].fxLatencyBits.store(0, std::memory_order_relaxed);
+    b.slots[slot].flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
+}
+
+void publishPair(BusLayout& b, FriendHeader& fh, uint32_t fid, int slot, double li) {
+    if (const int old = fh.outSlot.load(std::memory_order_relaxed); old != slot) unpairSlot(b, old, fid);
+    fh.outSlot.store(slot, std::memory_order_release);
+    b.slots[slot].fedBy.store(fid, std::memory_order_release);
+    b.slots[slot].fxLatencyBits.store(floatBits(float(li)), std::memory_order_relaxed);
+    // always through the Hub (Line up or not): only the Hub can keep the friend out of the
+    // mix that friends hear. Line up off = D is 0, so the friend is simply not delayed.
+    b.slots[slot].flags.fetch_or(kFlagViewersViaHub, std::memory_order_release);
+}
+
+// probe timing, in history frames (rate = sample rate / 4): by time, so it holds at 44.1 / 96 kHz too
+uint32_t probeLeadIn(double rate) { return uint32_t(0.04 * rate); }    // silence before the sweep starts (the mute needs ~20 ms), and after it has left
+uint32_t probeListen(double rate) { return uint32_t(0.475 * rate); }   // the 300 ms sweep + the longest chain latency we look for + the Hub's read
+}
+
+std::vector<float> probeSweep(double sampleRate) {
+    const int n = int(sampleRate * 0.3);
+    const double f0 = 200.0, f1 = 2000.0, T = 0.3, k = std::log(f1 / f0);   // low enough to survive the tap's decimation by 4
+    const int fade = int(sampleRate * 0.005);
+    std::vector<float> out(size_t(std::max(n, 0)));
+    for (int i = 0; i < n; ++i) {
+        const double t = double(i) / sampleRate;
+        double a = 0.0631 * std::sin(2.0 * std::numbers::pi * f0 * T / k * (std::exp(t * k / T) - 1.0));   // -24 dBFS
+        if (i < fade) a *= 0.5 - 0.5 * std::cos(std::numbers::pi * i / fade);
+        if (n - 1 - i < fade) a *= 0.5 - 0.5 * std::cos(std::numbers::pi * (n - 1 - i) / fade);
+        out[size_t(i)] = float(a);
+    }
+    return out;
 }
 
 // HubEngine::HubEngine / ~HubEngine live in hub_friends.cpp (they need the friend players' full type)
@@ -30,6 +77,12 @@ bool HubEngine::connect(const std::string& busName) {
 }
 
 void HubEngine::disconnect() {
+    {
+        const std::lock_guard<std::mutex> lock(measureMutex_);   // a late probeStep must not write the stage after this
+        probeFeeder_.store(-1, std::memory_order_release);
+        probeStage_.store(0, std::memory_order_relaxed);
+        slotToMasterMs_.store(200.0f, std::memory_order_relaxed);
+    }
     BusLayout* b = bus_.exchange(nullptr, std::memory_order_acq_rel);
     if (b) releaseHub(*b, token_);
     if (shm_) retired_.push_back(std::move(shm_));
@@ -44,8 +97,10 @@ void HubEngine::maintain() {
     role_.store(owner ? Role::Owner : Role::Secondary, std::memory_order_release);
     if (owner) {
         reclaimDeadSlots(*b, kSlotStaleNs);
+        applyMemory(*b);
         if (beacon_) beaconPublish(beacon_->header());
     }
+    scanCountdown_ = 0;
 }
 
 void HubEngine::prepare(double sampleRate, int maxBlock) {
@@ -80,6 +135,8 @@ void HubEngine::prepare(double sampleRate, int maxBlock) {
     for (auto& l : limiters_) l.prepare(sampleRate_, 1.0, 120.0);
     loudness_.prepare(sampleRate_);
     master_.prepare(sampleRate_, 20.0);
+    friendMixGain_.prepare(sampleRate_, 20.0);
+    friendMixGain_.snap(1.0f);
     preview_.prepare(sampleRate_, 20.0);
     xfLen_ = uint32_t(std::max(16.0, sampleRate_ * 0.010));
     friendsPrepare();
@@ -90,6 +147,8 @@ void HubEngine::prepare(double sampleRate, int maxBlock) {
         s.panR.prepare(sampleRate_, 20.0); s.panR.snap(1.0f);
         s.mon.prepare(sampleRate_, 10.0);
     }
+    activeSlotsMask_.store(0, std::memory_order_relaxed);
+    scanCountdown_ = 0;
     outUsed_.fill(false);
     wasPlaying_ = false;
     expectedTime_ = kNoTime;
@@ -191,6 +250,11 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             if (bestLag(y.data(), x.data(), N, yStart, -Kneg, K, cum, ey, 0.3, lag)) { lagMs[size_t(i)] = std::max(0.0, (lag + lead) * msPerLag); ++measured; }
         }
 
+        if (measured > 0) {   // how long a sound takes from a Track to the master: the probe waits that long for its sweep
+            double slowestLag = 0.0;
+            for (double v : lagMs) slowestLag = std::max(slowestLag, v);
+            slotToMasterMs_.store(float(std::min(slowestLag, 500.0)), std::memory_order_relaxed);
+        }
         // two or more tracks: the latest one has no plug-in latency, the others are that much earlier
         if (measured >= 2) {
             double latest = 0;
@@ -210,6 +274,61 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             const double lineUp = slowest - double(bitsFloat(b->slots[i].chainLatencyBits.load(std::memory_order_relaxed)));
             const double m = std::max(0.0, lagMs[size_t(i)] - lineUp);
             out.masterMs = out.masterMs < 0.0 ? m : std::min(out.masterMs, m);
+        }
+
+        // ---- Friend echo & speaker leak detection (Phase 3.3) --------------------
+        std::vector<float> fMix;
+        copyLast(capFriendMix_.data(), fMix);
+        std::vector<double> cumMix(size_t(M) + 1, 0.0);
+        for (int k = 0; k < M; ++k)
+            cumMix[size_t(k) + 1] = cumMix[size_t(k)] + double(fMix[size_t(k)]) * fMix[size_t(k)];
+        const double eMix = cumMix[size_t(yStart + N)] - cumMix[size_t(yStart)];
+        const bool mixSound = eMix > double(N) * 1e-6;
+
+        std::vector<float> fMic;
+        std::vector<double> cumMic(size_t(M) + 1, 0.0);
+        for (int j = 0; j < kMaxFriends; ++j) {
+            FriendHeader& fh = b->friends[j];
+            const uint32_t fid = fh.id.load(std::memory_order_acquire);
+            if (fid == 0 || fh.state.load(std::memory_order_relaxed) != kFriendLive) {
+                friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+                friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+                continue;
+            }
+
+            copyLast(capFriends_.data() + size_t(j) * capLen_, fMic);
+            for (int k = 0; k < M; ++k)
+                cumMic[size_t(k) + 1] = cumMic[size_t(k)] + double(fMic[size_t(k)]) * fMic[size_t(k)];
+            const double eMic = cumMic[size_t(yStart + N)] - cumMic[size_t(yStart)];
+            const bool micSound = eMic > double(N) * 1e-6;
+
+            // (1) Speaker leak: mix sent to friend leaked back through friend's mic (score > 0.4 at positive lag)
+            if (mixSound && micSound) {
+                double lag = 0, score = 0;
+                if (bestLag(fMic.data(), fMix.data(), N, yStart, 0, K, cumMix, eMic, 0.4, lag, true, &score)) {
+                    friendInfo_[size_t(j)].leakDetected.store(1, std::memory_order_relaxed);
+                } else {
+                    friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+                }
+            } else if (micSound) {
+                friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+            }
+
+            // (2) Echo in master: friend's voice in master bus while route is Direct (score > 0.4)
+            if (fh.route.load(std::memory_order_relaxed) == kRouteDirect) {
+                if (sound && micSound) {
+                    double lag = 0, score = 0;
+                    if (bestLag(y.data(), fMic.data(), N, yStart, -Kneg, K, cumMic, ey, 0.4, lag, true, &score)) {
+                        friendInfo_[size_t(j)].echoInMaster.store(1, std::memory_order_relaxed);
+                    } else {
+                        friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+                    }
+                } else if (micSound) {
+                    friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+                }
+            } else {
+                friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+            }
         }
     }
 
@@ -231,6 +350,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 }
                 fh.outSlot.store(-1, std::memory_order_release);
             }
+            manualPair_[size_t(j)].store(0, std::memory_order_release);   // the friend input is gone: so is its choice
             continue;
         }
 
@@ -247,6 +367,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 }
                 fh.outSlot.store(-1, std::memory_order_release);
             }
+            manualPair_[size_t(j)].store(0, std::memory_order_release);
             continue;
         }
 
@@ -255,10 +376,27 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
         uint32_t feederColor = 0;
         readFeederIdentity(feeder, feederName, feederColor);
 
+        // 0. A pair chosen by hand wins, whatever the names say; it ends with its Track
+        if (const uint64_t word = manualPair_[size_t(j)].load(std::memory_order_acquire); word != 0) {
+            const int s = pairSlot(word);
+            if (s >= 0 && s < kMaxSlots && b->slots[s].state.load(std::memory_order_acquire) == kSlotActive
+                && !(b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) && pairWord(*b, s, fid) == word)
+                matchedSlot = s;
+            else if (uint64_t expected = word; manualPair_[size_t(j)].compare_exchange_strong(expected, 0, std::memory_order_acq_rel))
+                manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+        }
+
+        // a Track another friend input chose by hand is theirs: matching it by name or sound would flip fedBy between two friends
+        auto reserved = [&](int s) {
+            for (int k = 0; k < kMaxFriends; ++k)
+                if (k != j && pairSlot(manualPair_[size_t(k)].load(std::memory_order_acquire)) == s) return true;
+            return false;
+        };
+
         // 1. Fast match by track name
-        if (!feederName.empty()) {
+        if (matchedSlot < 0 && !feederName.empty()) {
             for (int s = 0; s < kMaxSlots; ++s) {
-                if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
+                if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive || reserved(s)) continue;
                 if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
                 std::string sName, sUuid;
                 uint32_t sColor = 0;
@@ -293,7 +431,7 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             if (matchedSlot < 0 && hasTapSound && fStart > 0) {
                 int tried = 0;
                 for (int s = 0; s < kMaxSlots && tried < 8; ++s) {
-                    if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive) continue;
+                    if (b->slots[s].state.load(std::memory_order_acquire) != kSlotActive || reserved(s)) continue;
                     if (b->slots[s].flags.load(std::memory_order_relaxed) & kFlagApp) continue;
                     ++tried;
 
@@ -314,6 +452,8 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
         // 3. Measure Li and publish pairing
         if (matchedSlot >= 0) {
             SlotHeader& slot = b->slots[matchedSlot];
+            const uint32_t probed = manualLi_[size_t(j)].load(std::memory_order_relaxed);
+            const double fallbackLi = probed != 0 ? double(probed - 1) * 0.01 : double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
             double li = 0.0;
             if (hasTapSound && fStart > 0 && !fTap.empty()) {
                 copyLast(capSlots_.data() + size_t(matchedSlot) * capLen_, x);
@@ -323,27 +463,13 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
                 if (bestLag(x.data(), fTap.data(), tapN, fStart, 0, Ktap, cumTap, eySlot, 0.5, lag, false, &score)) {
                     li = std::max(0.0, lag * msPerLag);
                 } else {
-                    li = double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
+                    li = fallbackLi;
                 }
             } else {
-                li = double(bitsFloat(slot.chainLatencyBits.load(std::memory_order_relaxed)));
+                li = fallbackLi;
             }
 
-            const int oldS = fh.outSlot.load(std::memory_order_relaxed);
-            if (oldS >= 0 && oldS < kMaxSlots && oldS != matchedSlot) {
-                if (b->slots[oldS].fedBy.load(std::memory_order_relaxed) == fid) {
-                    b->slots[oldS].fedBy.store(0, std::memory_order_release);
-                    b->slots[oldS].fxLatencyBits.store(0, std::memory_order_relaxed);
-                    b->slots[oldS].flags.fetch_and(~kFlagViewersViaHub, std::memory_order_release);
-                }
-            }
-
-            fh.outSlot.store(matchedSlot, std::memory_order_release);
-            slot.fedBy.store(fid, std::memory_order_release);
-            slot.fxLatencyBits.store(floatBits(float(li)), std::memory_order_relaxed);
-            // always through the Hub (Line up or not): only the Hub can keep the friend out of the
-            // mix that friends hear. Line up off = D is 0, so the friend is simply not delayed.
-            slot.flags.fetch_or(kFlagViewersViaHub, std::memory_order_release);
+            publishPair(*b, fh, fid, matchedSlot, li);
         } else {
             const int oldS = fh.outSlot.load(std::memory_order_relaxed);
             if (oldS >= 0 && oldS < kMaxSlots) {
@@ -358,6 +484,213 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
     }
 
     return out;
+}
+
+bool HubEngine::pairWith(int feeder, uint32_t arg) {
+    BusLayout* b = bus();
+    if (b == nullptr || feeder < 0 || feeder >= kMaxFeeders) return false;
+    const uint32_t fid = b->feeders[feeder].friendId.load(std::memory_order_relaxed);
+    int j = -1;
+    for (int k = 0; k < kMaxFriends && fid != 0; ++k)
+        if (b->friends[k].id.load(std::memory_order_acquire) == fid) { j = k; break; }
+    if (j < 0 || b->friends[j].feeder.load(std::memory_order_acquire) != feeder) return false;   // not linked to the friend yet
+    if (arg == kPairAutomatic) {
+        manualPair_[size_t(j)].store(0, std::memory_order_release);
+        manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+        std::string name;
+        uint32_t colour = 0;
+        readFeederIdentity(b->feeders[feeder], name, colour);
+        const std::lock_guard<std::mutex> lock(memoryMutex_);
+        std::erase_if(memory_, [&](const PairMemory& m) { return m.feeder == name; });
+        return true;
+    }
+    if (arg >= uint32_t(kMaxSlots)) return false;
+    const SlotHeader& s = b->slots[arg];
+    if (s.state.load(std::memory_order_acquire) != kSlotActive || (s.flags.load(std::memory_order_relaxed) & kFlagApp)) return false;
+    if (const uint32_t by = s.fedBy.load(std::memory_order_relaxed); by != 0 && by != fid) return false;
+    for (int k = 0; k < kMaxFriends; ++k)   // another friend input already chose it
+        if (k != j && pairSlot(manualPair_[size_t(k)].load(std::memory_order_acquire)) == int(arg)) return false;
+    manualLi_[size_t(j)].store(0, std::memory_order_relaxed);
+    manualPair_[size_t(j)].store(pairWord(*b, int(arg), fid), std::memory_order_release);
+    remember(feeder, int(arg));
+    return true;
+}
+
+void HubEngine::remember(int feeder, int slot) {
+    BusLayout* b = bus();
+    if (b == nullptr) return;
+    PairMemory m;
+    uint32_t colour = 0;
+    std::string slotName;
+    if (!readFeederIdentity(b->feeders[feeder], m.feeder, colour) || !readSlotIdentity(b->slots[slot], slotName, m.slotUuid, colour) || m.slotUuid.empty()) return;
+    const std::lock_guard<std::mutex> lock(memoryMutex_);
+    std::erase_if(memory_, [&](const PairMemory& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });
+    memory_.push_back(std::move(m));
+}
+
+std::vector<HubEngine::PairMemory> HubEngine::pairMemory() const {
+    const std::lock_guard<std::mutex> lock(memoryMutex_);
+    return memory_;
+}
+
+void HubEngine::setPairMemory(std::vector<PairMemory> memory) {
+    const std::lock_guard<std::mutex> lock(memoryMutex_);
+    memory_ = std::move(memory);
+}
+
+void HubEngine::applyMemory(BusLayout& b) {
+    std::vector<PairMemory> memory = pairMemory();
+    const uint64_t now = nowNs();
+    for (const PairMemory& m : memory) {
+        for (int k = 0; k < kMaxFeeders; ++k) {
+            FeederRecord& f = b.feeders[k];
+            std::string name;
+            uint32_t colour = 0;
+            if (f.state.load(std::memory_order_acquire) != kSlotActive || now - f.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull
+                || !readFeederIdentity(f, name, colour) || name != m.feeder) continue;
+            const uint32_t fid = f.friendId.load(std::memory_order_relaxed);
+            int j = -1;
+            for (int q = 0; q < kMaxFriends && fid != 0; ++q)
+                if (b.friends[q].id.load(std::memory_order_acquire) == fid && b.friends[q].feeder.load(std::memory_order_acquire) == k) j = q;
+            if (j < 0 || manualPair_[size_t(j)].load(std::memory_order_acquire) != 0) continue;
+            for (int s = 0; s < kMaxSlots; ++s) {
+                std::string slotName, uuid;
+                if (b.slots[s].state.load(std::memory_order_acquire) != kSlotActive || !readSlotIdentity(b.slots[s], slotName, uuid, colour) || uuid != m.slotUuid) continue;
+                if (pairWith(k, uint32_t(s))) break;   // the same checks as by hand
+            }
+        }
+    }
+}
+
+bool HubEngine::startProbe(int feeder) {
+    BusLayout* b = bus();
+    if (b == nullptr || feeder < 0 || feeder >= kMaxFeeders) return false;
+    {
+        // the analysis windows are frame counts made for 44.1 / 48 kHz: above that the sweep may not fit them and the answer would be a false "not found"
+        const std::lock_guard<std::mutex> lock(measureMutex_);
+        if (sampleRate_ > 48000.5) return false;
+    }
+    const FeederRecord& f = b->feeders[feeder];
+    const uint32_t fid = f.friendId.load(std::memory_order_relaxed);
+    bool linked = false;
+    for (int j = 0; j < kMaxFriends && fid != 0; ++j)
+        linked = linked || (b->friends[j].id.load(std::memory_order_acquire) == fid && b->friends[j].feeder.load(std::memory_order_acquire) == feeder);
+    if (!linked || f.state.load(std::memory_order_acquire) != kSlotActive || nowNs() - f.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull) return false;
+    int none = -1;
+    return probeFeeder_.compare_exchange_strong(none, feeder, std::memory_order_acq_rel);
+}
+
+void HubEngine::endProbe(int feeder, uint32_t reply) {
+    if (BusLayout* b = bus()) {
+        uint32_t sweep = 2;
+        b->feeders[feeder].hubCommand.compare_exchange_strong(sweep, 0, std::memory_order_relaxed);   // a Track that wakes up later must not play it (1 = "bring back" stays)
+        postReply(b->feeders[feeder], reply);
+    }
+    probeStage_.store(0, std::memory_order_relaxed);
+    probeFeeder_.store(-1, std::memory_order_release);
+}
+
+void HubEngine::probeStep() {
+    const std::lock_guard<std::mutex> lock(measureMutex_);
+    const int fidx = probeFeeder_.load(std::memory_order_acquire);
+    BusLayout* b = bus();
+    if (fidx < 0) return;
+    if (b == nullptr) { probeFeeder_.store(-1, std::memory_order_release); return; }
+    if (capLen_ == 0) { endProbe(fidx, kReplyFailed); return; }   // the Hub is not ready: say so, it is not an old Hub
+    FeederRecord& feeder = b->feeders[fidx];
+    const uint32_t fid = feeder.friendId.load(std::memory_order_relaxed);
+    int j = -1;
+    for (int k = 0; k < kMaxFriends && fid != 0; ++k)
+        if (b->friends[k].id.load(std::memory_order_acquire) == fid) { j = k; break; }
+    const uint64_t now = nowNs();
+    const uint32_t w = capWrite_.load(std::memory_order_acquire);
+    const double rate = sampleRate_ / 4.0;
+    int stage = probeStage_.load(std::memory_order_relaxed);
+    if (stage == 0) { probeWallNs_ = now; probeFrom_ = w; }
+    // Stay silent until the sweep has left the Stream Mix: its way is (what is still to come of the sweep) + the Track's
+    // way to the master bus + the Line-up delay (frozen during a probe) + a margin. `pending` = frames of the sweep not yet heard.
+    auto hold = [&](int slot, double li, uint32_t pending) {
+        probeBest_ = slot;
+        probeLi_ = li;
+        probeWord_ = slot >= 0 ? pairWord(*b, slot, fid) : 0;
+        probeStage_.store(3, std::memory_order_relaxed);
+        uint32_t sweep = 2;
+        feeder.hubCommand.compare_exchange_strong(sweep, 0, std::memory_order_relaxed);   // no Track may start or go on with the sweep from now on
+        // from the clock after the correlation and the call-off, not from `w` read before them: they can take longer than a block
+        probeHoldTo_ = capWrite_.load(std::memory_order_acquire) + pending + uint32_t((double(slotToMasterMs_.load(std::memory_order_relaxed)) + lineUpMs()) * rate / 1000.0) + probeLeadIn(rate);
+    };
+    const bool lost = j < 0 || feeder.state.load(std::memory_order_acquire) != kSlotActive
+        || now - feeder.heartbeatNs.load(std::memory_order_relaxed) > 800'000'000ull;   // the feeder left, or the DAW stopped processing audio
+    if (stage < 3 && (lost || now - probeWallNs_ > 3'000'000'000ull + uint64_t(std::max(0.0, double(lineUpMs())) * 1e6))) {
+        if (stage < 2) endProbe(fidx, kReplyNoMatch);   // no sweep was asked for yet
+        else hold(-1, 0.0, probeListen(rate));               // it may be on its way: wait for it, then say no
+        return;
+    }
+    if (stage == 3 && now - probeWallNs_ > 10'000'000'000ull) { endProbe(fidx, kReplyNoMatch); return; }   // audio stuck: never stay silent for good
+    FriendHeader& fh = b->friends[std::max(j, 0)];
+    if (stage == 0) {
+        // a Track that carries this friend now would play the sweep to the other friends and the viewers
+        const int old = fh.outSlot.load(std::memory_order_relaxed);
+        unpairSlot(*b, old, fid);
+        fh.outSlot.store(-1, std::memory_order_release);
+        probeStage_.store(1, std::memory_order_relaxed);
+        return;
+    }
+    if (stage == 1) {
+        if (w - probeFrom_ < probeLeadIn(rate)) return;
+        feeder.hubCommand.store(2, std::memory_order_relaxed);
+        feeder.hubCommandSeq.fetch_add(1, std::memory_order_release);
+        probeFrom_ = w;
+        probeStage_.store(2, std::memory_order_relaxed);
+        return;
+    }
+    if (stage == 3) {
+        if (int32_t(w - probeHoldTo_) < 0) return;
+        const int s = probeBest_;
+        // the answer only counts while the same Track holds the slot and the same feeder is still there
+        if (lost || s < 0 || b->slots[s].state.load(std::memory_order_acquire) != kSlotActive || pairWord(*b, s, fid) != probeWord_) { endProbe(fidx, kReplyNoMatch); return; }
+        manualLi_[size_t(j)].store(uint32_t(std::lround(probeLi_ * 100.0)) + 1u, std::memory_order_relaxed);
+        manualPair_[size_t(j)].store(probeWord_, std::memory_order_release);
+        publishPair(*b, fh, fid, s, probeLi_);
+        remember(fidx, s);
+        endProbe(fidx, 1);
+        return;
+    }
+    if (w - probeFrom_ < probeListen(rate)) return;
+
+    // The sweep is in the feeder's tap and, if a chain leads to a Track, in that Track's history Li later.
+    const double msPerLag = 4000.0 / sampleRate_;
+    const int lead = int(std::lround(double(syncSafety_.load(std::memory_order_relaxed)) * lastBlock_.load(std::memory_order_relaxed) / 4.0));
+    const int N = 4200, K = std::min(1700, int(rate * 0.2)), Kneg = lead + 8;
+    const int M = N + K + Kneg;
+    const uint64_t tapW = feeder.tapWrite.load(std::memory_order_acquire);
+    if (M > kTapFrames || tapW < uint64_t(M) || w < uint32_t(M) || uint32_t(M) + 4096u > capLen_) { hold(-1, 0.0, 0); return; }
+    std::vector<float> tap(static_cast<size_t>(M)), x(static_cast<size_t>(M));
+    std::vector<double> cumTap(size_t(M) + 1, 0.0);
+    for (int k = 0; k < M; ++k) {
+        tap[size_t(k)] = b->feederTap[fidx].mono[(tapW - uint64_t(M) + uint64_t(k)) % kTapFrames];
+        cumTap[size_t(k) + 1] = cumTap[size_t(k)] + double(tap[size_t(k)]) * tap[size_t(k)];
+    }
+    const int yStart = M - Kneg - N;
+    int best = -1;
+    double bestScore = 0.5, bestLagFrames = 0.0;   // the threshold the plan asks for
+    for (int s = 0; s < kMaxSlots; ++s) {
+        const SlotHeader& sh = b->slots[s];
+        if (sh.state.load(std::memory_order_acquire) != kSlotActive || (sh.flags.load(std::memory_order_relaxed) & kFlagApp)) continue;
+        if (const uint32_t by = sh.fedBy.load(std::memory_order_relaxed); by != 0 && by != fid) continue;
+        bool taken = false;
+        for (int k = 0; k < kMaxFriends; ++k)
+            taken = taken || (k != j && pairSlot(manualPair_[size_t(k)].load(std::memory_order_acquire)) == s);
+        if (taken) continue;
+        const float* ring = capSlots_.data() + size_t(s) * capLen_;
+        for (int i = 0; i < M; ++i) x[size_t(i)] = ring[(w - uint32_t(M) + uint32_t(i)) % capLen_];
+        double ey = 0.0;
+        for (int i = yStart; i < yStart + N; ++i) ey += double(x[size_t(i)]) * x[size_t(i)];
+        if (ey < double(N) * 1e-6) continue;   // this Track is silent for the viewers right now
+        double lag = 0.0, score = 0.0;
+        if (bestLag(x.data(), tap.data(), N, yStart, 0, K, cumTap, ey, bestScore, lag, false, &score, 1)) { best = s; bestScore = score; bestLagFrames = lag; }
+    }
+    hold(best, best < 0 ? 0.0 : std::max(0.0, bestLagFrames * msPerLag), 0);
 }
 
 std::optional<double> HubEngine::measureLag(int slot, double minScore, bool anyPolarity, bool source, double* score, bool faint,
@@ -522,11 +855,38 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     // and the plug-ins above the Hub have already processed it.
     for (int c = 0; c < 2; ++c) std::memcpy(outs_[0][size_t(c)].data(), io[std::min(c, numCh - 1)], size_t(n) * sizeof(float));
 
+    // ---- update active slot bitmask ---------------------------------------------------------
+    // Refresh bitmask periodically (every 16 blocks) or on reanchor to discover newly claimed slots.
+    // Inactive slots found during loop processing are cleared from the bitmask immediately.
+    uint64_t activeMask = activeSlotsMask_.load(std::memory_order_relaxed);
+    if (reanchorAll || scanCountdown_ == 0) {
+        scanCountdown_ = 16;
+        activeMask = 0;
+        for (int i = 0; i < kMaxSlots; ++i) {
+            if (b->slots[i].state.load(std::memory_order_acquire) == kSlotActive) {
+                activeMask |= (uint64_t(1) << i);
+            } else if (slots_[i].known) {
+                slots_[i].known = false; slots_[i].needAnchor = true; slots_[i].xfActive = false;
+                slots_[i].gain.snap(0.0f); slots_[i].mon.snap(0.0f);
+            }
+        }
+        activeSlotsMask_.store(activeMask, std::memory_order_relaxed);
+    } else {
+        --scanCountdown_;
+    }
+
     // ---- solo (stems follow the viewers' solo like the Tracks do) ----------------------------
     bool soloActive = false;
-    for (int i = 0; i < kMaxSlots; ++i) {
+    uint64_t soloMask = activeMask;
+    while (soloMask != 0) {
+        const int i = std::countr_zero(soloMask);
+        soloMask &= (soloMask - 1);
         const SlotHeader& sh = b->slots[i];
-        if (sh.state.load(std::memory_order_acquire) != kSlotActive) continue;
+        if (sh.state.load(std::memory_order_acquire) != kSlotActive) {
+            activeMask &= ~(uint64_t(1) << i);
+            activeSlotsMask_.store(activeMask, std::memory_order_relaxed);
+            continue;
+        }
         const uint32_t f = sh.flags.load(std::memory_order_relaxed);
         if ((f & kFlagSolo) && (f & kFlagStr) && sh.sampleRate.load(std::memory_order_relaxed) == sr) { soloActive = true; break; }
     }
@@ -539,10 +899,15 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     float* A[2] = { tmpA_[0].data(), tmpA_[1].data() };
     float* B[2] = { tmpB_[0].data(), tmpB_[1].data() };
 
-    for (int i = 0; i < kMaxSlots; ++i) {
+    uint64_t slotIter = activeMask;
+    while (slotIter != 0) {
+        const int i = std::countr_zero(slotIter);
+        slotIter &= (slotIter - 1);
         SlotHeader& sh = b->slots[i];
         SlotState& s = slots_[i];
         if (sh.state.load(std::memory_order_acquire) != kSlotActive) {
+            activeMask &= ~(uint64_t(1) << i);
+            activeSlotsMask_.store(activeMask, std::memory_order_relaxed);
             if (s.known) { s.known = false; s.needAnchor = true; s.xfActive = false; s.gain.snap(0.0f); s.mon.snap(0.0f); }
             continue;
         }
@@ -655,12 +1020,16 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         // ---- headphones: You Hear + Headphone Level (a bypassed Track passes its audio) -------
         s.mon.setTarget((f & kFlagBypassed) ? 1.0f
                         : (f & kFlagMon) ? ssdsp::dbToGain(bitsFloat(sh.monTrimBits.load(std::memory_order_relaxed))) : 0.0f);
-        if (s.mon.isSmoothing() || s.mon.current() > 0.0f) {
+        if (s.mon.isSmoothing()) {
             for (int j = 0; j < n; ++j) {
                 const float gm = s.mon.next();
                 phones_[0][size_t(j)] += A[0][j] * gm;
                 phones_[1][size_t(j)] += A[1][j] * gm;
             }
+        } else if (s.mon.current() > 0.0f) {
+            const float gm = s.mon.current();
+            ssdsp::vectorAddScaled(phones_[0].data(), A[0], gm, n);
+            ssdsp::vectorAddScaled(phones_[1].data(), A[1], gm, n);
         }
 
         // ---- stems + per-track viewers meter: gain / pan / solo / panic ----------------------
@@ -723,12 +1092,12 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     }
 
     // ---- history for measuring the master plug-ins' latency ----------------------------------
+    const uint32_t w0 = capLen_ > 0 ? capWrite_.load(std::memory_order_relaxed) : 0u;
+    const int phase = decCount_;
+    uint32_t w = w0;
     if (capLen_ > 0) {
         // Each history sample sums 4 input samples. The work is per live slot rather than
         // every slot x every sample (64 x 2048 branchy iterations per block before).
-        const uint32_t w0 = capWrite_.load(std::memory_order_relaxed);
-        const int phase = decCount_;
-        uint32_t w = w0;
         {
             const float* l = outs_[0][0].data();
             const float* r = outs_[0][1].data();
@@ -805,14 +1174,17 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             quiet_[size_t(i)] += w - w0;
             decSlot_[size_t(i)] = 0.0f;
         }
+    }
+
+    const bool probeMute = probeFeeder_.load(std::memory_order_relaxed) >= 0;   // the Hub is listening for the sweep
+    // ---- friends: headphones + Stream Mix (after the Line-up delay, before the limiter) ------------
+    friendsMix(n, p, used, soloActive, timeSamples, playing, w0, w, phase);
+    if (capLen_ > 0) {
         capWrite_.store(w, std::memory_order_release);
     }
 
-    // ---- friends: headphones + Stream Mix (after the Line-up delay, before the limiter) ------------
-    friendsMix(n, p, used, soloActive);
-
     // ---- master gain, limiter, meters, write ------------------------------------------------
-    master_.setTarget(p.panic || p.silence ? 0.0f : ssdsp::dbToGain(p.masterDb));
+    master_.setTarget(p.panic || p.silence || probeMute ? 0.0f : ssdsp::dbToGain(p.masterDb));
     float* mg = tmpB_[0].data();
     for (int j = 0; j < n; ++j) mg[j] = master_.next();
 
@@ -824,7 +1196,8 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         float* r = outs_[o][1].data();
         if (used[size_t(o)]) {
             if (!outUsed_[size_t(o)]) limiters_[size_t(o)].reset();
-            for (int j = 0; j < n; ++j) { l[j] *= mg[j]; r[j] *= mg[j]; }
+            ssdsp::vectorMultiply(l, mg, n);
+            ssdsp::vectorMultiply(r, mg, n);
             limiters_[size_t(o)].setCeiling(ceiling);
             limiters_[size_t(o)].process(l, r, n, p.limiterOn);
         }
@@ -843,7 +1216,7 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
 
     // ---- output: the headphone mix, or the Stream Mix while previewing (20 ms crossfade) -----
     for (int c = 0; c < numCh; ++c) std::memcpy(io[c], phones_[size_t(std::min(c, 1))].data(), size_t(n) * sizeof(float));
-    preview_.setTarget(p.preview ? 1.0f : 0.0f);
+    preview_.setTarget(p.preview && !probeMute ? 1.0f : 0.0f);
     if (preview_.isSmoothing() || preview_.current() > 0.0f) {
         for (int j = 0; j < n; ++j) {
             const float a = preview_.next();

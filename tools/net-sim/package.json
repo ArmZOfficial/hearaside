@@ -1,0 +1,7 @@
+{
+  "name": "hearaside-net-sim",
+  "private": true,
+  "type": "module",
+  "main": "net-sim.mjs",
+  "description": "A bad internet line in front of the Hub, for tests and by hand. No dependencies."
+}

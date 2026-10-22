@@ -519,3 +519,57 @@ TEST_CASE("e2e: adaptive buffer settles low (5 ms ticks, 256-frame DAW blocks) w
     CHECK_LT(st.targetMs, 18.0);
     CHECK_NEAR(st.bufferMs, st.targetMs, 2.0);
 }
+
+TEST_CASE("engine: active slot bitmask tracks active tracks and clears deactivated slots") {
+    const std::string bus = uniqueBus("bitmask");
+    HubEngine hub;
+    REQUIRE(hub.connect(bus));
+    hub.prepare(48000, 256);
+    hub.maintain();
+
+    // Initially no slots active
+    float in[256] = { 0 };
+    float* io[2] = { in, in };
+    hub.process(io, 2, 256, HubParams{}, 0, true, false);
+    CHECK(hub.activeSlotsMask() == 0);
+
+    // Connect Track 1
+    TrackPublisher t1;
+    CHECK(t1.connect(bus, "track-1-uuid", 48000, 1) == TrackPublisher::Status::Connected);
+    t1.prepare(48000, 1);
+    const int s1 = t1.slotIndex();
+    CHECK(s1 >= 0 && s1 < 64);
+
+    // Process a block in hub to scan
+    hub.maintain();
+    hub.process(io, 2, 256, HubParams{}, 256, true, false);
+    CHECK((hub.activeSlotsMask() & (uint64_t(1) << s1)) != 0);
+
+    // Connect Track 2
+    TrackPublisher t2;
+    CHECK(t2.connect(bus, "track-2-uuid", 48000, 1) == TrackPublisher::Status::Connected);
+    t2.prepare(48000, 1);
+    const int s2 = t2.slotIndex();
+    CHECK(s2 >= 0 && s2 < 64);
+    CHECK(s1 != s2);
+
+    hub.maintain();
+    hub.process(io, 2, 256, HubParams{}, 512, true, false);
+    CHECK((hub.activeSlotsMask() & (uint64_t(1) << s1)) != 0);
+    CHECK((hub.activeSlotsMask() & (uint64_t(1) << s2)) != 0);
+    const uint64_t expectedMask = (uint64_t(1) << s1) | (uint64_t(1) << s2);
+    CHECK(hub.activeSlotsMask() == expectedMask);
+
+    // Disconnect Track 1
+    t1.disconnect();
+
+    // Next hub.process should immediately clear s1 from activeSlotsMask
+    hub.process(io, 2, 256, HubParams{}, 768, true, false);
+    CHECK((hub.activeSlotsMask() & (uint64_t(1) << s1)) == 0);
+    CHECK((hub.activeSlotsMask() & (uint64_t(1) << s2)) != 0);
+
+    // Disconnect Track 2
+    t2.disconnect();
+    hub.process(io, 2, 256, HubParams{}, 1024, true, false);
+    CHECK(hub.activeSlotsMask() == 0);
+}

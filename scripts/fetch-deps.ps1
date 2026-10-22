@@ -16,11 +16,27 @@ try {
     if (-not (Test-Path speexdsp)) {
         git clone --depth 1 https://github.com/xiph/speexdsp.git speexdsp
     }
+    if (-not (Test-Path opus)) {
+        git -c advice.detachedHead=false clone --depth 1 --branch v1.5.2 https://github.com/xiph/opus.git opus
+    }
+    if (-not (Test-Path mbedtls)) {
+        git -c advice.detachedHead=false clone --depth 1 --branch v3.6.2 --recurse-submodules --shallow-submodules https://github.com/Mbed-TLS/mbedtls.git mbedtls
+    }
+    if (-not (Test-Path libdatachannel)) {
+        git -c advice.detachedHead=false clone --depth 1 --branch v0.22.5 --recurse-submodules --shallow-submodules https://github.com/paullouisageneau/libdatachannel.git libdatachannel
+    }
     # Local fixes to third-party code (idempotent: skipped when already applied)
     foreach ($patch in Get-ChildItem (Join-Path $PSScriptRoot 'patches') -Filter 'juce-*.patch' -ErrorAction SilentlyContinue) {
         git -C JUCE apply --reverse --check $patch.FullName 2>$null
         if ($LASTEXITCODE -eq 0) { continue }
         git -C JUCE apply $patch.FullName
+        if ($LASTEXITCODE) { throw "could not apply $($patch.Name)" }
+        "applied $($patch.Name)"
+    }
+    foreach ($patch in Get-ChildItem (Join-Path $PSScriptRoot 'patches') -Filter 'libdatachannel-*.patch' -ErrorAction SilentlyContinue) {
+        git -C libdatachannel apply --reverse --check $patch.FullName 2>$null
+        if ($LASTEXITCODE -eq 0) { continue }
+        git -C libdatachannel apply $patch.FullName
         if ($LASTEXITCODE) { throw "could not apply $($patch.Name)" }
         "applied $($patch.Name)"
     }

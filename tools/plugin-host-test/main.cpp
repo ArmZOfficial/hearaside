@@ -258,6 +258,82 @@ std::vector<uint8_t> pcmPacket(int frames, int64_t t0, float amp) {
     return p;
 }
 
+// The Hub's saved state as XML. VST3 hosts keep the plug-in's own binary state, base64, inside an <IComponent> element.
+// VST2 hosts keep it as an FXB bank chunk starting with "CcnK" at offset 160.
+struct HubState {
+    std::unique_ptr<juce::XmlElement> outer, plugin;
+    juce::XmlElement* comp = nullptr;
+    bool isFxb = false;
+    juce::MemoryBlock fxbHeader;
+
+    explicit HubState(juce::AudioPluginInstance& hub) {
+        juce::MemoryBlock mb;
+        hub.getStateInformation(mb);
+        if (mb.getSize() >= 160 && std::memcmp(mb.getData(), "CcnK", 4) == 0) {
+            const auto* p = static_cast<const uint8_t*>(mb.getData());
+            const uint32_t chunkSize = (uint32_t(p[156]) << 24) | (uint32_t(p[157]) << 16) | (uint32_t(p[158]) << 8) | uint32_t(p[159]);
+            if (mb.getSize() >= 160 + chunkSize) {
+                isFxb = true;
+                fxbHeader.replaceWith(mb.getData(), 160);
+                plugin = juce::AudioProcessor::getXmlFromBinary(p + 160, int(chunkSize));
+                return;
+            }
+        }
+        outer = juce::AudioProcessor::getXmlFromBinary(mb.getData(), int(mb.getSize()));
+        comp = outer ? outer->getChildByName("IComponent") : nullptr;
+        if (comp == nullptr) { plugin = std::move(outer); return; }
+        juce::MemoryBlock inner;
+        if (inner.fromBase64Encoding(comp->getAllSubText().trim())) plugin = juce::AudioProcessor::getXmlFromBinary(inner.getData(), int(inner.getSize()));
+    }
+    void load(juce::AudioPluginInstance& hub) {
+        juce::MemoryBlock out;
+        juce::AudioProcessor::copyXmlToBinary(*plugin, out);
+        if (isFxb && fxbHeader.getSize() == 160) {
+            juce::MemoryBlock fxb = fxbHeader;
+            auto* p = static_cast<uint8_t*>(fxb.getData());
+            const uint32_t newChunkSize = uint32_t(out.getSize());
+            p[156] = uint8_t(newChunkSize >> 24); p[157] = uint8_t(newChunkSize >> 16); p[158] = uint8_t(newChunkSize >> 8); p[159] = uint8_t(newChunkSize);
+            const uint32_t totalSize = uint32_t(160 - 8 + out.getSize());
+            p[4] = uint8_t(totalSize >> 24); p[5] = uint8_t(totalSize >> 16); p[6] = uint8_t(totalSize >> 8); p[7] = uint8_t(totalSize);
+            fxb.append(out.getData(), out.getSize());
+            hub.setStateInformation(fxb.getData(), int(fxb.getSize()));
+            return;
+        }
+        if (comp != nullptr) {
+            const auto b64 = out.toBase64Encoding();
+            comp->deleteAllTextElements();
+            comp->addTextElement(b64);
+            out.reset();
+            juce::AudioProcessor::copyXmlToBinary(*outer, out);
+        }
+        hub.setStateInformation(out.getData(), int(out.getSize()));
+    }
+};
+
+void testPairState(Rig& rig) {
+    HubState in(*rig.hub);
+    check(in.plugin != nullptr, "the Hub's saved state can be read");
+    if (in.plugin == nullptr) return;
+    in.plugin->deleteAllChildElementsWithTagName("PAIRS");
+    auto* pairs = in.plugin->createNewChildElement("PAIRS");
+    const char* rows[][2] = { { "Lead Vocal", "uuid-a" }, { "", "uuid-b" }, { "Harmony", "" }, { "Backing", "uuid-c" }, { "Lead Vocal", "uuid-d" }, { "Pad", "uuid-a" } };
+    for (auto& r : rows) {
+        auto* p = pairs->createNewChildElement("PAIR");
+        p->setAttribute("feeder", r[0]);
+        p->setAttribute("slot", r[1]);
+    }
+    in.load(*rig.hub);
+    pump(50);
+    HubState out(*rig.hub);
+    const auto* saved = out.plugin ? out.plugin->getChildByName("PAIRS") : nullptr;
+    // the newest of two rows that share a feeder or a Track stays; empty rows go
+    const char* want[][2] = { { "Backing", "uuid-c" }, { "Lead Vocal", "uuid-d" }, { "Pad", "uuid-a" } };
+    bool same = saved != nullptr && saved->getNumChildElements() == 3;
+    for (int i = 0; same && i < 3; ++i)
+        same = saved->getChildElement(i)->getStringAttribute("feeder") == want[i][0] && saved->getChildElement(i)->getStringAttribute("slot") == want[i][1];
+    check(same, "pairs of the project survive save / restore: empty and older clashing rows are dropped, the newest stay");
+}
+
 void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm, const char* appPath) {
     ssbus::postRemote(L, ssbus::RemoteParam::Share, 1.0f);
     pump(400);
@@ -315,6 +391,9 @@ void testShare(Rig& rig, ssbus::BusLayout& L, juce::AudioPluginFormatManager& fm
         for (int i = 0; i < 4; ++i) rig.block(0.5f, 0.0f);
         std::vector<uint8_t> f;
         while (lis.s.waitUntilReady(true, 15) == 1 && lis.frame(f) && f.size() >= 16) {
+            uint32_t magic = 0;
+            std::memcpy(&magic, f.data(), 4);
+            if (magic != 0x31415248) continue;   // ignore hello JSON or control frames
             std::memcpy(&rate, f.data() + 4, 4);
             const auto* s = reinterpret_cast<const int16_t*>(f.data() + 16);
             for (size_t i = 0; i < (f.size() - 16) / 2; ++i) got = std::max(got, std::abs(s[i]) / 32768.0f);
@@ -504,7 +583,7 @@ void testAppAudio(juce::AudioPluginFormatManager& fm, const juce::String& path, 
     const auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("HEARASIDE").getChildFile("Recordings");
     juce::File take;
     for (const auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.wav"))
-        if (take == juce::File() || f.getLastModificationTime() > take.getLastModificationTime()) take = f;
+        if (f.getSize() > 1024 && (take == juce::File() || f.getLastModificationTime() > take.getLastModificationTime())) take = f;
     check(take.existsAsFile(), "a take is printed while the DAW records");
     if (take.existsAsFile()) {
         juce::WavAudioFormat wav;
@@ -661,6 +740,7 @@ int main(int argc, char** argv) {
         if (slotB >= 0) testAutoSyncApp(rig, L, slotB);
         if (slotB >= 0) testAutoSyncApp(rig, L, slotB, -1488);   // 31 ms early (the Track delay has 1 ms steps)
     }
+    testPairState(rig);
     testShare(rig, L, fm, argc > 3 ? argv[3] : nullptr);
     if (argc > 3) testAppAudio(fm, argv[3], L);
 

@@ -81,13 +81,17 @@ void TrackProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     delayLine_.clear();
     delayWrite_ = 0;
     pub_.prepare(uint32_t(sampleRate_ + 0.5), uint32_t(numChannels_));
-    friendChunk_ = juce::jmax(2048, samplesPerBlock);
+    // the real block size: the reader starts its jitter buffer at one block + network headroom, so a
+    // fixed 2048 here cost ~30 ms at block 256. Bigger blocks than announced are pulled in chunks.
+    friendChunk_ = juce::jmax(16, samplesPerBlock);
     reader_.prepare(sampleRate_, friendChunk_);
     for (auto& v : friendScratch_) v.assign(size_t(friendChunk_), 0.0f);
     friendGain_.reset(sampleRate_, 0.020);
     friendGain_.setCurrentAndTargetValue(0.0f);
     tapSum_ = 0.0f;
     tapPhase_ = 0;
+    probeSig_ = ssengine::probeSweep(sampleRate_);
+    probePos_ = -1;
     if (auto* f = feeder_.load(std::memory_order_relaxed))
         f->sampleRate.store(uint32_t(sampleRate_ + 0.5), std::memory_order_relaxed);
 }
@@ -126,6 +130,18 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
         f->blockCount.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // the Hub asks for its probe sweep: read here, not in the timer, so it starts at once and the Hub can time its listening.
+    // Read before every early return: a command that waited out a bypass would play the sweep unmuted later.
+    const bool canProbe = !(bypassed || offline) && f != nullptr && b != nullptr && friendId_.load(std::memory_order_relaxed) != 0;
+    if (f != nullptr) {
+        const uint32_t cs = f->hubCommandSeq.load(std::memory_order_acquire);
+        if (cs != probeSeq_.load(std::memory_order_relaxed)) {
+            probeSeq_.store(cs, std::memory_order_relaxed);
+            if (canProbe && f->hubCommand.load(std::memory_order_relaxed) == 2 && !probeSig_.empty()) probePos_ = 0;
+        }
+    }
+    if (!canProbe || (probePos_ >= 0 && f->hubCommand.load(std::memory_order_relaxed) != 2)) probePos_ = -1;   // the Hub called the sweep off
+
     // Silence on bypass or offline render
     if (bypassed || offline) {
         if (f != nullptr) {
@@ -153,6 +169,15 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
             friendSlot = s;
             break;
         }
+    }
+
+    if (friendSlot < 0) probePos_ = -1;   // the friend left: the rest of the sweep would play later, unmuted
+    if (probePos_ >= 0) {   // the voice waits: the tap must hold the sweep alone
+        reader_.reset();
+        if (!keepOwn) buffer.clear();
+        f->status.store(ssbus::kFeederFlowing, std::memory_order_relaxed);
+        playProbe(buffer, n);
+        return;
     }
 
     if (friendSlot < 0 || b->friends[friendSlot].state.load(std::memory_order_acquire) != ssbus::kFriendLive) {
@@ -220,6 +245,34 @@ void TrackProcessor::processFriend(juce::AudioBuffer<float>& buffer, bool bypass
     if (tap != nullptr) {
         f->tapWrite.store(tw, std::memory_order_release);
     }
+}
+
+// The probe sweep at unity gain even though nothing is paired, and into the tap the Hub compares the Tracks with.
+void TrackProcessor::playProbe(juce::AudioBuffer<float>& buffer, int n) noexcept {
+    auto* f = feeder_.load(std::memory_order_acquire);
+    auto* b = feederBus_.load(std::memory_order_acquire);
+    const int fidx = feederIndex_.load(std::memory_order_relaxed);
+    auto* tap = f != nullptr && b != nullptr && fidx >= 0 && fidx < ssbus::kMaxFeeders ? &b->feederTap[fidx] : nullptr;
+    uint64_t tw = f != nullptr ? f->tapWrite.load(std::memory_order_relaxed) : 0;
+    const int chans = juce::jmin(buffer.getNumChannels(), 2);
+    for (int i = 0; i < n; ++i) {
+        float s = 0.0f;
+        if (probePos_ >= 0) {
+            s = probeSig_[size_t(probePos_)];
+            if (++probePos_ >= int(probeSig_.size())) probePos_ = -1;
+        }
+        for (int c = 0; c < chans; ++c) buffer.getWritePointer(c)[i] += s;
+        if (tap != nullptr) {
+            tapSum_ += s;
+            if (++tapPhase_ >= ssbus::kTapDecimation) {
+                tap->mono[tw % ssbus::kTapFrames] = tapSum_ * (1.0f / float(ssbus::kTapDecimation));
+                ++tw;
+                tapSum_ = 0.0f;
+                tapPhase_ = 0;
+            }
+        }
+    }
+    if (tap != nullptr) f->tapWrite.store(tw, std::memory_order_release);
 }
 
 void TrackProcessor::processTrack(juce::AudioBuffer<float>& buffer, bool bypassed, int n, int numCh) {
@@ -332,6 +385,7 @@ void TrackProcessor::connectFeeder() {
     f->friendId.store(fid, std::memory_order_relaxed);
     f->sampleRate.store(uint32_t(sampleRate_ + 0.5), std::memory_order_relaxed);
     f->status.store(fid == 0 ? ssbus::kFeederNoFriend : ssbus::kFeederFlowing, std::memory_order_relaxed);
+    probeSeq_.store(f->hubCommandSeq.load(std::memory_order_relaxed), std::memory_order_relaxed);   // a probe asked of the last owner is not ours
     feeder_.store(f, std::memory_order_release);
     pushFeederIdentity();
     stateChanged.sendChangeMessage();
@@ -422,6 +476,24 @@ void TrackProcessor::requestCopyLink(uint32_t fid) {
     if (b && idx >= 0) {
         pendingRequest_ = ssbus::kReqCopyLink;
         ssbus::postRequest(*b, idx, ssbus::kReqCopyLink, fid, {});
+    }
+}
+
+void TrackProcessor::requestProbe() {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqProbe;
+        ssbus::postRequest(*b, idx, ssbus::kReqProbe, 0, {});
+    }
+}
+
+void TrackProcessor::requestPairWith(uint32_t slot) {
+    auto* b = feederBus_.load(std::memory_order_relaxed);
+    const int idx = feederIndex_.load(std::memory_order_relaxed);
+    if (b && idx >= 0) {
+        pendingRequest_ = ssbus::kReqPairWith;
+        ssbus::postRequest(*b, idx, ssbus::kReqPairWith, slot, {});
     }
 }
 

@@ -20,6 +20,10 @@ namespace ssengine {
 
 constexpr int64_t kNoTime = INT64_MIN;
 
+// The sweep a friend input plays when the Hub probes it (300 ms, logarithmic, -24 dBFS peak): one definition for the
+// Track that plays it and the tests that stand in for a DAW chain.
+std::vector<float> probeSweep(double sampleRate);
+
 // =============================================================================================
 // TrackPublisher - lives in every HEARASIDE Track instance.
 
@@ -132,6 +136,7 @@ public:
     struct SourceReadStats { int64_t leadMin = 0, leadMax = 0; uint32_t jumps = 0, blocks = 0; };
     SourceReadStats takeSourceReadStats(int index) noexcept;
     int lastBlockSize() const noexcept { return lastBlock_.load(std::memory_order_relaxed); }
+    uint64_t activeSlotsMask() const noexcept { return activeSlotsMask_.load(std::memory_order_relaxed); }
 
     // ---- friends room (S2 / S4) ---------------------------------------------------------
     // What the Hub does with each friend (set from the message thread, read on the audio thread).
@@ -148,6 +153,11 @@ public:
         std::atomic<uint32_t> totalMsBits{ 0 };   // how late this friend is against the music, all included (ms)
         std::atomic<uint32_t> lineMsBits{ 0 };    // extra delay the Hub gives this friend so they line up (ms)
         std::atomic<uint32_t> overLimit{ 0 };     // slower than the Line-up limit: not counted in D
+        std::atomic<uint32_t> underruns{ 0 };     // short gaps the jitter buffer had to hide (counters restart when no packet came for 0.8 s)
+        std::atomic<uint32_t> concealedMs{ 0 };   // silence played for them (gaps + restarts), ms
+        std::atomic<uint32_t> jitterP95MsBits{ 0 }; // how late packets arrive over the last ~5 s, p95 (ms, 0 = not measured yet)
+        std::atomic<uint32_t> leakDetected{ 0 };    // speaker leak detected (friendMix leaked into friend mic)
+        std::atomic<uint32_t> echoInMaster{ 0 };    // friend voice present in master bus while route is Direct
     };
     FriendControl& friendControl(int i) noexcept { return friendCtl_[size_t(i)]; }
     const FriendInfo& friendInfo(int i) const noexcept { return friendInfo_[size_t(i)]; }
@@ -160,6 +170,34 @@ public:
     int   lineUpSlowest() const noexcept { return lineUpSlowest_.load(std::memory_order_relaxed); }                // friend index or -1
     // The Line-up delay changed (ms): lets the Hub say so on screen. Counts changes; read lineUpMs() for the value.
     uint32_t lineUpChanges() const noexcept { return lineUpChanges_.load(std::memory_order_relaxed); }
+
+    // Audio tap for recording / metering friends: called on the audio thread during friendsMix.
+    using FriendTap = void (*)(void* user, int friendIndex, const float* const* ch, int n, int64_t timeSamples, bool playing) noexcept;
+    void setFriendTap(FriendTap tap, void* user) noexcept {
+        friendTap_ = tap;
+        friendTapUser_ = user;
+    }
+
+    // ---- pairing a friend input with the Track at the end of its channel (S7) --------------
+    // Message thread. By hand: arg = slot of that Track, or ssbus::kPairAutomatic to let the Hub find it by name /
+    // sound again. false = refused (no such friend input, the slot is not an active Track, an App Audio, or it
+    // already carries another friend). A manual pair is kept until its Track or the friend input goes away.
+    bool pairWith(int feeder, uint32_t arg);
+    // Pairs chosen by hand or found by the probe are remembered by the friend input's track name and the Track's uuid,
+    // so the project can keep them: pairMemory() is what to save, setPairMemory() gives it back on load, and
+    // maintain() pairs again whenever both are there (the DAW loads its plug-ins one by one, or wakes a resting track).
+    struct PairMemory { std::string feeder, slotUuid; };
+    std::vector<PairMemory> pairMemory() const;
+    void setPairMemory(std::vector<PairMemory> memory);
+
+    // Probe: find the Track at the end of a friend input's channel by sound. startProbe (message thread) silences the
+    // Stream Mix and what friends hear; probeStep (latency thread, every ~20 ms while probing()) then makes the feeder
+    // play the sweep, looks for it in the Tracks that carry no friend, stores the best as a manual pair and answers the
+    // feeder (reply 1 = paired, kReplyNoMatch = not found). Over after about half a second. false = refused (not a
+    // linked friend input, or a probe is already running).
+    bool startProbe(int feeder);
+    bool probing() const noexcept { return probeFeeder_.load(std::memory_order_acquire) >= 0; }
+    void probeStep();
 
     // ---- audio thread -------------------------------------------------------------------
     // io in: the master bus = Stream Mix. io out: the headphone mix. Writes Stream Mix + stems.
@@ -193,7 +231,9 @@ private:
     void friendsPrepare();
     void friendsReset() noexcept;
     bool friendsSoloActive() const noexcept;
-    void friendsMix(int n, const HubParams& p, std::array<bool, ssbus::kNumStreamOuts>& used, bool soloActive) noexcept;
+    void friendsMix(int n, const HubParams& p, std::array<bool, ssbus::kNumStreamOuts>& used, bool soloActive,
+                    int64_t timeSamples = ssengine::kNoTime, bool playing = false,
+                    uint32_t w0 = 0, uint32_t w = 0, int phase = 0) noexcept;
     uint64_t anchorFor(int i, int n, int64_t timeSamples, bool playing, bool& viaTimeline) noexcept;
     void startCrossfade(SlotState& s, uint64_t oldReadPos) noexcept;
 
@@ -229,18 +269,42 @@ private:
     std::array<uint32_t, ssbus::kMaxSources> srcQuiet_{};
     struct SrcStats { std::atomic<int64_t> leadMin { INT64_MAX }, leadMax { INT64_MIN }; std::atomic<uint32_t> jumps { 0 }, blocks { 0 }; };
     std::array<SrcStats, ssbus::kMaxSources> srcStats_{};
+    // Friend audio signals for echo and leak detection
+    std::vector<float> capFriendMix_;               // capLen_
+    std::vector<float> capFriends_;                 // kMaxFriends x capLen_
+    float decFriendMix_ = 0.0f;
+    std::array<float, ssbus::kMaxFriends> decFriends_{};
+    std::array<uint32_t, ssbus::kMaxFriends> friendQuiet_{};
     uint32_t capLen_ = 0;
     std::atomic<uint32_t> capWrite_{ 0 };
     float decIn_ = 0;
     int decCount_ = 0;
     std::atomic<int> lastBlock_{ 256 };   // likewise
     std::mutex measureMutex_;                       // prepare() vs measureLatencies()
+    // Pairs chosen by hand (or found by the probe), per friend: slot + that slot's claim + friend id in one word, so the
+    // message thread and the measuring thread never see half of one. 0 = none. manualLi_ = Li in 0.01 ms + 1, 0 = not measured.
+    std::array<std::atomic<uint64_t>, ssbus::kMaxFriends> manualPair_{};
+    std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> manualLi_{};
+    std::atomic<int> probeFeeder_{ -1 };   // the feeder being probed, -1 = none; the audio thread silences the viewers and friends while >= 0
+    std::atomic<int> probeStage_{ 0 };     // 0 = starting, 1 = silenced and waiting, 2 = sweeping, 3 = answer known, waiting for the sweep to leave (probeStep only)
+    int probeBest_ = -1;                   // stage 3: the Track found (-1 = none), its Li, and when to stop being silent
+    double probeLi_ = 0.0;
+    uint32_t probeHoldTo_ = 0;
+    uint64_t probeWord_ = 0;               // stage 3: the pair word of that Track when it was found
+    std::atomic<float> slotToMasterMs_{ 200.0f };   // the longest a Track's sound took to reach the master at the last measuring (200 = not measured yet)
+    uint32_t probeFrom_ = 0;               // capWrite_ at the start of the stage
+    uint64_t probeWallNs_ = 0;
+    void endProbe(int feeder, uint32_t reply);
+    mutable std::mutex memoryMutex_;       // message thread (save, load, maintain) vs the measuring thread (probe)
+    std::vector<PairMemory> memory_;
+    void remember(int feeder, int slot);
+    void applyMemory(ssbus::BusLayout& b);
 
     std::vector<float> outs_[ssbus::kNumStreamOuts][2];
     std::array<bool, ssbus::kNumStreamOuts> outUsed_{};
     std::array<ssdsp::Limiter, ssbus::kNumStreamOuts> limiters_;
     ssdsp::LoudnessMeter loudness_;
-    ssdsp::Smoother master_, preview_;
+    ssdsp::Smoother master_, preview_, friendMixGain_;   // friendMixGain_: what friends hear fades out and in around a probe
     float outPeak_[ssbus::kNumStreamOuts][2]{};
 
     // ---- friends (hub_friends.cpp) ----
@@ -269,10 +333,14 @@ private:
     std::vector<float> voice_[ssbus::kMaxFriends];   // each friend's voice for the other friends (mono, undelayed)
     std::vector<float> delayScratch_[2];
     uint32_t delayCap_ = 0;
+    FriendTap friendTap_ = nullptr;
+    void* friendTapUser_ = nullptr;
 
     bool    wasPlaying_ = false;
     int64_t expectedTime_ = kNoTime;
     uint64_t blockCounter_ = 0;
+    std::atomic<uint64_t> activeSlotsMask_{ 0 };
+    uint32_t scanCountdown_ = 0;
     bool    wasOwner_ = false;
     bool    wasOffline_ = false;
 };

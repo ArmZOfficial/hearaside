@@ -84,6 +84,37 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: var(--rail); }
 .seg button { border: 0; border-radius: 9px; padding: 8px 4px; font: inherit; font-size: 13px; color: var(--ink2); background: transparent; cursor: pointer; }
 .seg button.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 4px var(--shadow); font-weight: 500; }
+.transport-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  letter-spacing: .02em; border: 1px solid transparent; transition: all .2s ease;
+}
+.transport-badge.direct {
+  background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.35); color: #15803D;
+}
+.transport-badge.relay {
+  background: rgba(234, 179, 8, 0.15); border-color: rgba(234, 179, 8, 0.35); color: #B45309;
+}
+.transport-badge.opus {
+  background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.35); color: #0E7490;
+}
+.transport-badge.pcm {
+  background: rgba(148, 163, 184, 0.15); border-color: rgba(148, 163, 184, 0.35); color: #475569;
+}
+@media (prefers-color-scheme: dark) {
+  .transport-badge.direct {
+    background: rgba(34, 197, 94, 0.22); border-color: rgba(34, 197, 94, 0.45); color: #4ADE80;
+  }
+  .transport-badge.relay {
+    background: rgba(234, 179, 8, 0.22); border-color: rgba(234, 179, 8, 0.45); color: #FCD34D;
+  }
+  .transport-badge.opus {
+    background: rgba(6, 182, 212, 0.22); border-color: rgba(6, 182, 212, 0.45); color: #67E8F9;
+  }
+  .transport-badge.pcm {
+    background: rgba(148, 163, 184, 0.22); border-color: rgba(148, 163, 184, 0.45); color: #CBD5E1;
+  }
+}
 .foot { margin-top: 14px; text-align: center; font-size: 11px; color: var(--muted); }
 </style>
 </head>
@@ -104,6 +135,7 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 
   <div class="row">
     <span class="chip"><span class="dot"></span><span id="status"></span></span>
+    <span class="transport-badge" id="transportBadge" style="display:none"></span>
     <span class="value" id="delay"></span>
   </div>
 
@@ -116,6 +148,15 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
     <div>
       <div class="row"><span class="label" data-t="volume"></span><span class="value" id="volv"></span></div>
       <input type="range" id="vol" min="0" max="100" value="80">
+    </div>
+    <div>
+      <div class="row" style="margin-bottom:8px"><span class="label" data-t="quality"></span></div>
+      <div class="seg" id="codec" style="grid-template-columns: repeat(4, 1fr);">
+        <button data-c="auto" data-b="128000" class="on">Auto</button>
+        <button data-c="opus" data-b="128000">Opus 128</button>
+        <button data-c="opus" data-b="256000">Opus 256</button>
+        <button data-c="pcm16" data-b="0">PCM 16</button>
+      </div>
     </div>
     <div>
       <div class="row" style="margin-bottom:8px"><span class="label" data-t="mode"></span></div>
@@ -132,16 +173,18 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 <script>
 const T = {
   th: { title: "ฟังสด", subtitle: "เสียงเดียวกับที่คนดูได้ยิน ส่งตรงจาก DAW", volume: "ระดับเสียง", mode: "ความหน่วง",
-        fast: "เร็วสุด", balanced: "สมดุล", smooth: "ลื่นสุด", tap: "แตะเพื่อฟัง", connecting: "กำลังเชื่อมต่อ...",
+        quality: "คุณภาพเสียง", fast: "เร็วสุด", balanced: "สมดุล", smooth: "ลื่นสุด", tap: "แตะเพื่อฟัง", connecting: "กำลังเชื่อมต่อ...",
         playing: "กำลังฟังสด", waiting: "รอเสียงจาก DAW", lost: "หลุด กำลังต่อใหม่...", stopped: "หยุดอยู่",
-        stopHint: "แตะเพื่อหยุด", delay: "ดีเลย์", quality: "ไม่บีบอัด",
-        offline: "ผู้สตรีมยังไม่ได้เปิดแชร์ หน้านี้จะเริ่มเล่นเองเมื่อพร้อม", offlineIdle: "ผู้สตรีมยังไม่ได้เปิดแชร์ แตะไว้ได้เลย จะเริ่มเล่นเองเมื่อพร้อม" },
+        stopHint: "แตะเพื่อหยุด", delay: "ดีเลย์", lossless: "ไม่บีบอัด",
+        offline: "ผู้สตรีมยังไม่ได้เปิดแชร์ หน้านี้จะเริ่มเล่นเองเมื่อพร้อม", offlineIdle: "ผู้สตรีมยังไม่ได้เปิดแชร์ แตะไว้ได้เลย จะเริ่มเล่นเองเมื่อพร้อม",
+        transportDirect: "WebRTC (ตรง)", transportRelay: "WebRTC (TURN)", transportOpus: "WebSocket (Opus)", transportPcm: "WebSocket (PCM)" },
   en: { title: "Listen live", subtitle: "What the viewers hear, straight from the DAW", volume: "Volume", mode: "Latency",
-        fast: "Fastest", balanced: "Balanced", smooth: "Smoothest", tap: "Tap to listen", connecting: "Connecting...",
+        quality: "Quality", fast: "Fastest", balanced: "Balanced", smooth: "Smoothest", tap: "Tap to listen", connecting: "Connecting...",
         playing: "Listening live", waiting: "Waiting for the DAW", lost: "Connection lost, retrying...", stopped: "Stopped",
-        stopHint: "Tap to stop", delay: "Delay", quality: "lossless",
+        stopHint: "Tap to stop", delay: "Delay", lossless: "lossless",
         offline: "The streamer isn't sharing yet. This page starts playing by itself when they are.",
-        offlineIdle: "The streamer isn't sharing yet. Tap now and it starts playing by itself when they are." }
+        offlineIdle: "The streamer isn't sharing yet. Tap now and it starts playing by itself when they are.",
+        transportDirect: "WebRTC (Direct)", transportRelay: "WebRTC (TURN)", transportOpus: "WebSocket (Opus)", transportPcm: "WebSocket (PCM)" }
 };
 // language: the visitor's choice (remembered), else the browser's
 let saved = null;
@@ -209,49 +252,122 @@ function refreshTexts() {
 
 // The jitter buffer. Runs in an AudioWorklet, or on the page through a ScriptProcessor where
 // AudioWorklet is missing: browsers only offer it on https and localhost, and the WiFi link is http.
+// The chosen latency (base) is the least it keeps; it grows when the line needs more (the 95th percentile of
+// the lateness of the last 5 s, at once) and comes back every second. A short gap is a fade and the buffer goes
+// on where it stopped; only a long one (> 3 packets) fills up again.
 const core = `
 class Core {
   constructor(post) {
     this.post = post;
     this.cap = 48000 * 6; this.l = new Float32Array(this.cap); this.r = new Float32Array(this.cap);
-    this.w = 0; this.rd = 0; this.rate = 48000; this.target = 0.3; this.primed = false; this.adj = 0; this.tick = 0;
+    this.w = 0; this.rd = 0; this.rate = 48000; this.base = 0.3; this.target = 0.3; this.primed = false; this.adj = 0; this.tick = 0;
     this.pl = 0; this.pr = 0;
+    this.pkt = 0.01; this.t = 0; this.lates = []; this.margin = 1e9; this.win = 0; this.hold = 0;
+    this.muted = false; this.mutedFor = 0; this.missing = 0; this.fadeIn = 0; this.lastL = 0; this.lastR = 0;
   }
   message(m) {
-    if (m.target) { this.target = m.target; this.primed = false; return; }
+    if (m.target) { this.base = this.target = m.target; this.primed = false; return; }
     this.rate = m.rate;
-    const s = m.pcm, ch = m.ch, n = s.length / ch;
-    for (let i = 0; i < n; i++) {
-      const k = (this.w + i) % this.cap;
-      this.l[k] = s[i * ch] / 32768; this.r[k] = s[i * ch + ch - 1] / 32768;
+    if (m.fl && m.fr) {
+      const fl = m.fl, fr = m.fr, n = fl.length;
+      this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
+      for (let i = 0; i < n; i++) {
+        const k = (this.w + i) % this.cap;
+        this.l[k] = fl[i]; this.r[k] = fr[i];
+      }
+      this.w += n;
+    } else if (m.pcm) {
+      const s = m.pcm, ch = m.ch || 2, n = s.length / ch;
+      this.pkt = Math.max(this.pkt * 0.995, n / m.rate);
+      for (let i = 0; i < n; i++) {
+        const k = (this.w + i) % this.cap;
+        this.l[k] = s[i * ch] / 32768; this.r[k] = s[i * ch + ch - 1] / 32768;
+      }
+      this.w += n;
     }
-    this.w += n;
-    if (this.w - this.rd > this.cap - 4096) this.rd = this.w - this.target * this.rate;   // fell far behind
+    this.lates.push(this.t, this.t - this.w / this.rate);   // when the packet showed up, against a steady flow
+    if (this.lates.length > 4000) this.lates.splice(0, 2000);   // ideal() prunes it, but only while playing
+    if (this.w - this.rd > this.cap - 4096) { this.rd = this.w - this.target * this.rate; this.primed = false; }   // fell far behind
   }
-  render(L, R, outRate, every) {
-    const n = L.length;
-    let fill = this.w - this.rd;
-    const want = this.target * this.rate;
-    if (!this.primed) {
-      if (fill >= want) { this.primed = true; this.rd = this.w - want; fill = want; }
-      else { L.fill(0); R.fill(0); this.report(fill, every); return; }
+  // what the line needs now (seconds): its jitter + half a packet (the fill is a saw tooth) + 5 ms, never under the chosen latency
+  ideal() {
+    const a = this.lates;
+    let i = 0, jit = 0;
+    while (i < a.length && a[i] < this.t - 5) i += 2;
+    a.splice(0, i);
+    if (a.length >= 40) {
+      let ref = 1e9;
+      for (let k = 1; k < a.length; k += 2) ref = Math.min(ref, a[k]);
+      const d = [];
+      for (let k = 1; k < a.length; k += 2) d.push(a[k] - ref);
+      d.sort((x, y) => x - y);
+      jit = d[Math.ceil(d.length * 0.95) - 1];
     }
-    // follow the sender's clock: play a hair faster or slower to keep the buffer at the target
-    const err = (fill - want) / want;
-    this.adj += (Math.max(-0.004, Math.min(0.004, err * 0.01)) - this.adj) * 0.02;
-    const step = this.rate / outRate * (1 + this.adj);
-    if (fill < n * step + 2) { this.primed = false; L.fill(0); R.fill(0); this.report(fill, every); return; }
-    if (fill > want + this.rate * 0.6) this.rd = this.w - want;   // a burst arrived: catch up
+    return Math.max(this.base, Math.min(Math.max(0.4, this.base), jit + 0.5 * this.pkt + 0.005));
+  }
+  play(L, R, m, step) {   // m frames from the buffer, the rest of the quantum is silence
     let pos = this.rd, pl = 0, pr = 0;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < m; i++) {
       const i0 = Math.floor(pos), f = pos - i0, a = i0 % this.cap, b = (i0 + 1) % this.cap;
       const l = this.l[a] + (this.l[b] - this.l[a]) * f, r = this.r[a] + (this.r[b] - this.r[a]) * f;
       L[i] = l; if (R !== L) R[i] = r;
       pl = Math.max(pl, Math.abs(l)); pr = Math.max(pr, Math.abs(r));
       pos += step;
     }
+    for (let i = m; i < L.length; i++) { L[i] = 0; if (R !== L) R[i] = 0; }
     this.rd = pos;
     this.pl = Math.max(pl, this.pl * 0.9); this.pr = Math.max(pr, this.pr * 0.9);
+  }
+  render(L, R, outRate, every) {
+    const n = L.length, dt = n / outRate;
+    this.t += dt;
+    let fill = this.w - this.rd;
+    const want = this.target * this.rate;
+    if (!this.primed) {
+      if (fill >= want) { this.primed = true; this.muted = false; this.rd = this.w - want; fill = want; this.fadeIn = 96; }
+      else { this.play(L, R, 0, 0); this.report(fill, every); return; }
+    }
+    // follow the sender's clock: play a hair faster or slower to keep the buffer at the target
+    const err = (fill - want) / want;
+    this.adj += (Math.max(-0.005, Math.min(0.004, err * (err < 0 ? 0.02 : 0.01))) - this.adj) * 0.02;
+    const step = this.rate / outRate * (1 + this.adj);
+    const need = n * step + 2;
+    if (this.muted) {
+      this.mutedFor += dt;
+      if (fill >= need && fill >= Math.min(want, (this.pkt + 0.006) * this.rate)) {   // data is back: go on where we stopped
+        this.muted = false; this.fadeIn = 96;
+        this.target = Math.min(Math.max(0.4, this.base), this.target + this.missing + this.mutedFor); this.hold = 5;
+      } else {
+        if (this.mutedFor > Math.max(0.03, this.pkt * 3)) this.primed = false;   // a long one: fill up again
+        this.play(L, R, 0, 0); this.report(fill, every); return;
+      }
+    }
+    if (fill < need) {   // gap: what is left fades out (no click), then wait with the cursor where it is
+      const m = Math.max(0, Math.floor((fill - 2) / step));
+      this.play(L, R, m, step);
+      // what is left (and then its last value, held) dies away over 96 frames: no click, however short the rest
+      const hl = m > 0 ? L[m - 1] : this.lastL, hr = m > 0 ? (R !== L ? R[m - 1] : hl) : this.lastR;
+      const s0 = m >= 96 ? m - 96 : Math.max(0, Math.min(m, n - 96));
+      for (let i = s0; i < Math.min(n, s0 + 96); i++) { const g = 1 - (i - s0 + 1) / 96; L[i] = (i < m ? L[i] : hl) * g; if (R !== L) R[i] = (i < m ? R[i] : hr) * g; }
+      this.muted = true; this.mutedFor = 0; this.missing = (need - fill) / this.rate;
+    } else {
+      this.margin = Math.min(this.margin, (fill - need) / this.rate);
+      this.win += dt; this.hold -= dt;
+      if (this.win >= 1) {   // every second: up at once, down by half of what was never needed
+        const ideal = this.ideal();
+        if (ideal > this.target) this.target = ideal;
+        else if (this.hold <= 0) { const cut = Math.min(0.5 * (this.target - ideal), 0.5 * (this.margin - 0.002)); if (cut > 0.0002) this.target -= cut; }
+        this.win = 0; this.margin = 1e9;
+      }
+      if (fill > want + this.rate * 0.6) this.rd = this.w - want;   // a burst arrived: catch up
+      this.play(L, R, n, step);
+      if (this.fadeIn > 0) {   // the music (re)starts: no click
+        const k = Math.min(n, this.fadeIn);
+        for (let i = 0; i < k; i++) { const g = (96 - this.fadeIn + i + 1) / 96; L[i] *= g; if (R !== L) R[i] *= g; }
+        this.fadeIn -= k;
+      }
+    }
+    this.lastL = L[n - 1]; this.lastR = R[n - 1];
     this.report(fill, every);
   }
   report(fill, every) {
@@ -328,25 +444,259 @@ async function start() {
   connect();
 }
 
+let decoder = null, useOpus = false, activeCodec = "auto", activeBitrate = 128000;
+
+async function checkOpusDecoder() {
+  if (typeof AudioDecoder === "undefined") return false;
+  try {
+    const s = await AudioDecoder.isConfigSupported({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    return !!s.supported;
+  } catch (e) { return false; }
+}
+
+function initDecoder() {
+  if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
+  try {
+    decoder = new AudioDecoder({
+      output: audioData => {
+        const n = audioData.numberOfFrames, ch = audioData.numberOfChannels;
+        const fl = new Float32Array(n), fr = new Float32Array(n);
+        if (audioData.format && audioData.format.includes("planar")) {
+          audioData.copyTo(fl, { planeIndex: 0 });
+          if (ch > 1) audioData.copyTo(fr, { planeIndex: 1 });
+          else fr.set(fl);
+        } else {
+          const interleaved = new Float32Array(n * ch);
+          audioData.copyTo(interleaved, { planeIndex: 0 });
+          if (ch > 1) {
+            for (let i = 0; i < n; i++) { fl[i] = interleaved[i * 2]; fr[i] = interleaved[i * 2 + 1]; }
+          } else {
+            fl.set(interleaved); fr.set(interleaved);
+          }
+        }
+        lastAudio = performance.now();
+        rate = audioData.sampleRate;
+        if (node) node.port.postMessage({ rate, fl, fr }, [fl.buffer, fr.buffer]);
+        audioData.close();
+      },
+      error: e => console.warn("listen AudioDecoder error:", e)
+    });
+    decoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 2 });
+    return true;
+  } catch (e) {
+    decoder = null;
+    return false;
+  }
+}
+
+let pc = null, rtcDc = null, rtcActive = false, rtcCandidateType = "", rtcFailTimer = null, rtcStatsTimer = null;
+
+function updateTransportBadge() {
+  const badge = $("transportBadge");
+  if (!badge) return;
+  if (state === "idle" || !ws || ws.readyState !== 1) {
+    badge.style.display = "none";
+    return;
+  }
+  badge.style.display = "inline-flex";
+  badge.className = "transport-badge";
+  if (rtcActive && rtcCandidateType === "relay") {
+    badge.classList.add("relay");
+    badge.textContent = L.transportRelay;
+  } else if (rtcActive) {
+    badge.classList.add("direct");
+    badge.textContent = L.transportDirect;
+  } else if (useOpus) {
+    badge.classList.add("opus");
+    badge.textContent = L.transportOpus;
+  } else {
+    badge.classList.add("pcm");
+    badge.textContent = L.transportPcm;
+  }
+}
+
+async function fetchTurnConfig() {
+  try {
+    const res = await fetch("/api/turn");
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+        return data.iceServers;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function inspectCandidatePair() {
+  if (!pc || !pc.getStats) return;
+  try {
+    const stats = await pc.getStats();
+    stats.forEach(report => {
+      if (report.type === "candidate-pair" && report.state === "succeeded") {
+        const localCand = stats.get(report.localCandidateId);
+        const remoteCand = stats.get(report.remoteCandidateId);
+        if ((localCand && localCand.candidateType === "relay") ||
+            (remoteCand && remoteCand.candidateType === "relay")) {
+          rtcCandidateType = "relay";
+        } else {
+          rtcCandidateType = "direct";
+        }
+      }
+    });
+    updateTransportBadge();
+  } catch (e) {}
+}
+
+function cleanupRtc() {
+  clearTimeout(rtcFailTimer);
+  clearInterval(rtcStatsTimer);
+  rtcActive = false;
+  rtcCandidateType = "";
+  if (rtcDc) {
+    try { rtcDc.close(); } catch (e) {}
+    rtcDc = null;
+  }
+  if (pc) {
+    try { pc.close(); } catch (e) {}
+    pc = null;
+  }
+  updateTransportBadge();
+}
+
+async function initRtc(offerSdp) {
+  cleanupRtc();
+  let iceServers = [
+    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:stun.l.google.com:19302" }
+  ];
+  const turnServers = await fetchTurnConfig();
+  if (turnServers && turnServers.length > 0) iceServers = turnServers;
+  pc = new RTCPeerConnection({ iceServers });
+
+  pc.ondatachannel = e => {
+    rtcDc = e.channel;
+    setupDataChannel(rtcDc);
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: "rtc_candidate",
+        candidate: e.candidate.candidate,
+        mid: e.candidate.sdpMid
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc && (pc.connectionState === "failed" || pc.connectionState === "disconnected")) {
+      cleanupRtc();
+    }
+    updateTransportBadge();
+  };
+
+  rtcFailTimer = setTimeout(() => {
+    if (!rtcActive) updateTransportBadge();
+  }, 3000);
+
+  try {
+    await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "rtc_answer", sdp: answer.sdp }));
+    }
+  } catch (err) {
+    console.warn("RTC setup error:", err);
+    cleanupRtc();
+  }
+}
+
+function setupDataChannel(channel) {
+  channel.binaryType = "arraybuffer";
+  channel.onopen = () => {
+    clearTimeout(rtcFailTimer);
+    rtcActive = true;
+    inspectCandidatePair();
+    rtcStatsTimer = setInterval(inspectCandidatePair, 2000);
+    updateTransportBadge();
+  };
+  channel.onclose = () => {
+    rtcActive = false;
+    updateTransportBadge();
+  };
+  channel.onerror = () => {
+    rtcActive = false;
+    updateTransportBadge();
+  };
+  channel.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) handleAudioData(e.data);
+  };
+}
+
+function handleAudioData(buf) {
+  const d = new DataView(buf);
+  const magic = d.getUint32(0, true);
+  if (magic === 0x33415248) {   // "HRA3"
+    if (!node) return;
+    const c = d.getUint8(4);
+    if (c === 1 && decoder && decoder.state === "configured") {
+      const payload = new Uint8Array(buf, 22);
+      try {
+        decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
+      } catch (err) {}
+    }
+    return;
+  }
+  if (magic !== 0x31415248) return;   // "HRA1"
+  rate = d.getUint32(4, true);
+  const ch = d.getUint16(8, true), frames = d.getUint32(12, true);
+  if (!frames) return;
+  lastAudio = performance.now();
+  const pcm = new Int16Array(buf.slice(16));
+  node.port.postMessage({ rate, ch, pcm }, [pcm.buffer]);
+}
+
 async function connect() {
   const mine = ++gen;
   const url = await locate("l");
   if (mine !== gen || state === "idle") return;
   if (!url) { view("connecting", L.offline); later(connect); return; }
+  useOpus = false;
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
-  ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); };
+  ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); updateTransportBadge(); };
   ws.onmessage = e => {
-    const d = new DataView(e.data);
-    if (d.getUint32(0, true) !== 0x31415248) return;   // "HRA1"
-    rate = d.getUint32(4, true);
-    const ch = d.getUint16(8, true), frames = d.getUint32(12, true);
-    if (!frames) return;
-    lastAudio = performance.now();
-    const pcm = new Int16Array(e.data.slice(16));
-    node.port.postMessage({ rate, ch, pcm }, [pcm.buffer]);
+    if (typeof e.data === "string") {
+      let m = null;
+      try { m = JSON.parse(e.data); } catch (x) {}
+      if (!m) return;
+      if (m.type === "rtc_offer" && m.sdp) {
+        initRtc(m.sdp);
+        return;
+      }
+      if (m.type === "rtc_candidate" && pc && m.candidate) {
+        pc.addIceCandidate({ candidate: m.candidate, sdpMid: m.mid || "0" }).catch(() => {});
+        return;
+      }
+      if (m.codecs && m.codecs.includes("opus") && (activeCodec === "opus" || activeCodec === "auto")) {
+        checkOpusDecoder().then(supported => {
+          if (supported && initDecoder()) {
+            useOpus = true;
+            updateTransportBadge();
+            if (ws && ws.readyState === 1) {
+              ws.send(JSON.stringify({ codec: "opus", bitrate: activeBitrate }));
+            }
+          }
+        });
+      }
+      return;
+    }
+    handleAudioData(e.data);
   };
   ws.onclose = () => {
+    cleanupRtc();
     if (state === "idle") return;
     view("connecting", L.lost);
     later(connect, 5000);   // the tunnel may have moved: locate() again first
@@ -355,8 +705,11 @@ async function connect() {
 
 function stop() {
   clearTimeout(retry);
+  cleanupRtc();
   gen++;
   backoff = 2000;
+  useOpus = false;
+  if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
   if (ws) { ws.onclose = null; ws.close(); ws = null; }
   if (ctx) { ctx.close(); ctx = null; node = null; }
   releaseAudio();
@@ -375,7 +728,8 @@ function stats(s) {
   $("ml").style.width = pos(s.pl);
   $("mr").style.width = pos(s.pr);
   if (fresh) $("delay").textContent = L.delay + " ~" + (s.fill + (ctx ? ctx.baseLatency || 0 : 0)).toFixed(2) + " s";
-  if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · 16-bit · " + L.quality;
+  if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · " + (useOpus ? "Opus " + Math.round(activeBitrate / 1000) + "k" : "16-bit · " + L.lossless);
+  updateTransportBadge();
 }
 
 function setVolume() {
@@ -392,6 +746,25 @@ document.querySelectorAll("#mode button").forEach(b => b.onclick = () => {
   document.querySelectorAll("#mode button").forEach(x => x.classList.toggle("on", x === b));
   target = parseFloat(b.dataset.v);
   if (node) node.port.postMessage({ target });
+});
+document.querySelectorAll("#codec button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#codec button").forEach(x => x.classList.toggle("on", x === b));
+  activeCodec = b.dataset.c;
+  activeBitrate = Number(b.dataset.b) || 128000;
+  if (ws && ws.readyState === 1) {
+    if (activeCodec === "opus" || activeCodec === "auto") {
+      checkOpusDecoder().then(supported => {
+        if (supported && initDecoder()) {
+          useOpus = true;
+          ws.send(JSON.stringify({ codec: "opus", bitrate: activeBitrate }));
+        }
+      });
+    } else {
+      useOpus = false;
+      if (decoder) { try { decoder.close(); } catch (e) {} decoder = null; }
+      ws.send(JSON.stringify({ codec: "pcm16" }));
+    }
+  }
 });
 </script>
 </body>

@@ -145,3 +145,54 @@ TEST_CASE("resampler: ratio control and steady output length") {
     for (int k = 0; k < 400; ++k) { uint32_t inN = rs.inputFor(480), outN = 480; rs.process(ip, inN, op, outN); consumedTotal += inN; }
     CHECK_NEAR(double(consumedTotal) / (400.0 * 480.0), 44100.0 / 48000.0 * 1.005, 0.001);
 }
+
+TEST_CASE("dsp: vector SIMD operations match scalar reference across odd lengths") {
+    constexpr int kLens[] = { 1, 3, 4, 7, 16, 19, 64, 255, 256 };
+    for (int n : kLens) {
+        std::vector<float> vecA(static_cast<size_t>(n));
+        std::vector<float> vecB(static_cast<size_t>(n));
+        std::vector<float> gold(static_cast<size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            vecA[static_cast<size_t>(i)] = float(i) * 1.5f - 10.0f;
+            vecB[static_cast<size_t>(i)] = float(i * 3 + 2) * 0.25f;
+        }
+
+        // vectorAdd
+        gold = vecA;
+        for (int i = 0; i < n; ++i) gold[static_cast<size_t>(i)] += vecB[static_cast<size_t>(i)];
+        auto testAdd = vecA;
+        ssdsp::vectorAdd(testAdd.data(), vecB.data(), n);
+        for (int i = 0; i < n; ++i) CHECK_NEAR(testAdd[static_cast<size_t>(i)], gold[static_cast<size_t>(i)], 1e-6);
+
+        // vectorAddScaled
+        const float scale = 0.5f;
+        gold = vecA;
+        for (int i = 0; i < n; ++i) gold[static_cast<size_t>(i)] += vecB[static_cast<size_t>(i)] * scale;
+        auto testAddScaled = vecA;
+        ssdsp::vectorAddScaled(testAddScaled.data(), vecB.data(), scale, n);
+        for (int i = 0; i < n; ++i) CHECK_NEAR(testAddScaled[static_cast<size_t>(i)], gold[static_cast<size_t>(i)], 1e-6);
+
+        // vectorMultiply
+        gold = vecA;
+        for (int i = 0; i < n; ++i) gold[static_cast<size_t>(i)] *= vecB[static_cast<size_t>(i)];
+        auto testMul = vecA;
+        ssdsp::vectorMultiply(testMul.data(), vecB.data(), n);
+        for (int i = 0; i < n; ++i) CHECK_NEAR(testMul[static_cast<size_t>(i)], gold[static_cast<size_t>(i)], 1e-6);
+
+        // vectorScale
+        gold = vecA;
+        for (int i = 0; i < n; ++i) gold[static_cast<size_t>(i)] *= scale;
+        auto testScale = vecA;
+        ssdsp::vectorScale(testScale.data(), scale, n);
+        for (int i = 0; i < n; ++i) CHECK_NEAR(testScale[static_cast<size_t>(i)], gold[static_cast<size_t>(i)], 1e-6);
+
+        // vectorCopy
+        std::vector<float> testCopy(static_cast<size_t>(n), 0.0f);
+        ssdsp::vectorCopy(testCopy.data(), vecA.data(), n);
+        for (int i = 0; i < n; ++i) CHECK_NEAR(testCopy[static_cast<size_t>(i)], vecA[static_cast<size_t>(i)], 1e-6);
+
+        // vectorZero
+        ssdsp::vectorZero(testCopy.data(), n);
+        for (int i = 0; i < n; ++i) CHECK(testCopy[static_cast<size_t>(i)] == 0.0f);
+    }
+}

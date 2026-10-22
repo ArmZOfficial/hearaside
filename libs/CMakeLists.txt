@@ -38,3 +38,60 @@ add_library(ssengine STATIC
     ssengine/src/friend_reader.cpp)
 target_include_directories(ssengine PUBLIC ssengine/include)
 target_link_libraries(ssengine PUBLIC ssbus ssdsp)
+
+# ---- opus: audio codec (BSD-3) -------------------------------------------------------------
+set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_FILE OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+add_subdirectory(${SS_EXTERNAL}/opus ${CMAKE_CURRENT_BINARY_DIR}/opus EXCLUDE_FROM_ALL)
+
+# ---- speexdsp echo canceller & preprocessor (BSD) -------------------------------------------
+add_library(ss_speex_echo STATIC
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/mdf.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/preprocess.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/filterbank.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/fftwrap.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/kiss_fft.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/kiss_fftr.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/buffer.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/scal.c)
+target_include_directories(ss_speex_echo
+    PUBLIC  ${SS_EXTERNAL}/speexdsp/include
+    PRIVATE ${SS_EXTERNAL}/speexdsp/libspeexdsp)
+target_compile_definitions(ss_speex_echo
+    PUBLIC  FLOATING_POINT USE_KISS_FFT
+    PRIVATE EXPORT= inline=__inline)
+if(MSVC)
+    target_compile_options(ss_speex_echo PRIVATE /wd4244 /wd4305 /wd4267 /wd4018)
+endif()
+
+# ---- mbedtls: crypto & TLS backend for libdatachannel (Apache-2.0) -------------------------
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${SS_EXTERNAL}/mbedtls ${CMAKE_CURRENT_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+if(NOT TARGET MbedTLS::MbedTLS AND TARGET mbedtls)
+    add_library(MbedTLS::MbedTLS ALIAS mbedtls)
+endif()
+
+# ---- libdatachannel: WebRTC DataChannel (MPL-2.0) -------------------------------------------
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
+set(NO_MEDIA ON CACHE BOOL "" FORCE)
+set(USE_MBEDTLS ON CACHE BOOL "" FORCE)
+set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
+set(NO_TESTS ON CACHE BOOL "" FORCE)
+set(PREFER_SYSTEM_LIB OFF CACHE BOOL "" FORCE)
+add_subdirectory(${SS_EXTERNAL}/libdatachannel ${CMAKE_CURRENT_BINARY_DIR}/libdatachannel EXCLUDE_FROM_ALL)
+
+# ---- ssnet: network wire formats, codecs, echo cancellation, WebRTC (MIT, no JUCE) --------
+add_library(ssnet STATIC
+    ssnet/src/opus_codec.cpp
+    ssnet/src/aec.cpp
+    ssnet/src/rtc.cpp)
+target_include_directories(ssnet PUBLIC ssnet/include)
+target_link_libraries(ssnet PUBLIC opus ss_speex_echo datachannel-static)
+
+

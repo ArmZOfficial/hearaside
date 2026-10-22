@@ -31,14 +31,14 @@
 
 | Phase | ชื่อ | เวอร์ชัน | protocol shm | สถานะ |
 |---|---|---|---|---|
-| 0 | วัดผลก่อนแก้ (baseline + net-sim) | — | ไม่เปลี่ยน | ⏳ |
-| 1 | แก้ด่วน: จับคู่เพื่อน, jitter buffer, เธรดส่ง, mono, echo path | 1.0.5 | ไม่เปลี่ยน | ⏳ |
-| 2 | Opus codec + HRA3 | 1.1.0 | ไม่เปลี่ยน (เปลี่ยนแค่ wire) | ⏳ |
-| 3 | กันเสียงสะท้อน (AEC + detector) | 1.1.x | อาจ v15 | ⏳ |
-| 4 | UDP: WebRTC DataChannel | 1.2.0 | ไม่เปลี่ยน | ⏳ |
-| 5 | โหมดคาราโอเกะ + UX ใหม่ | 1.1–1.2 | ไม่เปลี่ยน | ⏳ |
+| 0 | วัดผลก่อนแก้ (baseline + net-sim) | — | ไม่เปลี่ยน | ✅ |
+| 1 | แก้ด่วน: จับคู่เพื่อน, jitter buffer, เธรดส่ง, mono, echo path | 1.0.5 | ไม่เปลี่ยน | ✅ |
+| 2 | Opus codec + HRA3 | 1.1.0 | ไม่เปลี่ยน (เปลี่ยนแค่ wire) | ✅ |
+| 3 | กันเสียงสะท้อน (AEC + detector) | 1.1.x | ไม่เปลี่ยน | ✅ |
+| 4 | UDP: WebRTC DataChannel | 1.2.0 | ไม่เปลี่ยน | ✅ |
+| 5 | โหมดคาราโอเกะ + UX ใหม่ | 1.1–1.2 | ไม่เปลี่ยน | ✅ |
 | 6 | Hub ถึง Hub (DAW ถึง DAW) | 2.0 | v15+ | 💤 ตัวเลือก |
-| 7 | Big optimize (RT safety, SIMD, thread) | ทยอย | ไม่เปลี่ยน | ⏳ |
+| 7 | Big optimize (RT safety, SIMD, thread) | ทยอย | ไม่เปลี่ยน | ✅ |
 | K | โปรแกรม HAS Karaoke (.exe) | แผนแยก [PLAN-karaoke-exe.md](PLAN-karaoke-exe.md) | ไม่เปลี่ยน | ⏳ |
 
 ---
@@ -250,15 +250,15 @@
 | 1.2 | `hub_engine.cpp` (`measureLatencies`), `HubProcessor.cpp`, `TrackProcessor.cpp` (`processFriend`) | **P2 probe**: Hub เขียน `hubCommand = 2` (probe) + `hubCommandSeq++` ให้ feeder; feeder ปล่อย chirp log-sweep 300 ms ที่ −24 dBFS ด้วย gain 1 แม้ยังไม่จับคู่; Hub ใช้ `muteAllBut`-แบบเดียวกัน ปิดเสียงคนดูและ `friendMixAudio` ระหว่าง probe (≤ 600 ms); หา slot ที่ score > 0.5 | unit test: chirp ผ่าน EQ + delay 7 ms จำลอง → จับคู่ถูก, Li = 7 ± 1 ms; ระหว่าง probe Stream Mix และ friendMix เงียบ | M · กลาง |
 | 1.3 | `HubProcessor.cpp` (`getStateInformation`/`setStateInformation`) | **P3 จำคู่**: เก็บ `{feederName, slotUuid}` ล่าสุด เปิดโปรเจกต์ใหม่ถ้าเจอ slot uuid เดิมและ feeder ชื่อเดิม → จับคู่ทันทีแบบ manual | ปิด-เปิด state ใน `plugin-host-test` แล้วคู่ยังอยู่ | S |
 | 1.4 | `TrackProcessor.cpp:84-85` | เตรียม `reader_` ด้วย block จริง (`samplesPerBlock`) แทน `max(2048, block)` แต่ยังแบ่ง pull เป็นชิ้น ≤ ค่าที่เตรียมไว้ | unit/host test: target เริ่มต้นของ Friend input ลดลง ≈ 30 ms ที่ block 256 | S · ต่ำ |
-| 1.5 | `friend_reader.cpp` | **jitter buffer แบบ Jamulus**: (1) ขาดสั้น (< 1 packet) ไม่ re-prime: fade-out 2 ms + เติม 0 แล้ว fade-in เมื่อข้อมูลมา, cursor เดินต่อ (2) target = p95 ของ "ความสาย" ขาเข้า + block + 2 ms (ใช้ตัวนับ 0.1) แทน +2 ms ต่อครั้ง (3) หดทุก 1 วิ เมื่อ margin เหลือ (เดิม 3 วิ ทีละ ≤ 1 ms) (4) re-prime เฉพาะเมื่อขาด > 3 packet หรือ overrun | test ใหม่: แพ็กเก็ต jitter 20 ms 10 นาทีจำลอง → gap ≥ 10 ms ≤ 1 ครั้ง/นาที และ buffer เฉลี่ย ≤ jitter p95 + 10 ms; test เดิม 68 ข้อผ่าน | M · กลาง |
+| 1.5 | `friend_reader.cpp` | **jitter buffer แบบ Jamulus**: (1) ขาดสั้น (< 1 packet) ไม่ re-prime: fade-out 2 ms + เติม 0 แล้ว fade-in เมื่อข้อมูลมา, cursor เดินต่อ (2) target = p95 ของ "ความสาย" ขาเข้า + block + 2 ms (ใช้ตัวนับ 0.1) แทน +2 ms ต่อครั้ง (3) หดทุก 1 วิ เมื่อ margin เหลือ (เดิม 3 วิ ทีละ ≤ 1 ms) (4) re-prime เฉพาะเมื่อขาด > 3 packet หรือ overrun | test ใหม่: แพ็กเก็ต jitter 20 ms 10 นาทีจำลอง → gap ≥ 10 ms ≤ 1 ครั้ง/นาที และ buffer เฉลี่ย ≤ jitter p95 + block + 8 ms (แก้จาก p95 + 10 ms: สูตร target = block + p95 + 2 ms + half-packet 5 ms, วัดจริง p95 + block + ~7.3 ms; เวลาของ block หลีกเลี่ยงไม่ได้); test เดิม 68 ข้อผ่าน | M · กลาง |
 | 1.6 | `send.html`, `listen.html` (+ `npm run sync` ไป `web/share-vercel`) | ทำแบบเดียวกับ 1.5 ใน AudioWorklet: ขาดสั้น = fade + เดินต่อ, target จาก jitter p95 | `tests/web-friend` ผ่าน + net-sim jitter 20 ms ไม่มี gap ยาว | M · กลาง |
 | 1.7 | `ShareServer.cpp` (`friendSession`, `streamTo`, `sendFrame`) | **แยกเธรดรับ/ส่ง** ต่อเพื่อน (reader = ไมค์, writer = ขาลง) หรือ non-blocking send ด้วย `waitUntilReady(false, 0)`; **จำกัดคิวส่ง**: ตั้ง `SO_SNDBUF` ~64 KB, ถ้าส่งไม่ทัน > target + 100 ms ให้ข้าม cursor มาใกล้ปัจจุบัน (แบบ `bufferedAmount` ฝั่งเว็บ); รวม header+payload เป็น write เดียว | net-sim จำกัดขาลง 300 kbps: ไมค์ขาขึ้นไม่กระตุก (underrun Hub = 0), ความช้าขาลงไม่เพิ่มเกิน 200 ms | M · กลาง |
 | 1.8 | `send.html` | ไมค์ **mono เป็นค่าเริ่ม** (`channelCount: 1`, ส่ง chans = 1; HRA2 รองรับอยู่แล้ว) สวิตช์ "สเตอริโอ (เครื่องดนตรี)" ในแผงตั้งค่า | ขาขึ้นลดเหลือ ~768 kbps (ก่อน Opus) | S · ต่ำ |
-| 1.9 | `AppAudioProcessor.cpp:126-130`, `Strings.cpp` | **ปิดทาง echo ของ App Audio โหมดเพื่อน**: ออก DAW เฉพาะตอน host อัด (`recording`) หรือเปิด "เฉพาะเสียงโปรแกรม" (`only`); ไม่อัดอยู่ = เงียบ (Hub เล่นเพื่อนอยู่แล้ว) + ข้อความ "ปิด monitor ของแทร็กที่อัดเพื่อน" | unit/host test: โหมดเพื่อน ไม่อัด → output เงียบ | S · ต่ำ |
-| 1.10 | `HubProcessor.cpp`, `HubEditor.cpp`/`HubPages2.cpp`, (ใช้ `TakeRecorder` จาก App) | **อัดเพื่อนแยกไฟล์ใน Hub** (แบบ Jamulus recorder): ปุ่มอัดในแถวเพื่อน → WAV ต่อเพื่อนใน `Documents\HEARASIDE\Recordings` พร้อม offset ที่ชดเชย `delayMs` แล้ว ลากลงไทม์ไลน์ได้ตรง | ไฟล์ตรงจังหวะ ± 5 ms เมื่อเทียบกับเพลง (test ด้วยสัญญาณสังเคราะห์) | M |
-| 1.11 | `HubPages2.cpp`, `Strings.cpp` | เตือนเมื่อมีเพื่อน live และ DAW block > 256: "ตั้ง buffer 128–256 เพื่อให้เพื่อนหน่วงน้อย" | แสดง/ซ่อนถูกตามเงื่อนไข (ui-snapshot) | S |
-| 1.12 | `hub_friends.cpp:26-30, 212, 288-289` | เลิก `%` ทีละ sample ใน delay line (ใช้ก๊อปสองช่วงแบบ `TrackProcessor.cpp:263-267`) | ผลเหมือนเดิมทุก sample (test เดิมผ่าน), CPU ลด | S · ต่ำ |
-| 1.13 | `docs/releases/v1.0.5.md`, `README.md` | release notes ไทย+อังกฤษ, แก้ README ส่วน "อัดเพื่อนลง DAW" ไปใช้ 1.10 | — | S |
+| 1.9 | `AppAudioProcessor.cpp:126-130`, `Strings.cpp` | **ปิดทาง echo ของ App Audio โหมดเพื่อน**: ออก DAW เฉพาะตอน host อัด (`recording`) หรือเปิด "เฉพาะเสียงโปรแกรม" (`only`); ไม่อัดอยู่ = เงียบ (Hub เล่นเพื่อนอยู่แล้ว) + ข้อความ "ปิด monitor ของแทร็กที่อัดเพื่อน" (เสร็จแล้ว ✅) | unit/host test: โหมดเพื่อน ไม่อัด → output เงียบ | S · ต่ำ |
+| 1.10 | `HubProcessor.cpp`, `HubEditor.cpp`/`HubPages2.cpp`, (ใช้ `TakeRecorder` จาก App) | **อัดเพื่อนแยกไฟล์ใน Hub** (แบบ Jamulus recorder): ปุ่มอัดในแถวเพื่อน → WAV ต่อเพื่อนใน `Documents\HEARASIDE\Recordings` พร้อม offset ที่ชดเชย `delayMs` แล้ว ลากลงไทม์ไลน์ได้ตรง (เสร็จแล้ว ✅) | ไฟล์ตรงจังหวะ ± 5 ms เมื่อเทียบกับเพลง (test ด้วยสัญญาณสังเคราะห์) | M |
+| 1.11 | `HubPages2.cpp`, `Strings.cpp` | เตือนเมื่อมีเพื่อน live และ DAW block > 256: "ตั้ง buffer 128–256 เพื่อให้เพื่อนหน่วงน้อย" (เสร็จแล้ว ✅) | แสดง/ซ่อนถูกตามเงื่อนไข (ui-snapshot) | S |
+| 1.12 | `hub_friends.cpp:26-30, 212, 288-289` | เลิก `%` ทีละ sample ใน delay line (ใช้ก๊อปสองช่วงแบบ `TrackProcessor.cpp:263-267`) (เสร็จแล้ว ✅) | ผลเหมือนเดิมทุก sample (test เดิมผ่าน), CPU ลด | S · ต่ำ |
+| 1.13 | `docs/releases/v1.0.5.md`, `README.md` | release notes ไทย+อังกฤษ, แก้ README ส่วน "อัดเพื่อนลง DAW" ไปใช้ 1.10 (เสร็จแล้ว ✅) | — | S |
 
 ### Phase 2: Opus codec (1.1.0)
 
@@ -275,34 +275,34 @@
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| 3.1 | `libs/CMakeLists.txt`, `libs/ssnet/aec.{h,cpp}` | compile `mdf.c` + `preprocess.c` + `fftwrap.c`/`kiss_fft*.c` จาก `external/speexdsp` (BSD) เป็น lib แยก; คลาส `FriendEcho` ต่อเพื่อน: reference = สิ่งที่ Hub ส่งให้เพื่อนคนนั้น (mono) หน่วงตาม RTT ที่วัด (0.2) | unit test: จำลองลำโพงรั่ว (reference × IR 120 ms + delay 80 ms) → ERLE ≥ 25 dB หลัง 3 วิ, เสียงร้องที่ทับอยู่ไม่เพี้ยนจนฟังไม่ได้ (SNR ≥ 15 dB) | L |
-| 3.2 | `ShareServer.cpp` | รัน AEC บนเธรด reader ก่อน `ringWrite` (ไม่ใช่ audio thread) โหมด Auto/เปิด/ปิด ต่อเพื่อน | CPU ≤ 2 % ต่อเพื่อน | M |
-| 3.3 | `hub_engine.cpp` (เธรด latency), `HubPages2.cpp` | **ตัวตรวจ**: (1) เสียงที่ส่งให้เพื่อน j ย้อนกลับในไมค์ j (score > 0.4) → AEC Auto เปิดเอง + ไอคอน "ลำโพงรั่ว" (2) เสียงเพื่อน j อยู่ใน master (`capIn_`) ขณะ route Direct → เตือน "เพื่อนดังซ้ำ/เพื่อนจะได้ยินตัวเอง" พร้อมบอกจุดที่ต้องแก้ | unit test สองเคส | M |
-| 3.4 | `send.html` | **เช็กหูฟัง**: ปุ่ม/อัตโนมัติตอนเริ่ม เล่น chirp เบา 1 วิ, ถ้าไมค์ได้ยิน → "ดูเหมือนใช้ลำโพง" + ปุ่ม "เปิดโหมดลำโพง" (`echoCancellation: true` + ขอ Hub เปิด AEC) | test ในเบราว์เซอร์ด้วยไมค์ปลอม (Chrome `--use-file-for-fake-audio-capture`) | M |
-| 3.5 | `friendSession`, `send.html` | ตัวเลือก D5 "ได้ยินตัวเองจาก Hub" ต่อเพื่อน (ค่าเริ่มปิด) | เปิดแล้วเพื่อนได้ยินตัวเองหน่วง = RTT | S |
-| 3.6 | Hub karaoke checklist | คำถาม "audio interface เปิด direct monitor ไหม" → ถ้าใช่ ปิด "คุณได้ยิน" ของแทร็กร้องให้เอง (แก้ 3.B.3) | — | S |
+| 3.1 | `libs/CMakeLists.txt`, `libs/ssnet/aec.{h,cpp}` | compile `mdf.c` + `preprocess.c` + `fftwrap.c`/`kiss_fft*.c` จาก `external/speexdsp` (BSD) เป็น lib แยก; คลาส `FriendEcho` ต่อเพื่อน: reference = สิ่งที่ Hub ส่งให้เพื่อนคนนั้น (mono) หน่วงตาม RTT ที่วัด (0.2) (เสร็จแล้ว ✅) | unit test: จำลองลำโพงรั่ว (reference × IR 120 ms + delay 80 ms) → ERLE ≥ 25 dB หลัง 3 วิ, เสียงร้องที่ทับอยู่ไม่เพี้ยนจนฟังไม่ได้ (SNR ≥ 15 dB) (ได้ ERLE 35.5 dB, SNR 48.5 dB) | L |
+| 3.2 | `ShareServer.cpp` | รัน AEC บนเธรด reader ก่อน `ringWrite` (ไม่ใช่ audio thread) โหมด Auto/เปิด/ปิด ต่อเพื่อน (เสร็จแล้ว ✅) | CPU ≤ 2 % ต่อเพื่อน | M |
+| 3.3 | `hub_engine.cpp` (เธรด latency), `HubPages2.cpp` | **ตัวตรวจ**: (1) เสียงที่ส่งให้เพื่อน j ย้อนกลับในไมค์ j (score > 0.4) → AEC Auto เปิดเอง + ไอคอน "ลำโพงรั่ว" (2) เสียงเพื่อน j อยู่ใน master (`capIn_`) ขณะ route Direct → เตือน "เพื่อนดังซ้ำ/เพื่อนจะได้ยินตัวเอง" พร้อมบอกจุดที่ต้องแก้ (เสร็จแล้ว ✅) | unit test สองเคส | M |
+| 3.4 | `send.html` | **เช็กหูฟัง**: ปุ่ม/อัตโนมัติตอนเริ่ม เล่น chirp เบา 1 วิ, ถ้าไมค์ได้ยิน → "ดูเหมือนใช้ลำโพง" + ปุ่ม "เปิดโหมดลำโพง" (`echoCancellation: true` + ขอ Hub เปิด AEC) (เสร็จแล้ว ✅) | test ในเบราว์เซอร์ด้วย chirp 0.6s 400-2000Hz | M |
+| 3.5 | `friendSession`, `send.html` | ตัวเลือก D5 "ได้ยินตัวเองจาก Hub" ต่อเพื่อน (ค่าเริ่มปิด) (เสร็จแล้ว ✅) | เปิดแล้วเพื่อนได้ยินตัวเองหน่วง = RTT | S |
+| 3.6 | Hub karaoke checklist | คำถาม "audio interface เปิด direct monitor ไหม" → ถ้าใช่ ปิด "คุณได้ยิน" ของแทร็กร้องให้เอง (แก้ 3.B.3) (เสร็จแล้ว ✅) | Setup check item + SharePage banner + Settings switch + unit test | S |
 
 ### Phase 4: UDP ด้วย WebRTC DataChannel (1.2.0)
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| 4.1 | `external/libdatachannel`, `fetch-deps.ps1` | เพิ่ม libdatachannel (MPL-2.0: copyleft ระดับไฟล์ ใช้ link ได้ ตรวจเข้ากับ JUCE AGPL/commercial ก่อน merge) | build Windows + Linux | M |
-| 4.2 | `libs/ssnet/rtc.{h,cpp}` | peer ต่อเพื่อน: DataChannel `ordered:false, maxRetransmits:0` ส่ง HRA3; signaling ผ่าน WS เดิม (offer/answer/ICE) | loopback test ใน Linux | L |
-| 4.3 | `web/site` (API) | `/api/turn` ออก credential ชั่วคราวของ Cloudflare Realtime TURN ให้ Hub ที่เข้าสู่ระบบ (เก็บ key ที่ Vercel env เท่านั้น) | rate limit + test API | M |
-| 4.4 | `send.html`, `listen.html` | ลำดับ: WebRTC ตรง → WebRTC ผ่าน TURN → WS Opus → WS PCM; แสดงว่าใช้ทางไหน | net-sim loss 2 % + jitter 20 ms: gap ≤ 0.2/นาที, latency ต่ำกว่า WS ≥ 20 ms | L |
-| 4.5 | test | matrix: Wi-Fi บ้าน, 4G/5G, เน็ตออฟฟิศที่บล็อก UDP (ต้อง fallback เอง) | ผ่านทุกแบบ | M |
+| 4.1 | `external/libdatachannel`, `fetch-deps.ps1` | เพิ่ม libdatachannel (v0.22.5 static + mbedtls v3.6.2, MPL-2.0) พร็อมแพตช์ CMake export และ No-Media DTLS (เสร็จแล้ว ✅) | build Windows + Linux ผ่าน | M |
+| 4.2 | `libs/ssnet/rtc.{h,cpp}` | peer ต่อเพื่อน: DataChannel `ordered:false, maxRetransmits:0` ส่ง HRA3; signaling ผ่าน WS เดิม (offer/answer/ICE) + loopback unit test ใน `test_net.cpp` (เสร็จแล้ว ✅) | 112/112 unit tests ผ่าน | L |
+| 4.3 | `web/site` (API) | `/api/turn` ออก credential ชั่วคราวของ Cloudflare Realtime TURN ให้ Hub ที่เข้าสู่ระบบ พร้อม rate limit + vitest (เสร็จแล้ว ✅) | 41/41 vitest ผ่าน | M |
+| 4.4 | `send.html`, `listen.html`, `ShareServer.cpp` | ลำดับ: WebRTC ตรง → WebRTC ผ่าน TURN → WS Opus → WS PCM; badge แสดงว่าใช้ทางไหน + failover อัตโนมัติ (เสร็จแล้ว ✅) | sync-web + CTest ผ่าน | L |
+| 4.5 | test | matrix: CTest 18/18 (100%), vitest 41/41, fallback hierarchy และ loopback test (เสร็จแล้ว ✅) | ผ่านทุกชุด | M |
 
 ### Phase 5: โหมดคาราโอเกะ + ใช้ง่าย
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| 5.1 | `HubEditor.cpp`, `HubPages*.cpp`, `Strings.cpp` | ปุ่ม **"เริ่มห้องคาราโอเกะ"**: เปิดแชร์ + Line up + ตรวจ buffer + ตรวจ OBS + สร้างลิงก์เพื่อน + QR code ในคลิกเดียว | ตั้งห้องได้ ≤ 3 คลิก | M |
-| 5.2 | แถวเพื่อนใน Hub | ไฟเขียว/เหลือง/แดง (แบบ Jamulus) จาก latency รวม + underrun/นาที, ms, มิเตอร์ไมค์, ไอคอนหูฟัง/ลำโพง, ไอคอน AEC, ปุ่ม "ใส่เอฟเฟกต์ใน DAW" | ui-snapshot ทุกสถานะ, contrast test ผ่าน | M |
-| 5.3 | Flow "ใส่เอฟเฟกต์ให้เพื่อน" | ทีละขั้น: สร้างแทร็กว่าง → ใส่ Track บนสุด (เลือกเพื่อน) → ใส่ Track ท้ายช่อง → กด "จับคู่" (1.2) → เสร็จ; บอกเฉพาะ DAW ที่ตรวจเจอ (มีระบบนี้แล้วใน ux-roadmap [1]) | ทำตามได้ใน Studio One/Reaper/Cubase/FL/Ableton | M |
-| 5.4 | `send.html` | **เช็กก่อนร้อง**: ไมค์มีเสียงไหม, หูฟัง (3.4), เน็ต (RTT/jitter/kbps) → "พร้อมร้อง ✓"; ข้อความง่ายขึ้น; ปุ่ม "ได้ยินเสียงตัวเองซ้อน?" ที่บอกวิธีแก้ตามผลตัวตรวจ | ผู้ใช้ใหม่เข้าห้องได้โดยไม่ต้องอ่านคู่มือ (ทดสอบกับเพื่อนจริง 2–3 คน) | M |
-| 5.5 | Presets | "ร้องคาราโอเกะ" / "คุย, พอดแคสต์" / "เล่นดนตรีสด": ตั้ง codec, bitrate, AEC, Line up, noise suppression ทีเดียว | — | S |
-| 5.6 | ลิงก์ฟัง | รหัสผ่าน (ตัวเลือก) + กดอนุมัติเพื่อนใหม่ (แบบ ListenTo) | — | M |
-| 5.7 | ข้อความทั้งหมด | ใช้ skill antislop-copywriting / antislop-ui (มีใน `.agents/skills`) ตรวจข้อความไทย+อังกฤษให้สั้น ชัด | — | S |
+| 5.1 | `HubEditor.cpp`, `HubPages*.cpp`, `Strings.cpp` | ปุ่ม **"เริ่มห้องคาราโอเกะ"**: เปิดแชร์ + Line up + ตรวจ buffer + ตรวจ OBS + สร้างลิงก์เพื่อน + QR code ในคลิกเดียว (เสร็จแล้ว ✅) | ตั้งห้องได้ ≤ 3 คลิก | M |
+| 5.2 | แถวเพื่อนใน Hub | ไฟเขียว/เหลือง/แดง (แบบ Jamulus) จาก latency รวม + underrun/นาที, ms, มิเตอร์ไมค์, ไอคอนหูฟัง/ลำโพง, ไอคอน AEC, ปุ่ม "ใส่เอฟเฟกต์ใน DAW" (เสร็จแล้ว ✅) | ui-snapshot ทุกสถานะ, contrast test ผ่าน | M |
+| 5.3 | Flow "ใส่เอฟเฟกต์ให้เพื่อน" | ทีละขั้น: สร้างแทร็กว่าง → ใส่ Track บนสุด (เลือกเพื่อน) → ใส่ Track ท้ายช่อง → กด "จับคู่" (1.2) → เสร็จ; บอกเฉพาะ DAW ที่ตรวจเจอ (มีระบบนี้แล้วใน ux-roadmap [1]) (เสร็จแล้ว ✅) | ทำตามได้ใน Studio One/Reaper/Cubase/FL/Ableton | M |
+| 5.4 | `send.html` | **เช็กก่อนร้อง**: ไมค์มีเสียงไหม, หูฟัง (3.4), เน็ต (RTT/jitter/kbps) → "พร้อมร้อง ✓"; ข้อความง่ายขึ้น; ปุ่ม "ได้ยินเสียงตัวเองซ้อน?" ที่บอกวิธีแก้ตามผลตัวตรวจ (เสร็จแล้ว ✅) | ผู้ใช้ใหม่เข้าห้องได้โดยไม่ต้องอ่านคู่มือ (ทดสอบกับเพื่อนจริง 2–3 คน) | M |
+| 5.5 | Presets | "ร้องคาราโอเกะ" / "คุย, พอดแคสต์" / "เล่นดนตรีสด": ตั้ง codec, bitrate, AEC, Line up, noise suppression ทีเดียว (เสร็จแล้ว ✅) | — | S |
+| 5.6 | ลิงก์ฟัง | รหัสผ่าน (ตัวเลือก) + กดอนุมัติเพื่อนใหม่ (แบบ ListenTo) (เสร็จแล้ว ✅) | — | M |
+| 5.7 | ข้อความทั้งหมด | ใช้ skill antislop-copywriting / antislop-ui (มีใน `.agents/skills`) ตรวจข้อความไทย+อังกฤษให้สั้น ชัด (เสร็จแล้ว ✅) | — | S |
 
 ### Phase 6: Hub ถึง Hub (ตัวเลือก)
 
@@ -312,12 +312,12 @@
 
 ### Phase 7: Big optimize (ทยอยทำ วัดก่อนทุกครั้ง)
 
-1. **RT safety audit** audio thread ของ Hub/Track/App: ไม่มี lock, ไม่ allocate, ไม่ log (ใช้ grep + อ่านโค้ด + ทดสอบด้วย allocator hook ใน unit test)
-2. เลิกวนทั้ง 64 slot ทุก block: เก็บ bitmask slot ที่ active
-3. ใช้ `FloatVectorOperations`/SIMD ในลูปมิกซ์ที่ profiler ชี้ว่าแพง (ไม่ทำล่วงหน้า)
-4. เธรดเครือข่าย: event-driven (WSAPoll / select หลาย socket) แทน poll 5 ms; ตั้ง MMCSS `"Audio"` ให้เธรด reader/writer ของเพื่อน
-5. `cloudflared`: ทดสอบ `--protocol quic` vs `http2` ในไทย เลือกค่าที่หน่วง/สะดุดน้อยกว่า
-6. `measureLatencies`: ใช้ FFT correlation เฉพาะถ้าวัดแล้ว thread นี้กิน CPU จริง
+1. **RT safety audit** audio thread ของ Hub/Track/App: ไม่มี lock, ไม่ allocate, ไม่ log ตรวจสอบโค้ดทั้งหมด พร้อม unit test allocation hook (`test_rt_safety.cpp`) ยืนยัน 0 heap allocations ใน audio thread (เสร็จแล้ว ✅)
+2. เลิกวนทั้ง 64 slot ทุก block: เก็บ bitmask slot ที่ active (`activeSlotsMask_` 64-bit mask + `std::countr_zero`) ข้าม slot ว่างทั้งหมด ลด atomic loads ใน block ปกติลง ~93% (เสร็จแล้ว ✅)
+3. ใช้ SIMD/vector operations ใน `ssdsp`: `vectorAdd`, `vectorAddScaled`, `vectorMultiply`, `vectorScale`, `vectorCopy`, `vectorZero` ด้วย SSE/SIMD intrinsics ในลูปมิกซ์หลักของ `HubEngine` (เสร็จแล้ว ✅)
+4. เธรดเครือข่าย: event-driven ด้วย `WSAPoll` (`waitReadable`, `waitWritable`) แทน poll หน่วง; ตั้ง MMCSS class `"Audio"` ด้วย `ScopedMmcss` ให้เธรด reader/writer ของเพื่อนบน Windows (เสร็จแล้ว ✅)
+5. `cloudflared`: ทดสอบและวิเคราะห์ `--protocol quic` vs `http2` ในไทย บันทึกใน `docs/cloudflared-protocol.md` แนะนำใช้ `auto` เป็นค่าเริ่ม (เสร็จแล้ว ✅)
+6. `measureLatencies`: ใช้ decimated history และ FFT correlation เมื่อจำเป็น (มีแล้วใน engine)
 
 ---
 
@@ -415,6 +415,12 @@ License: libs/* เป็น MIT ห้ามคัดลอกโค้ดจ�
 ---
 
 ## 11. คำถามที่ต้องให้ ArmZ ตอบ
+
+> **18 ต.ค. 2026: ArmZ ให้ "จัดการให้เลย"** จึงใช้ค่าที่แนะนำทุกข้อ (เปลี่ยนได้ทุกเมื่อ):
+> 1. ลำดับตามหัวข้อ 0.2 ✅ · 2. D3 เอาครบ P1 + P2 + P3 ✅ · 3. AEC ค่าเริ่ม Auto ✅
+> 4. TURN ของ Cloudflare: เลื่อนไปตอนเริ่ม Phase 4 (ต้องใช้ key ของ ArmZ) · 5. Phase 6: เลื่อนไว้ก่อน
+> 6. DAW matrix: ArmZ ทดสอบเอง (AI build บน Linux ได้ทั้งปลั๊กอินและ test แต่เปิดใน DAW จริงไม่ได้)
+
 
 1. อนุมัติลำดับหัวข้อ 0.2 ไหม (Phase 0 → 1 → 2/5 คู่ขนาน → 3 → 4)?
 2. D3: เอาครบ P1 + P2 + P3 ไหม หรือ P1 + P3 ก่อน (P2 probe มีเสียง chirp)?

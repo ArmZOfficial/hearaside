@@ -323,7 +323,7 @@ struct alignas(64) FeederRecord {
     std::atomic<uint32_t> status;           // FeederStatus
     std::atomic<uint32_t> reply;            // answer to the last request (see kReply*)
     std::atomic<uint32_t> replySeq;
-    std::atomic<uint32_t> hubCommand;       // Hub -> feeder: 1 = go back to this track's own sound ("Bring back to the Hub")
+    std::atomic<uint32_t> hubCommand;       // Hub -> feeder: 1 = go back to this track's own sound ("Bring back to the Hub"), 2 = play the probe sweep
     std::atomic<uint32_t> hubCommandSeq;
     std::atomic<uint32_t> sampleRate;       // of the DAW
     alignas(64) std::atomic<uint64_t> tapWrite;   // decimated frames written to feederTap[i]
@@ -334,10 +334,14 @@ enum RequestKind : uint32_t {
     kReqCreateFriend = 2,   // text = name for the new friend; reply = friend id
     kReqRelease      = 3,   // this feeder lets go of its friend (the Hub plays the friend directly again)
     kReqCopyLink     = 4,   // arg = friend id: the Hub puts that friend's send-in link on the clipboard
+    kReqPairWith     = 5,   // arg = slot of the Track this channel ends in, kPairAutomatic = find it by name / sound again
+    kReqProbe        = 6,   // the Hub makes this feeder play a short sweep and looks for it in the Tracks (Pair automatically)
 };
+constexpr uint32_t kPairAutomatic = 0xFFFFFFFFu;
 constexpr uint32_t kReplyNotInRoom = 0xFFFF0001u;   // the link belongs to another room / is unknown
 constexpr uint32_t kReplyRoomFull  = 0xFFFF0002u;
 constexpr uint32_t kReplyFailed    = 0xFFFF0003u;
+constexpr uint32_t kReplyNoMatch   = 0xFFFF0004u;   // the probe's sweep did not come out of any Track
 
 // Multi-writer queue (like RemoteCommand): writers claim an index with fetch_add on requestReserve,
 // fill the entry and publish it with seq = index + 1. The Hub (single reader) consumes in order and

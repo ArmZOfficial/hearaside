@@ -11,6 +11,7 @@
 #include "ssengine/engine.h"
 #include "ssengine/friend_reader.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -25,8 +26,17 @@ constexpr float kMaxFriendMs = 1000.0f;
 // out[i] = in[i - d] over a ring that always holds the newest input. d <= cap - n.
 inline void readTap(const std::vector<float>& ring, uint32_t endPos, uint32_t n, uint32_t d, float* out) noexcept {
     const uint32_t cap = uint32_t(ring.size());
-    uint32_t at = (endPos + cap - n - d % cap) % cap;
-    for (uint32_t i = 0; i < n; ++i) { out[i] = ring[at]; if (++at == cap) at = 0; }
+    const uint32_t at = (endPos + cap - n - d % cap) % cap;
+    const uint32_t first = std::min(n, cap - at);   // at most two contiguous pieces, no per-sample modulo
+    std::memcpy(out, ring.data() + at, size_t(first) * sizeof(float));
+    if (first < n) std::memcpy(out + first, ring.data(), size_t(n - first) * sizeof(float));
+}
+
+// ring[pos ..) = src[0..n), wrapping once
+inline void writeTap(std::vector<float>& ring, uint32_t pos, const float* src, uint32_t n) noexcept {
+    const uint32_t first = std::min(n, uint32_t(ring.size()) - pos);
+    std::memcpy(ring.data() + pos, src, size_t(first) * sizeof(float));
+    if (first < n) std::memcpy(ring.data(), src + first, size_t(n - first) * sizeof(float));
 }
 } // namespace
 
@@ -67,7 +77,14 @@ void HubEngine::friendsPrepare() {
         p->direct.prepare(sampleRate_, 20.0); p->direct.snap(1.0f);
         friends_[size_t(j)] = std::move(p);
         friendInfo_[size_t(j)].playing.store(0);
+        friendInfo_[size_t(j)].leakDetected.store(0);
+        friendInfo_[size_t(j)].echoInMaster.store(0);
     }
+    capFriendMix_.assign(capLen_, 0.0f);
+    capFriends_.assign(size_t(kMaxFriends) * capLen_, 0.0f);
+    friendQuiet_.fill(capLen_);
+    decFriendMix_ = 0.0f;
+    decFriends_.fill(0.0f);
     lineD_ = lineOldD_ = 0;
     lineXfRemain_ = lineHold_ = 0;
     usedTot_.fill(0);
@@ -85,6 +102,13 @@ void HubEngine::friendsReset() noexcept {
         p->str.snap(0.0f);
         p->peak = 0.0f;
     }
+    friendQuiet_.fill(capLen_);
+    decFriendMix_ = 0.0f;
+    decFriends_.fill(0.0f);
+    for (int j = 0; j < kMaxFriends; ++j) {
+        friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+        friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+    }
     lineD_ = lineOldD_ = 0;
     lineXfRemain_ = lineHold_ = 0;
     lineUpMsBits_.store(0, std::memory_order_relaxed);
@@ -101,7 +125,9 @@ bool HubEngine::friendsSoloActive() const noexcept {
     return false;
 }
 
-void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStreamOuts>& used, bool soloActive) noexcept {
+void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStreamOuts>& used, bool soloActive,
+                           int64_t timeSamples, bool playing,
+                           uint32_t w0, uint32_t w, int phase) noexcept {
     BusLayout* b = bus_.load(std::memory_order_relaxed);
     const uint32_t sr = uint32_t(sampleRate_ + 0.5);
     const double dt = double(n) / sampleRate_;
@@ -112,7 +138,27 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     // so nobody gets their own voice back a round trip later (mix-minus for every friend at once).
     {
         const float* src[2] = { outs_[0][0].data(), outs_[0][1].data() };
+        friendMixGain_.setTarget(probeFeeder_.load(std::memory_order_relaxed) >= 0 ? 0.0f : 1.0f);   // silent while the probe sweep passes
+        if (friendMixGain_.isSmoothing() || friendMixGain_.current() != 1.0f) {
+            for (int i = 0; i < n; ++i) {
+                const float g = friendMixGain_.next();
+                delayScratch_[0][size_t(i)] = src[0][i] * g;
+                delayScratch_[1][size_t(i)] = src[1][i] * g;
+            }
+            src[0] = delayScratch_[0].data();
+            src[1] = delayScratch_[1].data();
+        }
         ringWrite(b->friendMixAudio, b->friendMixWrite, src, 2, uint32_t(n));
+        if (capLen_ > 0) {
+            float acc = decFriendMix_;
+            uint32_t at = w0;
+            int k = phase;
+            for (int i = 0; i < n; ++i) {
+                acc += src[0][i] + src[1][i];
+                if (++k == 4) { capFriendMix_[at % capLen_] = acc; ++at; acc = 0.0f; k = 0; }
+            }
+            decFriendMix_ = acc;
+        }
     }
 
     // ---- play every friend ---------------------------------------------------------------------
@@ -131,17 +177,31 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         if (!liveState) {
             f.reader.reset();
             info.playing.store(0, std::memory_order_relaxed);
+            info.underruns.store(0, std::memory_order_relaxed);
+            info.concealedMs.store(0, std::memory_order_relaxed);
+            info.jitterP95MsBits.store(0, std::memory_order_relaxed);
             for (int c = 0; c < 2; ++c) std::memset(f.out[c].data(), 0, size_t(n) * sizeof(float));
             f.peak *= std::exp(-float(n) / (0.3f * float(sr)));
+            if (friendTap_) {
+                const float* tapCh[2] = { f.out[0].data(), f.out[1].data() };
+                friendTap_(friendTapUser_, j, tapCh, n, timeSamples, playing);
+            }
             continue;
         }
         float* o[2] = { f.out[0].data(), f.out[1].data() };
         const bool wasPrimed = f.reader.primed();
         const bool ok = f.reader.pull(b->friendAudio[j], h.writePos, rate, o, n);
+        if (friendTap_) {
+            const float* tapCh[2] = { f.out[0].data(), f.out[1].data() };
+            friendTap_(friendTapUser_, j, tapCh, n, timeSamples, playing);
+        }
         if (!wasPrimed && f.reader.primed()) {
             f.mon.snap(0.0f);
             f.str.snap(0.0f);   // no click when the voice (re)starts
         }
+        info.underruns.store(f.reader.underruns(), std::memory_order_relaxed);
+        info.concealedMs.store(uint32_t(f.reader.concealedMs()), std::memory_order_relaxed);
+        info.jitterP95MsBits.store(floatBits(float(std::max(0.0, f.reader.jitterP95Ms()))), std::memory_order_relaxed);
         if (!ok) {
             info.playing.store(0, std::memory_order_relaxed);
             continue;
@@ -151,6 +211,30 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         const float bufMs = float(f.reader.bufferMs());
         info.bufferMsBits.store(floatBits(bufMs), std::memory_order_relaxed);
         info.playing.store(1, std::memory_order_relaxed);
+    }
+
+    if (capLen_ > 0) {
+        for (int j = 0; j < kMaxFriends; ++j) {
+            FriendPlayer& f = *friends_[size_t(j)];
+            float* ring = capFriends_.data() + size_t(j) * capLen_;
+            if (f.live) {
+                float acc = decFriends_[size_t(j)];
+                uint32_t at = w0;
+                int k = phase;
+                for (int i = 0; i < n; ++i) {
+                    acc += f.out[0][size_t(i)] + f.out[1][size_t(i)];
+                    if (++k == 4) { ring[at % capLen_] = acc; ++at; acc = 0.0f; k = 0; }
+                }
+                decFriends_[size_t(j)] = acc;
+                friendQuiet_[size_t(j)] = 0;
+            } else {
+                if (friendQuiet_[size_t(j)] < capLen_) {
+                    for (uint32_t at = w0; at != w; ++at) ring[at % capLen_] = 0.0f;
+                    friendQuiet_[size_t(j)] += w - w0;
+                }
+                decFriends_[size_t(j)] = 0.0f;
+            }
+        }
     }
 
     // ---- Line up: D = the slowest friend, a crossfade whenever it really changes ------------------
@@ -183,6 +267,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
             const uint32_t a = tot[size_t(j)], u = usedTot_[size_t(j)];
             if ((a > u ? a - u : u - a) > uint32_t(0.008 * sampleRate_)) changed = true;
         }
+        if (probeFeeder_.load(std::memory_order_relaxed) >= 0 && lineOn) changed = false;   // the probe holds the mute for the D it started with
         const bool urgent = !lineOn;
         if (changed && lineXfRemain_ == 0) {
             lineHold_ += uint32_t(n);
@@ -207,10 +292,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
     auto delayOut = [&](int o) {
         DelayLine& d = outDelay_[size_t(o)];
         const uint32_t cap = uint32_t(d.buf[0].size());
-        for (int c = 0; c < 2; ++c) {
-            float* x = outs_[size_t(o)][size_t(c)].data();
-            for (int i = 0; i < n; ++i) { d.buf[size_t(c)][(d.pos + uint32_t(i)) % cap] = x[i]; }
-        }
+        for (int c = 0; c < 2; ++c) writeTap(d.buf[size_t(c)], d.pos, outs_[size_t(o)][size_t(c)].data(), uint32_t(n));
         const uint32_t endPos = (d.pos + uint32_t(n)) % cap;
         for (int c = 0; c < 2; ++c) {
             float* x = outs_[size_t(o)][size_t(c)].data();
@@ -239,7 +321,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
                 for (int c = 0; c < 2; ++c) {
                     float* x = outs_[size_t(o)][size_t(c)].data();
                     const float* l = late_[size_t(o)][size_t(c)].data();
-                    for (int i = 0; i < n; ++i) x[i] += l[i];
+                    ssdsp::vectorAdd(x, l, n);
                 }
 
     // ---- mix every friend ----------------------------------------------------------------------
@@ -276,6 +358,8 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         float pk = 0.0f;
         float* vo = voice_[size_t(j)].data();
         const float gf = live ? g * 0.5f : 0.0f;   // mono: (l + r) / 2
+        float* wl = delayScratch_[0].data();   // this block's viewer side, written into the delay line in one go (readTap reuses them after)
+        float* wr = delayScratch_[1].data();
         if (!silentNow) {
             for (int i = 0; i < n; ++i) {
                 const float dg = f.direct.next();
@@ -285,13 +369,15 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
                 phoneL[i] += l * gm;
                 phoneR[i] += r * gm;
                 const float vl = l * gs * f.panL.next(), vr = r * gs * f.panR.next();
-                d.buf[0][(d.pos + uint32_t(i)) % cap] = vl;
-                d.buf[1][(d.pos + uint32_t(i)) % cap] = vr;
+                wl[i] = vl;
+                wr[i] = vr;
                 pk = std::max(pk, std::max(std::abs(vl), std::abs(vr)));
             }
         } else {
-            for (int i = 0; i < n; ++i) { d.buf[0][(d.pos + uint32_t(i)) % cap] = 0.0f; d.buf[1][(d.pos + uint32_t(i)) % cap] = 0.0f; f.direct.next(); f.panL.next(); f.panR.next(); }
+            for (int i = 0; i < n; ++i) { wl[i] = 0.0f; wr[i] = 0.0f; f.direct.next(); f.panL.next(); f.panR.next(); }
         }
+        writeTap(d.buf[0], d.pos, wl, uint32_t(n));
+        writeTap(d.buf[1], d.pos, wr, uint32_t(n));
         const uint32_t endPos = (d.pos + uint32_t(n)) % cap;
         const uint32_t dNew = lineD_ > usedTot_[size_t(j)] ? lineD_ - usedTot_[size_t(j)] : 0u;
         const uint32_t dOld = lineOldD_ > oldTot_[size_t(j)] ? lineOldD_ - oldTot_[size_t(j)] : 0u;
@@ -307,7 +393,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
                     dst[i] += delayScratch_[1][size_t(i)] + (delayScratch_[0][size_t(i)] - delayScratch_[1][size_t(i)]) * a;
                 }
             } else {
-                for (int i = 0; i < n; ++i) dst[i] += delayScratch_[0][size_t(i)];
+                ssdsp::vectorAdd(dst, delayScratch_[0].data(), n);
             }
         }
         d.pos = endPos;

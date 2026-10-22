@@ -54,6 +54,9 @@ HubProcessor::HubProcessor()
     lastConnect_ = juce::Time::getMillisecondCounter();
     engine_.connect(busName_.toStdString());
     engine_.prepare(sampleRate_, maxBlock_);
+    engine_.setFriendTap([](void* user, int idx, const float* const* ch, int n, int64_t time, bool playing) noexcept {
+        static_cast<HubProcessor*>(user)->handleFriendAudio(idx, ch, n, time, playing);
+    }, this);
     pushStemNames();
     startTimerHz(20);
     latencyMeter_.startThread(juce::Thread::Priority::low);
@@ -62,6 +65,10 @@ HubProcessor::HubProcessor()
 HubProcessor::~HubProcessor() {
     control_.stop();
     share_.stop();
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) {
+        friendRecActive_[j].store(false, std::memory_order_relaxed);
+        friendRec_[j].close();
+    }
     muteAllBut(-1, -1);   // never leave Tracks muted behind
     latencyMeter_.stopThread(3000);
     stopTimer();
@@ -78,6 +85,7 @@ void HubProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     sampleRate_ = sampleRate > 0 ? sampleRate : 48000.0;
     maxBlock_ = juce::jmax(16, samplesPerBlock);
     engine_.prepare(sampleRate_, maxBlock_);
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) friendRec_[j].prepare(sampleRate_);
     headphoneGain_.reset(sampleRate_, 0.020);
     headphoneGain_.setCurrentAndTargetValue(ssdsp::dbToGain(headphones_->load()));
     setLatencySamples(0);   // the master output itself is never delayed
@@ -254,6 +262,58 @@ void HubProcessor::rename(int slot, const juce::String& name) {
         ssbus::requestRename(bus->slots[slot], name.trim().toStdString());
 }
 
+std::vector<int> HubProcessor::vocalSlots() const {
+    std::vector<int> out;
+    const auto ts = tracks();
+    auto has = [](const juce::String& name, std::initializer_list<const char*> words) {
+        for (const char* w : words) if (name.containsIgnoreCase(juce::String::fromUTF8(w))) return true;
+        return false;
+    };
+    for (const auto& v : ts) {
+        if (has(v.name, { "ร้อง", "ไมค์", "vocal", "vox", "mic", "voice", "lead" }))
+            out.push_back(v.slot);
+    }
+    if (out.empty()) {
+        for (const auto& v : ts) {
+            if (!v.mon && v.str) { out.push_back(v.slot); break; }
+        }
+    }
+    if (out.empty() && ts.size() == 1) out.push_back(ts.front().slot);
+    return out;
+}
+
+void HubProcessor::muteVocalMonitor() {
+    for (int s : vocalSlots()) send(s, ssbus::ParamId::Mon, 0.0f);
+}
+
+std::vector<FriendView> HubProcessor::friends() const {
+    auto list = friendRoom_.views(engine_.bus(), engine_);
+    for (auto& v : list) {
+        if (v.slot >= 0) v.aecMode = int(share_.friendAecMode(v.slot));
+    }
+    return list;
+}
+
+void HubProcessor::applySessionPreset(SessionPreset preset) {
+    sessionPreset_ = preset;
+    if (preset == SessionPreset::Karaoke) {
+        setLineUp(true);
+        for (const auto& f : friendRoom_.entries()) {
+            if (f.slot >= 0) share_.setFriendAecMode(f.slot, ssnet::AecMode::Auto);
+        }
+    } else if (preset == SessionPreset::Podcast) {
+        setLineUp(false);
+        for (const auto& f : friendRoom_.entries()) {
+            if (f.slot >= 0) share_.setFriendAecMode(f.slot, ssnet::AecMode::On);
+        }
+    } else if (preset == SessionPreset::LiveJam) {
+        setLineUp(true);
+        for (const auto& f : friendRoom_.entries()) {
+            if (f.slot >= 0) share_.setFriendAecMode(f.slot, ssnet::AecMode::Off);
+        }
+    }
+}
+
 void HubProcessor::setParam(const char* id, float plain) {
     if (auto* p = apvts_.getParameter(id)) {
         p->beginChangeGesture();
@@ -319,6 +379,15 @@ void HubProcessor::timerCallback() {
         if (engine_.role() != before) { if (engine_.role() == HubEngine::Role::Owner) pushStemNames(); stateChanged.sendChangeMessage(); }
     }
     FriendDirectory::update(engine_.bus());
+    for (int j = 0; j < ssbus::kMaxFriends; ++j) {
+        double shift = 0.0;
+        if (auto* bus = engine_.bus()) {
+            const float d = ssbus::bitsFloat(bus->friends[j].delayBits.load(std::memory_order_relaxed));
+            const float bufMs = ssbus::bitsFloat(engine_.friendInfo(j).bufferMsBits.load(std::memory_order_relaxed));
+            if (d >= 0.0f) shift = double(d) + double(bufMs);
+        }
+        friendRec_[j].setShiftFrames(int64_t(shift * sampleRate_ * 0.001 + 0.5));
+    }
     serviceRemote();
     serviceRequests();
     serviceFeeders();
@@ -376,7 +445,16 @@ juce::String HubProcessor::diagnostics() const {
     r << "auto sync: phase " << int(autoSync_.phase) << ", " << juce::String(autoSync_.deltaMs, 1) << " ms\n"
       << "sharing: " << (shareWanted_ ? "on" : "off") << ", tunnel " << int(share_.tunnel()) << ", permanent link "
       << (permanentLinksSet() ? juce::String(int(directory_.state())) : juce::String("not set")) << ", listeners " << share_.listeners() << "\n"
-      << "REST API: " << (control_.running() ? "on, port " + juce::String(control_.port()) : juce::String("off")) << "\n";
+      << "friends live: " << share_.friendsConnected() << "\n";
+    if (const auto* bus = engine_.bus())
+        for (const auto& e : friendRoom_.entries()) {   // the line to each friend who is connected (no names)
+            if (e.slot < 0 || bus->friends[e.slot].state.load() != ssbus::kFriendLive) continue;
+            const auto f = share_.friendStats(e.slot);
+            r << "  [" << e.slot << "] round trip " << (f.rttMs < 0.0f ? juce::String("unknown (older page)") : juce::String(f.rttMs, 0) + " ms")
+              << ", up " << juce::String(f.upKbps, 0) << " kbps, down " << juce::String(f.downKbps, 0) << " kbps, longest mic gap " << juce::String(f.micGapMaxMs, 0)
+              << " ms, most audio waiting " << juce::String(f.downLagMaxMs, 0) << " ms, skipped ahead " << int(f.downSkips) << "x\n";
+        }
+    r << "REST API: " << (control_.running() ? "on, port " + juce::String(control_.port()) : juce::String("off")) << "\n";
     return r;   // track names, links, tokens and keys stay out on purpose
 }
 
@@ -493,6 +571,7 @@ uint32_t HubProcessor::addFriend(const juce::String& name) {
 }
 
 void HubProcessor::removeFriend(uint32_t id) {
+    stopFriendRecording(id);
     friendRoom_.remove(id);
     serviceShare();
     updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
@@ -551,6 +630,44 @@ void HubProcessor::bringBackFriend(uint32_t id) {
     auto& f = bus->feeders[feeder];
     f.hubCommand.store(1, std::memory_order_relaxed);   // "go back to this track's own sound"
     f.hubCommandSeq.fetch_add(1, std::memory_order_release);
+}
+
+void HubProcessor::handleFriendAudio(int idx, const float* const* ch, int n, int64_t time, bool playing) noexcept {
+    if (idx >= 0 && idx < ssbus::kMaxFriends) {
+        const bool want = friendRecActive_[size_t(idx)].load(std::memory_order_relaxed);
+        friendRec_[size_t(idx)].write(ch, n, want, time, playing && time != ssengine::kNoTime);
+    }
+}
+
+void HubProcessor::startFriendRecording(uint32_t id) {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return;
+    if (friendRecActive_[size_t(slot)].load(std::memory_order_relaxed)) return;
+    const auto* e = friendRoom_.find(id);
+    const juce::String name = (e && e->name.isNotEmpty()) ? e->name : ("Friend " + juce::String(id));
+    if (!friendRec_[size_t(slot)].isOpen() && !friendRec_[size_t(slot)].open(name)) return;
+    friendRecActive_[size_t(slot)].store(true, std::memory_order_relaxed);
+    stateChanged.sendChangeMessage();
+}
+
+void HubProcessor::stopFriendRecording(uint32_t id) {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return;
+    if (!friendRecActive_[size_t(slot)].exchange(false) && !friendRec_[size_t(slot)].isOpen()) return;
+    friendRec_[size_t(slot)].close();
+    stateChanged.sendChangeMessage();
+}
+
+bool HubProcessor::isFriendRecording(uint32_t id) const {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return false;
+    return friendRecActive_[size_t(slot)].load(std::memory_order_relaxed);
+}
+
+double HubProcessor::friendRecordSec(uint32_t id) const {
+    const int slot = friendRoom_.slotOf(id);
+    if (slot < 0 || slot >= ssbus::kMaxFriends) return 0.0;
+    return friendRec_[size_t(slot)].isOpen() ? friendRec_[size_t(slot)].seconds() : friendRec_[size_t(slot)].lastSeconds();
 }
 
 int HubProcessor::lineUpSlowestFriend() const {
@@ -663,6 +780,13 @@ void HubProcessor::serviceRequests() {
                 ssbus::postReply(f, 1);
                 break;
             }
+            case ssbus::kReqPairWith:
+                ssbus::postReply(f, engine_.pairWith(feeder, arg) ? 1u : ssbus::kReplyFailed);
+                break;
+            case ssbus::kReqProbe:   // answered by the engine when it has listened
+                if (autoSync_.phase == SyncPhase::Reference || autoSync_.phase == SyncPhase::Microphone || !engine_.startProbe(feeder))
+                    ssbus::postReply(f, ssbus::kReplyFailed);
+                break;
             case ssbus::kReqCopyLink: {
                 const juce::String link = friendLink(arg);
                 if (link.isNotEmpty()) {
@@ -985,6 +1109,15 @@ void HubProcessor::getStateInformation(juce::MemoryBlock& dest) {
     for (int i = 0; i < ssbus::kMaxStems; ++i) stems.setProperty("s" + juce::String(i), stemNames_[size_t(i)], nullptr);
     state.removeChild(state.getChildWithName("STEMS"), nullptr);
     state.appendChild(stems, nullptr);
+    juce::ValueTree pairs("PAIRS");   // which Track each friend input goes out through (chosen by hand or found by the probe)
+    for (const auto& m : engine_.pairMemory()) {
+        juce::ValueTree p("PAIR");
+        p.setProperty("feeder", juce::String::fromUTF8(m.feeder.c_str()), nullptr);
+        p.setProperty("slot", juce::String::fromUTF8(m.slotUuid.c_str()), nullptr);
+        pairs.appendChild(p, nullptr);
+    }
+    state.removeChild(state.getChildWithName("PAIRS"), nullptr);
+    state.appendChild(pairs, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -998,6 +1131,16 @@ void HubProcessor::setStateInformation(const void* data, int size) {
     // older projects also saved scenes and a hosted mastering chain
     state.removeChild(state.getChildWithName("SCENES"), nullptr);
     state.removeProperty("mastering", nullptr);
+    std::vector<HubEngine::PairMemory> pairs;
+    const auto saved = state.getChildWithName("PAIRS");
+    for (int i = saved.getNumChildren(); --i >= 0;) {   // newest first (remember() appends): the newest of a clash and the first 256 stay
+        const auto p = saved.getChild(i);
+        HubEngine::PairMemory m { p.getProperty("feeder").toString().toStdString(), p.getProperty("slot").toString().toStdString() };
+        const bool twice = std::any_of(pairs.begin(), pairs.end(), [&](const auto& o) { return o.feeder == m.feeder || o.slotUuid == m.slotUuid; });
+        if (!m.feeder.empty() && !m.slotUuid.empty() && !twice && pairs.size() < 256) pairs.push_back(std::move(m));   // an empty one would match any Track or feeder
+    }
+    std::reverse(pairs.begin(), pairs.end());
+    engine_.setPairMemory(std::move(pairs));
     friendRoom_.fromState(state.getChildWithName("FRIENDS"));
     lineUp_ = bool(state.getProperty("lineUp", true));
     state.removeChild(state.getChildWithName("FRIENDS"), nullptr);

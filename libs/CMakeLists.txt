@@ -67,11 +67,31 @@ if(MSVC)
     target_compile_options(ss_speex_echo PRIVATE /wd4244 /wd4305 /wd4267 /wd4018)
 endif()
 
-# ---- ssnet: network wire formats, codecs, and echo cancellation (MIT, no JUCE) -------------
+# ---- mbedtls: crypto & TLS backend for libdatachannel (Apache-2.0) -------------------------
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${SS_EXTERNAL}/mbedtls ${CMAKE_CURRENT_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+if(NOT TARGET MbedTLS::MbedTLS AND TARGET mbedtls)
+    add_library(MbedTLS::MbedTLS ALIAS mbedtls)
+endif()
+
+# ---- libdatachannel: WebRTC DataChannel (MPL-2.0) -------------------------------------------
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
+set(NO_MEDIA ON CACHE BOOL "" FORCE)
+set(USE_MBEDTLS ON CACHE BOOL "" FORCE)
+set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
+set(NO_TESTS ON CACHE BOOL "" FORCE)
+set(PREFER_SYSTEM_LIB OFF CACHE BOOL "" FORCE)
+add_subdirectory(${SS_EXTERNAL}/libdatachannel ${CMAKE_CURRENT_BINARY_DIR}/libdatachannel EXCLUDE_FROM_ALL)
+
+# ---- ssnet: network wire formats, codecs, echo cancellation, WebRTC (MIT, no JUCE) --------
 add_library(ssnet STATIC
     ssnet/src/opus_codec.cpp
-    ssnet/src/aec.cpp)
+    ssnet/src/aec.cpp
+    ssnet/src/rtc.cpp)
 target_include_directories(ssnet PUBLIC ssnet/include)
-target_link_libraries(ssnet PUBLIC opus ss_speex_echo)
+target_link_libraries(ssnet PUBLIC opus ss_speex_echo datachannel-static)
 
 

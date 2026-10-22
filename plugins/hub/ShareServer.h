@@ -8,6 +8,7 @@
 
 #include "ssbus/bus.h"
 #include "ssnet/aec.h"
+#include "ssnet/rtc.h"
 
 #include <juce_core/juce_core.h>
 

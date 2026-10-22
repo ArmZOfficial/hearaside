@@ -84,6 +84,37 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: var(--rail); }
 .seg button { border: 0; border-radius: 9px; padding: 8px 4px; font: inherit; font-size: 13px; color: var(--ink2); background: transparent; cursor: pointer; }
 .seg button.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 4px var(--shadow); font-weight: 500; }
+.transport-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  letter-spacing: .02em; border: 1px solid transparent; transition: all .2s ease;
+}
+.transport-badge.direct {
+  background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.35); color: #15803D;
+}
+.transport-badge.relay {
+  background: rgba(234, 179, 8, 0.15); border-color: rgba(234, 179, 8, 0.35); color: #B45309;
+}
+.transport-badge.opus {
+  background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.35); color: #0E7490;
+}
+.transport-badge.pcm {
+  background: rgba(148, 163, 184, 0.15); border-color: rgba(148, 163, 184, 0.35); color: #475569;
+}
+@media (prefers-color-scheme: dark) {
+  .transport-badge.direct {
+    background: rgba(34, 197, 94, 0.22); border-color: rgba(34, 197, 94, 0.45); color: #4ADE80;
+  }
+  .transport-badge.relay {
+    background: rgba(234, 179, 8, 0.22); border-color: rgba(234, 179, 8, 0.45); color: #FCD34D;
+  }
+  .transport-badge.opus {
+    background: rgba(6, 182, 212, 0.22); border-color: rgba(6, 182, 212, 0.45); color: #67E8F9;
+  }
+  .transport-badge.pcm {
+    background: rgba(148, 163, 184, 0.22); border-color: rgba(148, 163, 184, 0.45); color: #CBD5E1;
+  }
+}
 .foot { margin-top: 14px; text-align: center; font-size: 11px; color: var(--muted); }
 </style>
 </head>
@@ -104,6 +135,7 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
 
   <div class="row">
     <span class="chip"><span class="dot"></span><span id="status"></span></span>
+    <span class="transport-badge" id="transportBadge" style="display:none"></span>
     <span class="value" id="delay"></span>
   </div>
 
@@ -144,13 +176,15 @@ const T = {
         quality: "คุณภาพเสียง", fast: "เร็วสุด", balanced: "สมดุล", smooth: "ลื่นสุด", tap: "แตะเพื่อฟัง", connecting: "กำลังเชื่อมต่อ...",
         playing: "กำลังฟังสด", waiting: "รอเสียงจาก DAW", lost: "หลุด กำลังต่อใหม่...", stopped: "หยุดอยู่",
         stopHint: "แตะเพื่อหยุด", delay: "ดีเลย์", lossless: "ไม่บีบอัด",
-        offline: "ผู้สตรีมยังไม่ได้เปิดแชร์ หน้านี้จะเริ่มเล่นเองเมื่อพร้อม", offlineIdle: "ผู้สตรีมยังไม่ได้เปิดแชร์ แตะไว้ได้เลย จะเริ่มเล่นเองเมื่อพร้อม" },
+        offline: "ผู้สตรีมยังไม่ได้เปิดแชร์ หน้านี้จะเริ่มเล่นเองเมื่อพร้อม", offlineIdle: "ผู้สตรีมยังไม่ได้เปิดแชร์ แตะไว้ได้เลย จะเริ่มเล่นเองเมื่อพร้อม",
+        transportDirect: "WebRTC (ตรง)", transportRelay: "WebRTC (TURN)", transportOpus: "WebSocket (Opus)", transportPcm: "WebSocket (PCM)" },
   en: { title: "Listen live", subtitle: "What the viewers hear, straight from the DAW", volume: "Volume", mode: "Latency",
         quality: "Quality", fast: "Fastest", balanced: "Balanced", smooth: "Smoothest", tap: "Tap to listen", connecting: "Connecting...",
         playing: "Listening live", waiting: "Waiting for the DAW", lost: "Connection lost, retrying...", stopped: "Stopped",
         stopHint: "Tap to stop", delay: "Delay", lossless: "lossless",
         offline: "The streamer isn't sharing yet. This page starts playing by itself when they are.",
-        offlineIdle: "The streamer isn't sharing yet. Tap now and it starts playing by itself when they are." }
+        offlineIdle: "The streamer isn't sharing yet. Tap now and it starts playing by itself when they are.",
+        transportDirect: "WebRTC (Direct)", transportRelay: "WebRTC (TURN)", transportOpus: "WebSocket (Opus)", transportPcm: "WebSocket (PCM)" }
 };
 // language: the visitor's choice (remembered), else the browser's
 let saved = null;
@@ -455,6 +489,175 @@ function initDecoder() {
   }
 }
 
+let pc = null, rtcDc = null, rtcActive = false, rtcCandidateType = "", rtcFailTimer = null, rtcStatsTimer = null;
+
+function updateTransportBadge() {
+  const badge = $("transportBadge");
+  if (!badge) return;
+  if (state === "idle" || !ws || ws.readyState !== 1) {
+    badge.style.display = "none";
+    return;
+  }
+  badge.style.display = "inline-flex";
+  badge.className = "transport-badge";
+  if (rtcActive && rtcCandidateType === "relay") {
+    badge.classList.add("relay");
+    badge.textContent = L.transportRelay;
+  } else if (rtcActive) {
+    badge.classList.add("direct");
+    badge.textContent = L.transportDirect;
+  } else if (useOpus) {
+    badge.classList.add("opus");
+    badge.textContent = L.transportOpus;
+  } else {
+    badge.classList.add("pcm");
+    badge.textContent = L.transportPcm;
+  }
+}
+
+async function fetchTurnConfig() {
+  try {
+    const res = await fetch("/api/turn");
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+        return data.iceServers;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function inspectCandidatePair() {
+  if (!pc || !pc.getStats) return;
+  try {
+    const stats = await pc.getStats();
+    stats.forEach(report => {
+      if (report.type === "candidate-pair" && report.state === "succeeded") {
+        const localCand = stats.get(report.localCandidateId);
+        const remoteCand = stats.get(report.remoteCandidateId);
+        if ((localCand && localCand.candidateType === "relay") ||
+            (remoteCand && remoteCand.candidateType === "relay")) {
+          rtcCandidateType = "relay";
+        } else {
+          rtcCandidateType = "direct";
+        }
+      }
+    });
+    updateTransportBadge();
+  } catch (e) {}
+}
+
+function cleanupRtc() {
+  clearTimeout(rtcFailTimer);
+  clearInterval(rtcStatsTimer);
+  rtcActive = false;
+  rtcCandidateType = "";
+  if (rtcDc) {
+    try { rtcDc.close(); } catch (e) {}
+    rtcDc = null;
+  }
+  if (pc) {
+    try { pc.close(); } catch (e) {}
+    pc = null;
+  }
+  updateTransportBadge();
+}
+
+async function initRtc(offerSdp) {
+  cleanupRtc();
+  let iceServers = [
+    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:stun.l.google.com:19302" }
+  ];
+  const turnServers = await fetchTurnConfig();
+  if (turnServers && turnServers.length > 0) iceServers = turnServers;
+  pc = new RTCPeerConnection({ iceServers });
+
+  pc.ondatachannel = e => {
+    rtcDc = e.channel;
+    setupDataChannel(rtcDc);
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: "rtc_candidate",
+        candidate: e.candidate.candidate,
+        mid: e.candidate.sdpMid
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc && (pc.connectionState === "failed" || pc.connectionState === "disconnected")) {
+      cleanupRtc();
+    }
+    updateTransportBadge();
+  };
+
+  rtcFailTimer = setTimeout(() => {
+    if (!rtcActive) updateTransportBadge();
+  }, 3000);
+
+  try {
+    await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "rtc_answer", sdp: answer.sdp }));
+    }
+  } catch (err) {
+    console.warn("RTC setup error:", err);
+    cleanupRtc();
+  }
+}
+
+function setupDataChannel(channel) {
+  channel.binaryType = "arraybuffer";
+  channel.onopen = () => {
+    clearTimeout(rtcFailTimer);
+    rtcActive = true;
+    inspectCandidatePair();
+    rtcStatsTimer = setInterval(inspectCandidatePair, 2000);
+    updateTransportBadge();
+  };
+  channel.onclose = () => {
+    rtcActive = false;
+    updateTransportBadge();
+  };
+  channel.onerror = () => {
+    rtcActive = false;
+    updateTransportBadge();
+  };
+  channel.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) handleAudioData(e.data);
+  };
+}
+
+function handleAudioData(buf) {
+  const d = new DataView(buf);
+  const magic = d.getUint32(0, true);
+  if (magic === 0x33415248) {   // "HRA3"
+    if (!node) return;
+    const c = d.getUint8(4);
+    if (c === 1 && decoder && decoder.state === "configured") {
+      const payload = new Uint8Array(buf, 22);
+      try {
+        decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
+      } catch (err) {}
+    }
+    return;
+  }
+  if (magic !== 0x31415248) return;   // "HRA1"
+  rate = d.getUint32(4, true);
+  const ch = d.getUint16(8, true), frames = d.getUint32(12, true);
+  if (!frames) return;
+  lastAudio = performance.now();
+  const pcm = new Int16Array(buf.slice(16));
+  node.port.postMessage({ rate, ch, pcm }, [pcm.buffer]);
+}
+
 async function connect() {
   const mine = ++gen;
   const url = await locate("l");
@@ -463,16 +666,25 @@ async function connect() {
   useOpus = false;
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
-  ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); };
+  ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); updateTransportBadge(); };
   ws.onmessage = e => {
     if (typeof e.data === "string") {
       let m = null;
       try { m = JSON.parse(e.data); } catch (x) {}
       if (!m) return;
+      if (m.type === "rtc_offer" && m.sdp) {
+        initRtc(m.sdp);
+        return;
+      }
+      if (m.type === "rtc_candidate" && pc && m.candidate) {
+        pc.addIceCandidate({ candidate: m.candidate, sdpMid: m.mid || "0" }).catch(() => {});
+        return;
+      }
       if (m.codecs && m.codecs.includes("opus") && (activeCodec === "opus" || activeCodec === "auto")) {
         checkOpusDecoder().then(supported => {
           if (supported && initDecoder()) {
             useOpus = true;
+            updateTransportBadge();
             if (ws && ws.readyState === 1) {
               ws.send(JSON.stringify({ codec: "opus", bitrate: activeBitrate }));
             }
@@ -481,28 +693,10 @@ async function connect() {
       }
       return;
     }
-    const d = new DataView(e.data);
-    const magic = d.getUint32(0, true);
-    if (magic === 0x33415248) {   // "HRA3"
-      if (!node) return;
-      const c = d.getUint8(4);
-      if (c === 1 && decoder && decoder.state === "configured") {
-        const payload = new Uint8Array(e.data, 22);
-        try {
-          decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
-        } catch (err) {}
-      }
-      return;
-    }
-    if (magic !== 0x31415248) return;   // "HRA1"
-    rate = d.getUint32(4, true);
-    const ch = d.getUint16(8, true), frames = d.getUint32(12, true);
-    if (!frames) return;
-    lastAudio = performance.now();
-    const pcm = new Int16Array(e.data.slice(16));
-    node.port.postMessage({ rate, ch, pcm }, [pcm.buffer]);
+    handleAudioData(e.data);
   };
   ws.onclose = () => {
+    cleanupRtc();
     if (state === "idle") return;
     view("connecting", L.lost);
     later(connect, 5000);   // the tunnel may have moved: locate() again first
@@ -511,6 +705,7 @@ async function connect() {
 
 function stop() {
   clearTimeout(retry);
+  cleanupRtc();
   gen++;
   backoff = 2000;
   useOpus = false;
@@ -534,6 +729,7 @@ function stats(s) {
   $("mr").style.width = pos(s.pr);
   if (fresh) $("delay").textContent = L.delay + " ~" + (s.fill + (ctx ? ctx.baseLatency || 0 : 0)).toFixed(2) + " s";
   if (rate) $("foot").textContent = (rate / 1000).toFixed(1) + " kHz · " + (useOpus ? "Opus " + Math.round(activeBitrate / 1000) + "k" : "16-bit · " + L.lossless);
+  updateTransportBadge();
 }
 
 function setVolume() {

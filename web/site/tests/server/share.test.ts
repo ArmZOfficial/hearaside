@@ -39,4 +39,26 @@ describe('share directory on the account website', () => {
     expect((await ctx.api.post('/api/register').set({ Authorization: 'Bearer not-a-real-token-xyz' }).send(reg)).status).toBe(200);
     expect((await ctx.api.get('/api/v1/me/links').set(ctx.auth)).body.links).toEqual([]);
   });
+
+  it('/api/turn requires a signed-in Hub and returns iceServers', async () => {
+    const ctx = await setup();
+    // Unauthorized without token
+    expect((await ctx.api.get('/api/turn')).status).toBe(401);
+    expect((await ctx.api.post('/api/turn')).status).toBe(401);
+
+    // Bad token
+    expect((await ctx.api.get('/api/turn').set({ Authorization: 'Bearer invalid-token' })).status).toBe(401);
+
+    // Signed-in Hub
+    const { access } = await signInPlugin(ctx);
+    const resGet = await ctx.api.get('/api/turn').set({ Authorization: `Bearer ${access}` });
+    expect(resGet.status).toBe(200);
+    expect(Array.isArray(resGet.body.iceServers)).toBe(true);
+    expect(resGet.body.iceServers.length).toBeGreaterThan(0);
+    expect(resGet.body.iceServers[0].urls).toBeDefined();
+
+    const resPost = await ctx.api.post('/api/turn').set({ Authorization: `Bearer ${access}` });
+    expect(resPost.status).toBe(200);
+    expect(Array.isArray(resPost.body.iceServers)).toBe(true);
+  });
 });

@@ -2,9 +2,14 @@
 #include "ssnet/wire.h"
 #include "ssnet/opus_codec.h"
 #include "ssnet/aec.h"
+#include "ssnet/rtc.h"
 
 #include <cmath>
 #include <vector>
+#include <chrono>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 TEST_CASE("HRA3 wire header packing and parsing") {
     ssnet::Hra3Header hdr{};
@@ -387,4 +392,91 @@ TEST_CASE("FriendEcho AEC: 120 ms IR with 80 ms delay achieves ERLE >= 25 dB and
     std::printf("  FriendEcho AEC double-talk speech SNR: %.1f dB (target >= 15.0 dB)\n", speechSnr);
     CHECK(speechSnr >= 15.0);
 }
+
+TEST_CASE("RtcPeer WebRTC DataChannel loopback connectivity and transmission") {
+    ssnet::RtcPeer peer1;
+    ssnet::RtcPeer peer2;
+
+    peer1.onLocalDescription([&peer2](const std::string& type, const std::string& sdp) {
+        peer2.setRemoteDescription(type, sdp);
+    });
+
+    peer1.onLocalCandidate([&peer2](const std::string& candidate, const std::string& mid) {
+        peer2.addRemoteCandidate(candidate, mid);
+    });
+
+    peer2.onLocalDescription([&peer1](const std::string& type, const std::string& sdp) {
+        peer1.setRemoteDescription(type, sdp);
+    });
+
+    peer2.onLocalCandidate([&peer1](const std::string& candidate, const std::string& mid) {
+        peer1.addRemoteCandidate(candidate, mid);
+    });
+
+    std::atomic<bool> p1Connected{false};
+    std::atomic<bool> p2Connected{false};
+    peer1.onStateChange([&p1Connected](ssnet::RtcState st) {
+        if (st == ssnet::RtcState::Connected) p1Connected.store(true);
+    });
+    peer2.onStateChange([&p2Connected](ssnet::RtcState st) {
+        if (st == ssnet::RtcState::Connected) p2Connected.store(true);
+    });
+
+    std::atomic<bool> p1DcOpen{false};
+    std::atomic<bool> p2DcOpen{false};
+    peer1.onDataChannelOpen([&p1DcOpen]() { p1DcOpen.store(true); });
+    peer2.onDataChannelOpen([&p2DcOpen]() { p2DcOpen.store(true); });
+
+    std::vector<uint8_t> p2Received;
+    std::mutex p2Mutex;
+    std::atomic<bool> p2GotMsg{false};
+    peer2.onMessage([&p2Received, &p2Mutex, &p2GotMsg](const uint8_t* data, size_t size) {
+        std::lock_guard<std::mutex> lock(p2Mutex);
+        p2Received.assign(data, data + size);
+        p2GotMsg.store(true);
+    });
+
+    peer1.initiateOffer("audio");
+
+    // Wait up to 5 seconds for DataChannel to connect and open
+    const auto start = std::chrono::steady_clock::now();
+    while ((!peer1.isOpen() || !peer2.isOpen()) &&
+           std::chrono::steady_clock::now() - start < std::chrono::seconds(5)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK(peer1.isOpen());
+    CHECK(peer2.isOpen());
+
+    // Prepare a mock HRA3 audio frame
+    ssnet::Hra3Header hdr{};
+    hdr.magic = ssnet::kMagic3;
+    hdr.codec = ssnet::CodecOpus;
+    hdr.chans = 1;
+    hdr.seq = 42;
+    hdr.frames = 480;
+
+    const uint8_t payload[] = { 0xAA, 0xBB, 0xCC, 0xDD };
+    uint8_t packet[sizeof(ssnet::Hra3Header) + sizeof(payload)];
+    ssnet::writeHra3(packet, hdr, payload, sizeof(payload));
+
+    REQUIRE(peer1.send(packet, sizeof(packet)));
+
+    const auto sendTime = std::chrono::steady_clock::now();
+    while (!p2GotMsg.load() &&
+           std::chrono::steady_clock::now() - sendTime < std::chrono::seconds(3)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK(p2GotMsg.load());
+    {
+        std::lock_guard<std::mutex> lock(p2Mutex);
+        REQUIRE(p2Received.size() == sizeof(packet));
+        CHECK(std::memcmp(p2Received.data(), packet, sizeof(packet)) == 0);
+    }
+
+    peer1.close();
+    peer2.close();
+}
+
 

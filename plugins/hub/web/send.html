@@ -134,6 +134,37 @@ details.troubleshoot[open] summary::after { content: "\2212"; }
 .warn { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--hair3); font-size: 13px; line-height: 1.5; }
 .insecure .warn { display: block; }
 .tip { margin-top: 14px; font-size: 12px; color: var(--graphite); line-height: 1.5; text-align: center; }
+.transport-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  letter-spacing: .02em; border: 1px solid transparent; transition: all .2s ease;
+}
+.transport-badge.direct {
+  background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.35); color: #15803D;
+}
+.transport-badge.relay {
+  background: rgba(234, 179, 8, 0.15); border-color: rgba(234, 179, 8, 0.35); color: #B45309;
+}
+.transport-badge.opus {
+  background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.35); color: #0E7490;
+}
+.transport-badge.pcm {
+  background: rgba(148, 163, 184, 0.15); border-color: rgba(148, 163, 184, 0.35); color: #475569;
+}
+@media (prefers-color-scheme: dark) {
+  .transport-badge.direct {
+    background: rgba(34, 197, 94, 0.22); border-color: rgba(34, 197, 94, 0.45); color: #4ADE80;
+  }
+  .transport-badge.relay {
+    background: rgba(234, 179, 8, 0.22); border-color: rgba(234, 179, 8, 0.45); color: #FCD34D;
+  }
+  .transport-badge.opus {
+    background: rgba(6, 182, 212, 0.22); border-color: rgba(6, 182, 212, 0.45); color: #67E8F9;
+  }
+  .transport-badge.pcm {
+    background: rgba(148, 163, 184, 0.22); border-color: rgba(148, 163, 184, 0.45); color: #CBD5E1;
+  }
+}
 .foot { margin-top: 10px; text-align: center; font-size: 11px; color: var(--muted); }
 </style>
 </head>
@@ -154,7 +185,7 @@ details.troubleshoot[open] summary::after { content: "\2212"; }
     <div class="hint" id="hint"></div>
   </div>
 
-  <div class="row"><span class="chip"><span class="dot"></span><span id="status"></span></span><span class="value" id="delay"></span></div>
+  <div class="row"><span class="chip"><span class="dot"></span><span id="status"></span></span><span class="transport-badge" id="transportBadge" style="display:none"></span><span class="value" id="delay"></span></div>
   <button class="mute" id="mute" hidden></button>
 
   <div class="checklist" id="preflight">
@@ -277,7 +308,8 @@ const T = {
         offline: "อีกฝั่งยังไม่ได้เปิดแชร์ จะเริ่มส่งเองเมื่อพร้อม",
         behind: "เสียงคุณช้ากว่าเพลงราว {ms} ms (จัดให้ตรงแล้ว)",
         tip: "ใส่หูฟังจะดีที่สุด ไม่งั้นไมค์จะอัดเสียงเพลงจากลำโพงกลับเข้าไป",
-        insecure: "ต้องเปิดผ่านลิงก์ที่ขึ้นต้นด้วย https:// เบราว์เซอร์ถึงจะยอมให้ใช้ไมค์ ขอลิงก์ผ่านเน็ตจากคนที่ส่งลิงก์นี้ให้" },
+        insecure: "ต้องเปิดผ่านลิงก์ที่ขึ้นต้นด้วย https:// เบราว์เซอร์ถึงจะยอมให้ใช้ไมค์ ขอลิงก์ผ่านเน็ตจากคนที่ส่งลิงก์นี้ให้",
+        transportDirect: "WebRTC (ตรง)", transportRelay: "WebRTC (TURN)", transportOpus: "WebSocket (Opus)", transportPcm: "WebSocket (PCM)" },
   en: { title: "Send your voice in", invited: "{host} invited you to sing", you: "You are {name}",
         subtitle: "Your microphone goes live into the DAW track of whoever sent you this link",
         subtitleRoom: "You hear their music and sing along. Your voice is lined up with the beat for you.",
@@ -309,7 +341,8 @@ const T = {
         offline: "They aren't sharing yet. Sending starts by itself when they are.",
         behind: "Your voice is about {ms} ms behind the music (lined up for you)",
         tip: "Headphones work best. Without them the mic picks the music up from your speakers.",
-        insecure: "Open this through a link that starts with https:// - browsers only allow the microphone there. Ask for the internet link." }
+        insecure: "Open this through a link that starts with https:// - browsers only allow the microphone there. Ask for the internet link.",
+        transportDirect: "WebRTC (Direct)", transportRelay: "WebRTC (TURN)", transportOpus: "WebSocket (Opus)", transportPcm: "WebSocket (PCM)" }
 };
 const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
 // language: the visitor's choice (remembered), else the browser's
@@ -714,7 +747,6 @@ async function setupOpus(chans) {
     encoder = new AudioEncoder({
       output: chunk => {
         const echo = echoQueue.length > 0 ? echoQueue.shift() : 0;
-        if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 40000) return;
         const payload = new Uint8Array(chunk.byteLength);
         chunk.copyTo(payload);
         const hdr = 22;
@@ -728,7 +760,11 @@ async function setupOpus(chans) {
         v.setBigUint64(12, BigInt(Math.max(0, Math.round(echo || 0))), true); // pos / echo
         v.setUint16(20, 480, true);         // frames per packet
         new Uint8Array(buf, hdr).set(payload);
-        ws.send(buf);
+        if (rtcActive && rtcDc && rtcDc.readyState === "open" && rtcDc.bufferedAmount < 40000) {
+          rtcDc.send(buf);
+        } else if (ws && ws.readyState === 1 && ws.bufferedAmount <= 40000) {
+          ws.send(buf);
+        }
       },
       error: e => console.warn("AudioEncoder error:", e)
     });
@@ -745,11 +781,185 @@ async function setupOpus(chans) {
       }
     });
     useOpus = true;
+    updateTransportBadge();
     return true;
   } catch (e) {
     useOpus = false;
+    updateTransportBadge();
     return false;
   }
+}
+
+let pc = null, rtcDc = null, rtcActive = false, rtcCandidateType = "", rtcFailTimer = null, rtcStatsTimer = null;
+
+function updateTransportBadge() {
+  const badge = $("transportBadge");
+  if (!badge) return;
+  if (!running || !ws || ws.readyState !== 1) {
+    badge.style.display = "none";
+    return;
+  }
+  badge.style.display = "inline-flex";
+  badge.className = "transport-badge";
+  if (rtcActive && rtcCandidateType === "relay") {
+    badge.classList.add("relay");
+    badge.textContent = L.transportRelay;
+  } else if (rtcActive) {
+    badge.classList.add("direct");
+    badge.textContent = L.transportDirect;
+  } else if (useOpus) {
+    badge.classList.add("opus");
+    badge.textContent = L.transportOpus;
+  } else {
+    badge.classList.add("pcm");
+    badge.textContent = L.transportPcm;
+  }
+}
+
+async function fetchTurnConfig() {
+  try {
+    const res = await fetch("/api/turn");
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+        return data.iceServers;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function inspectCandidatePair() {
+  if (!pc || !pc.getStats) return;
+  try {
+    const stats = await pc.getStats();
+    stats.forEach(report => {
+      if (report.type === "candidate-pair" && report.state === "succeeded") {
+        const localCand = stats.get(report.localCandidateId);
+        const remoteCand = stats.get(report.remoteCandidateId);
+        if ((localCand && localCand.candidateType === "relay") ||
+            (remoteCand && remoteCand.candidateType === "relay")) {
+          rtcCandidateType = "relay";
+        } else {
+          rtcCandidateType = "direct";
+        }
+      }
+    });
+    updateTransportBadge();
+  } catch (e) {}
+}
+
+function cleanupRtc() {
+  clearTimeout(rtcFailTimer);
+  clearInterval(rtcStatsTimer);
+  rtcActive = false;
+  rtcCandidateType = "";
+  if (rtcDc) {
+    try { rtcDc.close(); } catch (e) {}
+    rtcDc = null;
+  }
+  if (pc) {
+    try { pc.close(); } catch (e) {}
+    pc = null;
+  }
+  updateTransportBadge();
+}
+
+async function initRtc(offerSdp) {
+  cleanupRtc();
+  let iceServers = [
+    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:stun.l.google.com:19302" }
+  ];
+  const turnServers = await fetchTurnConfig();
+  if (turnServers && turnServers.length > 0) iceServers = turnServers;
+  pc = new RTCPeerConnection({ iceServers });
+
+  pc.ondatachannel = e => {
+    rtcDc = e.channel;
+    setupDataChannel(rtcDc);
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: "rtc_candidate",
+        candidate: e.candidate.candidate,
+        mid: e.candidate.sdpMid
+      }));
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc && (pc.connectionState === "failed" || pc.connectionState === "disconnected")) {
+      cleanupRtc();
+    }
+    updateTransportBadge();
+  };
+
+  rtcFailTimer = setTimeout(() => {
+    if (!rtcActive) updateTransportBadge();
+  }, 3000);
+
+  try {
+    await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "rtc_answer", sdp: answer.sdp }));
+    }
+  } catch (err) {
+    console.warn("RTC setup error:", err);
+    cleanupRtc();
+  }
+}
+
+function setupDataChannel(channel) {
+  channel.binaryType = "arraybuffer";
+  channel.onopen = () => {
+    clearTimeout(rtcFailTimer);
+    rtcActive = true;
+    inspectCandidatePair();
+    rtcStatsTimer = setInterval(inspectCandidatePair, 2000);
+    updateTransportBadge();
+  };
+  channel.onclose = () => {
+    rtcActive = false;
+    updateTransportBadge();
+  };
+  channel.onerror = () => {
+    rtcActive = false;
+    updateTransportBadge();
+  };
+  channel.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) handleAudioData(e.data);
+  };
+}
+
+function handleAudioData(buf) {
+  const d = new DataView(buf);
+  const magic = d.getUint32(0, true);
+  if (magic === 0x33415248) {   // "HRA3"
+    if (!node) return;
+    const codec = d.getUint8(4);
+    if (codec === 1 && decoder && decoder.state === "configured") {
+      const pos = Number(d.getBigUint64(12, true));
+      const payload = new Uint8Array(buf, 22);
+      try {
+        downPosQueue.push(pos);
+        decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
+      } catch (err) {
+        downPosQueue.pop();
+      }
+    }
+    return;
+  }
+  if (magic !== 0x32415248 || !node) return;   // "HRA2": the Stream Mix with a position
+  const rate = d.getUint32(4, true), frames = d.getUint32(12, true);
+  if (!frames) return;
+  const pos = Number(d.getBigUint64(16, true));
+  const pcm = new Int16Array(buf.slice(24));
+  node.port.postMessage({ rate, pcm, pos }, [pcm.buffer]);
 }
 
 async function connect() {
@@ -764,6 +974,7 @@ async function connect() {
   ws.onopen = () => {
     backoff = 2000;
     status(muted ? L.muted : L.live, !muted);
+    updateTransportBadge();
     ws.send(JSON.stringify({
       speakerMode: $("speaker").checked,
       hearMyself: $("hearMyself").checked
@@ -777,6 +988,14 @@ async function connect() {
       let m = null;
       try { m = JSON.parse(e.data); } catch (x) {}
       if (!m) return;
+      if (m.type === "rtc_offer" && m.sdp) {
+        initRtc(m.sdp);
+        return;
+      }
+      if (m.type === "rtc_candidate" && pc && m.candidate) {
+        pc.addIceCandidate({ candidate: m.candidate, sdpMid: m.mid || "0" }).catch(() => {});
+        return;
+      }
       if (m.v >= 2) {
         duplex = true;
         room = { name: m.name || "", host: m.host || "" };
@@ -794,35 +1013,12 @@ async function connect() {
       if (m.ping !== undefined) ws.send(JSON.stringify({ pong: m.ping }));   // the Hub measures the round trip (an older Hub never asks)
       return;
     }
-    const d = new DataView(e.data);
-    const magic = d.getUint32(0, true);
-    if (magic === 0x33415248) {   // "HRA3"
-      if (!node) return;
-      const codec = d.getUint8(4);
-      if (codec === 1 && decoder && decoder.state === "configured") {
-        const pos = Number(d.getBigUint64(12, true));
-        const payload = new Uint8Array(e.data, 22);
-        try {
-          downPosQueue.push(pos);
-          decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: 0, data: payload }));
-        } catch (err) {
-          downPosQueue.pop();
-        }
-      }
-      return;
-    }
-    if (magic !== 0x32415248 || !node) return;   // "HRA2": the Stream Mix with a position
-    const rate = d.getUint32(4, true), frames = d.getUint32(12, true);
-    if (!frames) return;
-    const pos = Number(d.getBigUint64(16, true));
-    const pcm = new Int16Array(e.data.slice(24));
-    node.port.postMessage({ rate, pcm, pos }, [pcm.buffer]);
+    handleAudioData(e.data);
   };
-  ws.onclose = () => { if (!running) return; clearTimeout(legacyTimer); behindMs = null; echoQueue.length = 0; downPosQueue.length = 0; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
+  ws.onclose = () => { if (!running) return; cleanupRtc(); clearTimeout(legacyTimer); behindMs = null; echoQueue.length = 0; downPosQueue.length = 0; showBehind(); status(L.lost); later(connect, 5000); };   // locate() again: the tunnel may have moved
 }
 
 function send(f, echo, chans) {
-  if (!ws || ws.readyState !== 1 || ws.bufferedAmount > 40000) return;   // a slow line: drop rather than sing 200 ms+ late
   if (useOpus && encoder && encoder.state === "configured") {
     try {
       const data = muted ? new Float32Array(f.length) : f;
@@ -846,7 +1042,11 @@ function send(f, echo, chans) {
   d.setUint16(10, latencyKnown ? 1 : 0, true); d.setUint32(12, n, true);
   if (v2) d.setBigUint64(16, BigInt(Math.max(0, Math.round(echo || 0))), true);
   for (let i = 0; i < f.length; i++) s[i] = muted ? 0 : Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767)));
-  ws.send(buf);
+  if (rtcActive && rtcDc && rtcDc.readyState === "open" && rtcDc.bufferedAmount < 40000) {
+    rtcDc.send(buf);
+  } else if (ws && ws.readyState === 1 && ws.bufferedAmount <= 40000) {
+    ws.send(buf);
+  }
 }
 
 function meter() {
@@ -859,11 +1059,13 @@ function meter() {
   $("level").style.opacity = (0.15 + lv * 0.6).toFixed(2);
   $("level").style.transform = "scale(" + (0.92 + lv * 0.28).toFixed(3) + ")";
   if (ctx) $("foot").textContent = (ctx.sampleRate / 1000).toFixed(1) + " kHz · " + (useOpus ? "Opus" : "16-bit");
+  updateTransportBadge();
   requestAnimationFrame(meter);
 }
 
 function stop() {
   running = false;
+  cleanupRtc();
   micHeard = false;
   netRtt = null;
   clearTimeout(retry);

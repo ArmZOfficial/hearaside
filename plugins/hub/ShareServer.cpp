@@ -672,7 +672,38 @@ void ShareServer::streamTo(Conn& c) {
     uint64_t cursor = sh.writePos[0].load();
     int idle = 0;
 
-    static const char kListenHello[] = "{\"v\":3,\"codecs\":[\"opus\",\"pcm16\"]}";
+    ssnet::RtcPeerConfig rtcConfig;
+    rtcConfig.iceServers.push_back({ "stun:stun.cloudflare.com:3478", "", "" });
+    rtcConfig.iceServers.push_back({ "stun:stun.l.google.com:19302", "", "" });
+    auto rtcPeer = std::make_shared<ssnet::RtcPeer>(rtcConfig);
+    std::atomic<bool> rtcOver { false };
+
+    rtcPeer->onLocalDescription([&out, &rtcOver](const std::string& type, const std::string& sdp) {
+        if (rtcOver.load()) return;
+        juce::DynamicObject::Ptr o = new juce::DynamicObject();
+        o->setProperty("type", "rtc_offer");
+        o->setProperty("sdp", juce::String(sdp));
+        const auto json = juce::JSON::toString(juce::var(o), true);
+        std::vector<uint8_t> frame;
+        frameInto(frame, 1, json.toRawUTF8(), json.getNumBytesAsUTF8());
+        out.append(frame.data(), frame.size());
+    });
+
+    rtcPeer->onLocalCandidate([&out, &rtcOver](const std::string& candidate, const std::string& mid) {
+        if (rtcOver.load()) return;
+        juce::DynamicObject::Ptr o = new juce::DynamicObject();
+        o->setProperty("type", "rtc_candidate");
+        o->setProperty("candidate", juce::String(candidate));
+        o->setProperty("mid", juce::String(mid));
+        const auto json = juce::JSON::toString(juce::var(o), true);
+        std::vector<uint8_t> frame;
+        frameInto(frame, 1, json.toRawUTF8(), json.getNumBytesAsUTF8());
+        out.append(frame.data(), frame.size());
+    });
+
+    rtcPeer->initiateOffer("audio");
+
+    static const char kListenHello[] = "{\"v\":3,\"codecs\":[\"opus\",\"pcm16\"],\"webrtc\":true}";
     frameInto(packet, 1, kListenHello, sizeof(kListenHello) - 1);
     out.append(packet.data(), packet.size());
 
@@ -693,6 +724,16 @@ void ShareServer::streamTo(Conn& c) {
             if (op == 1) {
                 const juce::String text(reinterpret_cast<const char*>(incoming.data()), incoming.size());
                 const auto j = juce::JSON::parse(text);
+                if (j.hasProperty("type")) {
+                    const auto msgType = j["type"].toString();
+                    if (msgType == "rtc_answer" && rtcPeer && j.hasProperty("sdp")) {
+                        rtcPeer->setRemoteDescription("answer", j["sdp"].toString().toStdString());
+                    } else if (msgType == "rtc_candidate" && rtcPeer && j.hasProperty("candidate")) {
+                        const auto cand = j["candidate"].toString().toStdString();
+                        const auto mid = j.hasProperty("mid") ? j["mid"].toString().toStdString() : "";
+                        rtcPeer->addRemoteCandidate(cand, mid);
+                    }
+                }
                 if (j.hasProperty("codec")) {
                     const auto cName = j["codec"].toString();
                     if (cName == "opus") {
@@ -793,11 +834,17 @@ void ShareServer::streamTo(Conn& c) {
                 pcm[2 * i + 1] = int16_t(std::lround(std::clamp(r[i], -1.0f, 1.0f) * 32767.0f));
             }
         }
-        thread_local std::vector<uint8_t> framed;
-        frameInto(framed, 2, packet.data(), packet.size());
-        out.offer(framed.data(), framed.size());
-        if (!out.flush(sendNow)) break;
+        if (rtcPeer && rtcPeer->isOpen()) {
+            rtcPeer->send(packet.data(), packet.size());
+        } else {
+            thread_local std::vector<uint8_t> framed;
+            frameInto(framed, 2, packet.data(), packet.size());
+            out.offer(framed.data(), framed.size());
+            if (!out.flush(sendNow)) break;
+        }
     }
+    rtcOver.store(true);
+    if (rtcPeer) rtcPeer->close();
     --listeners_;
 }
 
@@ -879,6 +926,7 @@ struct ShareServer::FriendOut {
     std::atomic<bool> over { false };   // either thread: the session is finished
     std::atomic<uint8_t> codec { ssnet::CodecPcm16 };   // negotiated codec: CodecOpus or CodecPcm16
     std::atomic<bool> hearMyself { false };             // (3.5) "Hear myself from Hub"
+    std::shared_ptr<ssnet::RtcPeer> rtcPeer;
 };
 
 // A friend's browser: the microphone comes in (HRA1 or HRA2), the Stream Mix as the DAW makes it goes out
@@ -917,6 +965,202 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
     bool opusDecInited = false;
     uint32_t lastSeq = 0;
     bool lastSeqValid = false;
+
+    ssnet::RtcPeerConfig rtcConfig;
+    rtcConfig.iceServers.push_back({ "stun:stun.cloudflare.com:3478", "", "" });
+    rtcConfig.iceServers.push_back({ "stun:stun.l.google.com:19302", "", "" });
+    out.rtcPeer = std::make_shared<ssnet::RtcPeer>(rtcConfig);
+
+    out.rtcPeer->onLocalDescription([&out](const std::string& type, const std::string& sdp) {
+        if (out.over.load()) return;
+        juce::DynamicObject::Ptr o = new juce::DynamicObject();
+        o->setProperty("type", "rtc_offer");
+        o->setProperty("sdp", juce::String(sdp));
+        const auto json = juce::JSON::toString(juce::var(o), true);
+        std::vector<uint8_t> frame;
+        frameInto(frame, 1, json.toRawUTF8(), json.getNumBytesAsUTF8());
+        const std::lock_guard<std::mutex> lock(out.lock);
+        out.q.append(frame.data(), frame.size());
+    });
+
+    out.rtcPeer->onLocalCandidate([&out](const std::string& candidate, const std::string& mid) {
+        if (out.over.load()) return;
+        juce::DynamicObject::Ptr o = new juce::DynamicObject();
+        o->setProperty("type", "rtc_candidate");
+        o->setProperty("candidate", juce::String(candidate));
+        o->setProperty("mid", juce::String(mid));
+        const auto json = juce::JSON::toString(juce::var(o), true);
+        std::vector<uint8_t> frame;
+        frameInto(frame, 1, json.toRawUTF8(), json.getNumBytesAsUTF8());
+        const std::lock_guard<std::mutex> lock(out.lock);
+        out.q.append(frame.data(), frame.size());
+    });
+
+    std::mutex audioMutex;
+    auto processAudio = [&](const uint8_t* pData, size_t pSize) {
+        std::lock_guard<std::mutex> lk(audioMutex);
+        if (friendGen_[idx].load() != gen) return;
+        ssnet::Hra3Header h3{};
+        const uint8_t* h3Payload = nullptr;
+        size_t h3PayloadSize = 0;
+        if (ssnet::parseHra3(pData, pSize, h3, h3Payload, h3PayloadSize)) {
+            out.codec.store(h3.codec);
+            if (h3.codec == ssnet::CodecOpus) {
+                if (!opusDecInited || opusDec.channels() != h3.chans) {
+                    opusDec.init(48000, h3.chans);
+                    opusDecInited = true;
+                    lastSeq = h3.seq;
+                    lastSeqValid = true;
+                } else if (lastSeqValid && h3.seq > lastSeq + 1) {
+                    const uint32_t missed = std::min<uint32_t>(h3.seq - lastSeq - 1, 10);
+                    l.resize(h3.frames);
+                    r.resize(h3.frames);
+                    for (uint32_t m = 0; m < missed; ++m) {
+                        float* const plcCh[2] = { l.data(), r.data() };
+                        opusDec.decodePlc(plcCh, h3.frames);
+                        const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+                        if (friendGen_[idx].load() != gen) break;
+                        const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
+                        ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, h3.frames);
+                    }
+                }
+                lastSeq = h3.seq;
+                lastSeqValid = true;
+
+                l.resize(h3.frames);
+                r.resize(h3.frames);
+                float* const decCh[2] = { l.data(), r.data() };
+                const int decFrames = opusDec.decode(h3Payload, int(h3PayloadSize), decCh, h3.frames);
+                if (decFrames > 0) {
+                    float dMs = ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed));
+                    if (dMs < 0.0f) dMs = net.rtt.load(std::memory_order_relaxed);
+                    if (dMs < 0.0f) dMs = 80.0f;
+                    const int delaySamples = int(dMs * 48.0f);
+                    if (friendEcho_[idx]) {
+                        int rem = decFrames, off = 0;
+                        while (rem >= 480) {
+                            friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
+                            if (h3.chans == 2) {
+                                std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
+                            }
+                            off += 480;
+                            rem -= 480;
+                        }
+                    }
+                    const auto t = juce::Time::getMillisecondCounter();
+                    if (lastMic != 0 && float(t - lastMic) > net.micGap.load(std::memory_order_relaxed))
+                        net.micGap.store(float(t - lastMic), std::memory_order_relaxed);
+                    lastMic = t;
+                    float pk = 0.0f;
+                    for (int i = 0; i < decFrames; ++i) {
+                        pk = std::max(pk, std::abs(l[size_t(i)]));
+                        if (h3.chans == 2) pk = std::max(pk, std::abs(r[size_t(i)]));
+                    }
+                    const uint64_t W = bus_->friendMixWrite.load(std::memory_order_acquire);
+                    const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
+                    {
+                        const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+                        if (friendGen_[idx].load() != gen) return;
+                        const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
+                        h.sampleRate.store(48000, std::memory_order_relaxed);
+                        ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, uint32_t(decFrames));
+                        h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+                        h.peakBits.store(ssbus::floatBits(pk), std::memory_order_relaxed);
+                    }
+                    if (h3.pos != 0 && W >= h3.pos && decFrames > 0) {
+                        const double ms = double(W - h3.pos) * 1000.0 / double(hubRate) - double(decFrames) * 500.0 / 48000.0;
+                        if (ms >= 0.0 && ms < 3000.0) {
+                            history.push_back(ms);
+                            if (history.size() > 41) history.erase(history.begin());
+                            if (history.size() >= 8) {
+                                auto sorted = history;
+                                std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
+                                const double med = sorted[sorted.size() / 2];
+                                smooth = smooth < 0.0 ? med : smooth + (med - smooth) * 0.15;
+                                h.delayBits.store(ssbus::floatBits(float(smooth)), std::memory_order_relaxed);
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (pSize >= (pSize >= 4 && std::memcmp(pData, &kMagic2, 4) == 0 ? 24 : 16)) {
+            const size_t hdr = pSize >= 4 && std::memcmp(pData, &kMagic2, 4) == 0 ? 24 : 16;
+            uint32_t magic = 0, rate = 0, frames = 0;
+            uint16_t chans = 0;
+            uint64_t echo = 0;
+            std::memcpy(&magic, pData, 4);
+            std::memcpy(&rate, pData + 4, 4);
+            std::memcpy(&chans, pData + 8, 2);
+            std::memcpy(&frames, pData + 12, 4);
+            if (hdr == 24) std::memcpy(&echo, pData + 16, 8);
+            if ((magic == kMagic || magic == kMagic2) && chans >= 1 && chans <= 2 && rate >= 8000 && rate <= 192000) {
+                const auto t = juce::Time::getMillisecondCounter();
+                if (lastMic != 0 && float(t - lastMic) > net.micGap.load(std::memory_order_relaxed))
+                    net.micGap.store(float(t - lastMic), std::memory_order_relaxed);
+                lastMic = t;
+                frames = std::min<uint32_t>(frames, uint32_t((pSize - hdr) / (2u * chans)));
+                const auto* pcm = reinterpret_cast<const int16_t*>(pData + hdr);
+                l.resize(frames);
+                r.resize(frames);
+                for (uint32_t i = 0; i < frames; ++i) {
+                    l[i] = pcm[i * chans] / 32768.0f;
+                    r[i] = pcm[i * chans + chans - 1] / 32768.0f;
+                }
+                float dMs = ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed));
+                if (dMs < 0.0f) dMs = net.rtt.load(std::memory_order_relaxed);
+                if (dMs < 0.0f) dMs = 80.0f;
+                const int delaySamples = int(dMs * (float(rate) / 1000.0f));
+                if (friendEcho_[idx]) {
+                    int rem = int(frames), off = 0;
+                    while (rem >= 480) {
+                        friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
+                        if (chans == 2) {
+                            std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
+                        }
+                        off += 480;
+                        rem -= 480;
+                    }
+                }
+                float pk = 0.0f;
+                for (uint32_t i = 0; i < frames; ++i) {
+                    pk = std::max(pk, std::max(std::abs(l[i]), std::abs(r[i])));
+                }
+                const uint64_t W = bus_->friendMixWrite.load(std::memory_order_acquire);
+                const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
+                {
+                    const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
+                    if (friendGen_[idx].load() != gen) return;
+                    const float* src[2] = { l.data(), r.data() };
+                    h.sampleRate.store(rate, std::memory_order_relaxed);
+                    ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, frames);
+                    h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
+                    h.peakBits.store(ssbus::floatBits(pk), std::memory_order_relaxed);
+                }
+                if (echo != 0 && W >= echo && frames > 0) {
+                    const double ms = double(W - echo) * 1000.0 / double(hubRate) - double(frames) * 500.0 / double(rate);
+                    if (ms >= 0.0 && ms < 3000.0) {
+                        history.push_back(ms);
+                        if (history.size() > 41) history.erase(history.begin());
+                        if (history.size() >= 8) {
+                            auto sorted = history;
+                            std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
+                            const double med = sorted[sorted.size() / 2];
+                            smooth = smooth < 0.0 ? med : smooth + (med - smooth) * 0.15;
+                            h.delayBits.store(ssbus::floatBits(float(smooth)), std::memory_order_relaxed);
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    out.rtcPeer->onMessage([&processAudio, &net](const uint8_t* pData, size_t pSize) {
+        net.upBytes.fetch_add(pSize, std::memory_order_relaxed);
+        processAudio(pData, pSize);
+    });
+
+    out.rtcPeer->initiateOffer("audio");
+
     {   // hello v3: tells the friend who they are and which codecs are supported
         juce::String name, host;
         uint32_t ignore = 0;
@@ -929,6 +1173,7 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
         codecs.add("opus");
         codecs.add("pcm16");
         o->setProperty("codecs", codecs);
+        o->setProperty("webrtc", true);
         const auto json = juce::JSON::toString(juce::var(o), true);
         if (!sendFrame(s, 1, json.toRawUTF8(), json.getNumBytesAsUTF8())) closing = true;
     }
@@ -946,7 +1191,11 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
             uint32_t cur = 0;
             if (friendSlotFor(token, &cur) != slot || cur != id) break;
         }
-        if (friendRemeasure_[idx].exchange(false)) { history.clear(); smooth = -1.0; h.delayBits.store(ssbus::floatBits(-1.0f), std::memory_order_relaxed); }
+        if (friendRemeasure_[idx].exchange(false)) {
+            std::lock_guard<std::mutex> lk(audioMutex);
+            history.clear(); smooth = -1.0;
+            h.delayBits.store(ssbus::floatBits(-1.0f), std::memory_order_relaxed);
+        }
 
         // ---- microphone ------------------------------------------------------------------
         const int ready = s.waitUntilReady(true, 20);
@@ -968,6 +1217,16 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
             } else if (op == 1) {   // client control messages e.g. {"codec":"opus"}, {"hearMyself":true}, {"aec":"on"}
                 const juce::String text(reinterpret_cast<const char*>(msg.data()), msg.size());
                 const auto j = juce::JSON::parse(text);
+                if (j.hasProperty("type")) {
+                    const auto msgType = j["type"].toString();
+                    if (msgType == "rtc_answer" && out.rtcPeer && j.hasProperty("sdp")) {
+                        out.rtcPeer->setRemoteDescription("answer", j["sdp"].toString().toStdString());
+                    } else if (msgType == "rtc_candidate" && out.rtcPeer && j.hasProperty("candidate")) {
+                        const auto cand = j["candidate"].toString().toStdString();
+                        const auto mid = j.hasProperty("mid") ? j["mid"].toString().toStdString() : "";
+                        out.rtcPeer->addRemoteCandidate(cand, mid);
+                    }
+                }
                 if (j.hasProperty("codec")) {
                     const auto codecName = j["codec"].toString();
                     if (codecName == "opus") out.codec.store(ssnet::CodecOpus);
@@ -985,162 +1244,15 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     else if (mode == "off") setFriendAecMode(slot, ssnet::AecMode::Off);
                     else if (mode == "auto") setFriendAecMode(slot, ssnet::AecMode::Auto);
                 }
-            }
-            ssnet::Hra3Header h3{};
-            const uint8_t* h3Payload = nullptr;
-            size_t h3PayloadSize = 0;
-            if (op == 2 && ssnet::parseHra3(msg.data(), msg.size(), h3, h3Payload, h3PayloadSize)) {
-                out.codec.store(h3.codec);
-                if (h3.codec == ssnet::CodecOpus) {
-                    if (!opusDecInited || opusDec.channels() != h3.chans) {
-                        opusDec.init(48000, h3.chans);
-                        opusDecInited = true;
-                        lastSeq = h3.seq;
-                        lastSeqValid = true;
-                    } else if (lastSeqValid && h3.seq > lastSeq + 1) {
-                        const uint32_t missed = std::min<uint32_t>(h3.seq - lastSeq - 1, 10);
-                        l.resize(h3.frames);
-                        r.resize(h3.frames);
-                        for (uint32_t m = 0; m < missed; ++m) {
-                            float* const plcCh[2] = { l.data(), r.data() };
-                            opusDec.decodePlc(plcCh, h3.frames);
-                            const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
-                            if (friendGen_[idx].load() != gen) break;
-                            const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
-                            ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, h3.frames);
-                        }
-                    }
-                    lastSeq = h3.seq;
-                    lastSeqValid = true;
-
-                    l.resize(h3.frames);
-                    r.resize(h3.frames);
-                    float* const decCh[2] = { l.data(), r.data() };
-                    const int decFrames = opusDec.decode(h3Payload, int(h3PayloadSize), decCh, h3.frames);
-                    if (decFrames > 0) {
-                        float dMs = ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed));
-                        if (dMs < 0.0f) dMs = net.rtt.load(std::memory_order_relaxed);
-                        if (dMs < 0.0f) dMs = 80.0f;
-                        const int delaySamples = int(dMs * 48.0f);
-                        if (friendEcho_[idx]) {
-                            int rem = decFrames, off = 0;
-                            while (rem >= 480) {
-                                friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
-                                if (h3.chans == 2) {
-                                    std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
-                                }
-                                off += 480;
-                                rem -= 480;
-                            }
-                        }
-                        const auto t = juce::Time::getMillisecondCounter();
-                        if (lastMic != 0 && float(t - lastMic) > net.micGap.load(std::memory_order_relaxed))
-                            net.micGap.store(float(t - lastMic), std::memory_order_relaxed);
-                        lastMic = t;
-                        float pk = 0.0f;
-                        for (int i = 0; i < decFrames; ++i) {
-                            pk = std::max(pk, std::abs(l[size_t(i)]));
-                            if (h3.chans == 2) pk = std::max(pk, std::abs(r[size_t(i)]));
-                        }
-                        const uint64_t W = bus_->friendMixWrite.load(std::memory_order_acquire);
-                        const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
-                        {
-                            const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
-                            if (friendGen_[idx].load() != gen) break;
-                            const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
-                            h.sampleRate.store(48000, std::memory_order_relaxed);
-                            ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, uint32_t(decFrames));
-                            h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
-                            h.peakBits.store(ssbus::floatBits(pk), std::memory_order_relaxed);
-                        }
-                        if (h3.pos != 0 && W >= h3.pos && decFrames > 0) {
-                            const double ms = double(W - h3.pos) * 1000.0 / double(hubRate) - double(decFrames) * 500.0 / 48000.0;
-                            if (ms >= 0.0 && ms < 3000.0) {
-                                history.push_back(ms);
-                                if (history.size() > 41) history.erase(history.begin());
-                                if (history.size() >= 8) {
-                                    auto sorted = history;
-                                    std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
-                                    const double med = sorted[sorted.size() / 2];
-                                    smooth = smooth < 0.0 ? med : smooth + (med - smooth) * 0.15;
-                                    h.delayBits.store(ssbus::floatBits(float(smooth)), std::memory_order_relaxed);
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if (op == 2 && msg.size() >= (msg.size() >= 4 && std::memcmp(msg.data(), &kMagic2, 4) == 0 ? 24 : 16)) {
-                const size_t hdr = msg.size() >= 4 && std::memcmp(msg.data(), &kMagic2, 4) == 0 ? 24 : 16;
-                uint32_t magic = 0, rate = 0, frames = 0;
-                uint16_t chans = 0;
-                uint64_t echo = 0;
-                std::memcpy(&magic, msg.data(), 4);
-                std::memcpy(&rate, msg.data() + 4, 4);
-                std::memcpy(&chans, msg.data() + 8, 2);
-                std::memcpy(&frames, msg.data() + 12, 4);
-                if (hdr == 24) std::memcpy(&echo, msg.data() + 16, 8);
-                if ((magic == kMagic || magic == kMagic2) && chans >= 1 && chans <= 2 && rate >= 8000 && rate <= 192000) {
-                    const auto t = juce::Time::getMillisecondCounter();
-                    if (lastMic != 0 && float(t - lastMic) > net.micGap.load(std::memory_order_relaxed)) net.micGap.store(float(t - lastMic), std::memory_order_relaxed);
-                    lastMic = t;
-                    frames = std::min<uint32_t>(frames, uint32_t((msg.size() - hdr) / (2u * chans)));
-                    const auto* pcm = reinterpret_cast<const int16_t*>(msg.data() + hdr);
-                    l.resize(frames);
-                    r.resize(frames);
-                    for (uint32_t i = 0; i < frames; ++i) {
-                        l[i] = pcm[i * chans] / 32768.0f;
-                        r[i] = pcm[i * chans + chans - 1] / 32768.0f;
-                    }
-                    float dMs = ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed));
-                    if (dMs < 0.0f) dMs = net.rtt.load(std::memory_order_relaxed);
-                    if (dMs < 0.0f) dMs = 80.0f;
-                    const int delaySamples = int(dMs * (float(rate) / 1000.0f));
-                    if (friendEcho_[idx]) {
-                        int rem = int(frames), off = 0;
-                        while (rem >= 480) {
-                            friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
-                            if (chans == 2) {
-                                std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
-                            }
-                            off += 480;
-                            rem -= 480;
-                        }
-                    }
-                    float pk = 0.0f;
-                    for (uint32_t i = 0; i < frames; ++i) {
-                        pk = std::max(pk, std::max(std::abs(l[i]), std::abs(r[i])));
-                    }
-                    // how late is the average sample of this packet when it arrives? (Stream Mix frames are the Hub's)
-                    const uint64_t W = bus_->friendMixWrite.load(std::memory_order_acquire);
-                    const uint32_t hubRate = std::max<uint32_t>(8000, bus_->streamHeader.sampleRate.load(std::memory_order_relaxed));
-                    {
-                        const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
-                        if (friendGen_[idx].load() != gen) break;
-                        const float* src[2] = { l.data(), r.data() };
-                        h.sampleRate.store(rate, std::memory_order_relaxed);
-                        ssbus::ringWrite(bus_->friendAudio[slot], h.writePos, src, 2, frames);
-                        h.heartbeatNs.store(ssbus::nowNs(), std::memory_order_relaxed);
-                        h.peakBits.store(ssbus::floatBits(pk), std::memory_order_relaxed);
-                    }
-                    if (echo != 0 && W >= echo && frames > 0) {
-                        const double ms = double(W - echo) * 1000.0 / double(hubRate) - double(frames) * 500.0 / double(rate);
-                        if (ms >= 0.0 && ms < 3000.0) {
-                            history.push_back(ms);
-                            if (history.size() > 41) history.erase(history.begin());
-                            if (history.size() >= 8) {   // the median ignores a late packet now and then
-                                auto sorted = history;
-                                std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
-                                const double med = sorted[sorted.size() / 2];
-                                smooth = smooth < 0.0 ? med : smooth + (med - smooth) * 0.15;
-                                h.delayBits.store(ssbus::floatBits(float(smooth)), std::memory_order_relaxed);
-                            }
-                        }
-                    }
-                }
+            } else if (op == 2) {
+                processAudio(msg.data(), msg.size());
             }
         }
     }
     out.over.store(true);
+    if (out.rtcPeer) {
+        out.rtcPeer->close();
+    }
     writer.join();
     --friendsLive_;
     const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
@@ -1291,12 +1403,18 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
                     pcm[2 * i + 1] = int16_t(std::lround(std::clamp(mr[i], -1.0f, 1.0f) * 32767.0f));
                 }
             }
-            frameInto(framed, 2, packet.data(), packet.size());
-            const std::lock_guard<std::mutex> lock(out.lock);
-            if (!out.q.offer(framed.data(), framed.size())) break;   // the browser's ping answer is still going out: next round
-            mixCursor += n;
-            if (!out.q.flush(sendNow)) { out.over.store(true); break; }
-            blocked = !out.q.idle();
+            if (out.rtcPeer && out.rtcPeer->isOpen()) {
+                out.rtcPeer->send(packet.data(), packet.size());
+                net.downBytes.fetch_add(packet.size(), std::memory_order_relaxed);
+                mixCursor += n;
+            } else {
+                frameInto(framed, 2, packet.data(), packet.size());
+                const std::lock_guard<std::mutex> lock(out.lock);
+                if (!out.q.offer(framed.data(), framed.size())) break;   // the browser's ping answer is still going out: next round
+                mixCursor += n;
+                if (!out.q.flush(sendNow)) { out.over.store(true); break; }
+                blocked = !out.q.idle();
+            }
         }
         if (blocked) waitWritable(s, 5);
         else std::this_thread::sleep_for(std::chrono::milliseconds(2));

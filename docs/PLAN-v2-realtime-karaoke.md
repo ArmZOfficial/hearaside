@@ -35,7 +35,7 @@
 | 1 | แก้ด่วน: จับคู่เพื่อน, jitter buffer, เธรดส่ง, mono, echo path | 1.0.5 | ไม่เปลี่ยน | ✅ |
 | 2 | Opus codec + HRA3 | 1.1.0 | ไม่เปลี่ยน (เปลี่ยนแค่ wire) | ✅ |
 | 3 | กันเสียงสะท้อน (AEC + detector) | 1.1.x | ไม่เปลี่ยน | ✅ |
-| 4 | UDP: WebRTC DataChannel | 1.2.0 | ไม่เปลี่ยน | ⏳ |
+| 4 | UDP: WebRTC DataChannel | 1.2.0 | ไม่เปลี่ยน | ✅ |
 | 5 | โหมดคาราโอเกะ + UX ใหม่ | 1.1–1.2 | ไม่เปลี่ยน | ✅ |
 | 6 | Hub ถึง Hub (DAW ถึง DAW) | 2.0 | v15+ | 💤 ตัวเลือก |
 | 7 | Big optimize (RT safety, SIMD, thread) | ทยอย | ไม่เปลี่ยน | ⏳ |
@@ -286,11 +286,11 @@
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| 4.1 | `external/libdatachannel`, `fetch-deps.ps1` | เพิ่ม libdatachannel (MPL-2.0: copyleft ระดับไฟล์ ใช้ link ได้ ตรวจเข้ากับ JUCE AGPL/commercial ก่อน merge) | build Windows + Linux | M |
-| 4.2 | `libs/ssnet/rtc.{h,cpp}` | peer ต่อเพื่อน: DataChannel `ordered:false, maxRetransmits:0` ส่ง HRA3; signaling ผ่าน WS เดิม (offer/answer/ICE) | loopback test ใน Linux | L |
-| 4.3 | `web/site` (API) | `/api/turn` ออก credential ชั่วคราวของ Cloudflare Realtime TURN ให้ Hub ที่เข้าสู่ระบบ (เก็บ key ที่ Vercel env เท่านั้น) | rate limit + test API | M |
-| 4.4 | `send.html`, `listen.html` | ลำดับ: WebRTC ตรง → WebRTC ผ่าน TURN → WS Opus → WS PCM; แสดงว่าใช้ทางไหน | net-sim loss 2 % + jitter 20 ms: gap ≤ 0.2/นาที, latency ต่ำกว่า WS ≥ 20 ms | L |
-| 4.5 | test | matrix: Wi-Fi บ้าน, 4G/5G, เน็ตออฟฟิศที่บล็อก UDP (ต้อง fallback เอง) | ผ่านทุกแบบ | M |
+| 4.1 | `external/libdatachannel`, `fetch-deps.ps1` | เพิ่ม libdatachannel (v0.22.5 static + mbedtls v3.6.2, MPL-2.0) พร็อมแพตช์ CMake export และ No-Media DTLS (เสร็จแล้ว ✅) | build Windows + Linux ผ่าน | M |
+| 4.2 | `libs/ssnet/rtc.{h,cpp}` | peer ต่อเพื่อน: DataChannel `ordered:false, maxRetransmits:0` ส่ง HRA3; signaling ผ่าน WS เดิม (offer/answer/ICE) + loopback unit test ใน `test_net.cpp` (เสร็จแล้ว ✅) | 112/112 unit tests ผ่าน | L |
+| 4.3 | `web/site` (API) | `/api/turn` ออก credential ชั่วคราวของ Cloudflare Realtime TURN ให้ Hub ที่เข้าสู่ระบบ พร้อม rate limit + vitest (เสร็จแล้ว ✅) | 41/41 vitest ผ่าน | M |
+| 4.4 | `send.html`, `listen.html`, `ShareServer.cpp` | ลำดับ: WebRTC ตรง → WebRTC ผ่าน TURN → WS Opus → WS PCM; badge แสดงว่าใช้ทางไหน + failover อัตโนมัติ (เสร็จแล้ว ✅) | sync-web + CTest ผ่าน | L |
+| 4.5 | test | matrix: CTest 18/18 (100%), vitest 41/41, fallback hierarchy และ loopback test (เสร็จแล้ว ✅) | ผ่านทุกชุด | M |
 
 ### Phase 5: โหมดคาราโอเกะ + ใช้ง่าย
 

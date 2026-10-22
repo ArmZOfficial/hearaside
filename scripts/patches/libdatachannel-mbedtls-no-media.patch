@@ -1,0 +1,41 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5fc6db3..2d9a417 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -411,8 +411,8 @@ elseif(USE_MBEDTLS)
+ 	endif()
+ 	target_compile_definitions(datachannel PRIVATE USE_MBEDTLS=1)
+ 	target_compile_definitions(datachannel-static PRIVATE USE_MBEDTLS=1)
+-	target_link_libraries(datachannel PRIVATE MbedTLS::MbedTLS)
+-	target_link_libraries(datachannel-static PRIVATE MbedTLS::MbedTLS)
++	target_link_libraries(datachannel PRIVATE $<BUILD_INTERFACE:MbedTLS::MbedTLS>)
++	target_link_libraries(datachannel-static PRIVATE $<BUILD_INTERFACE:MbedTLS::MbedTLS>)
+ else()
+ 	if(APPLE)
+ 		# This is a bug in CMake that causes it to prefer the system version over
+diff --git a/src/impl/dtlstransport.cpp b/src/impl/dtlstransport.cpp
+index e2c389b..b45429d 100644
+--- a/src/impl/dtlstransport.cpp
++++ b/src/impl/dtlstransport.cpp
+@@ -370,10 +370,12 @@ int DtlsTransport::TimeoutCallback(gnutls_transport_ptr_t ptr, unsigned int /* m
+ 
+ #elif USE_MBEDTLS
+ 
++#if RTC_ENABLE_MEDIA
+ const mbedtls_ssl_srtp_profile srtpSupportedProtectionProfiles[] = {
+     MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80,
+     MBEDTLS_TLS_SRTP_UNSET,
+ };
++#endif
+ 
+ DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, certificate_ptr certificate,
+                              optional<size_t> mtu,
+@@ -411,7 +413,9 @@ DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, certificate_ptr cer
+ 		mbedtls::check(mbedtls_ssl_conf_own_cert(&mConf, crt.get(), pk.get()));
+ 
+ 		mbedtls_ssl_conf_dtls_cookies(&mConf, NULL, NULL, NULL);
++#if RTC_ENABLE_MEDIA
+ 		mbedtls_ssl_conf_dtls_srtp_protection_profiles(&mConf, srtpSupportedProtectionProfiles);
++#endif
+ 
+ 		mbedtls::check(mbedtls_ssl_setup(&mSsl, &mConf));

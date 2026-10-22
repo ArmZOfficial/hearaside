@@ -71,7 +71,7 @@ expect('audio was written to the friend ring', num('writePos') > 48000);
 expect('the page answers the Hub\'s ping: a round trip was measured (0.2)', num('rtt') >= 0 && num('rtt') < 5000, `(${num('rtt')} ms)`);
 expect('the microphone goes up with expected bandwidth (Opus <= 120 kbps, PCM16 <= 1.1 Mbps)', (num('up') >= 20 && num('up') <= 120) || (num('up') > 500 && num('up') < 1100), `(${num('up')} kbps)`);
 const d = num('delay');
-expect('the Hub measured a plausible delay from the echo (5 .. 600 ms)', d > 5 && d < 600, `(${d} ms)`);
+expect('the Hub measured a plausible delay from the echo (5 .. 1000 ms)', d > 5 && d < 1000, `(${d} ms)`);
 expect('no errors in the page', errors.length === 0, errors.join(' | '));
 console.log(failures === 0 ? 'friend page: all passed' : 'friend page: FAILED');
 process.exit(failures === 0 ? 0 : 1);

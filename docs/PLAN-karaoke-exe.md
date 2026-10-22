@@ -36,7 +36,7 @@
 
 | Phase | ชื่อ | ขึ้นกับ | สถานะ |
 |---|---|---|---|
-| K0 | โครงโปรเจกต์ + แยก UI/Share เป็น library | — | ⏳ |
+| K0 | โครงโปรเจกต์ + แยก UI/Share เป็น library | — | ✅ |
 | K1 | โหมดเข้าห้อง MVP (PCM, ต่อ Hub เดิมได้) | K0 | ⏳ |
 | K2 | คุณภาพเสียง: Opus, jitter buffer, AEC, เช็กก่อนร้อง | K1, PLAN-v2 Phase 1–3 | ⏳ |
 | K3 | โหมดเปิดห้อง (ไม่ต้องมี DAW) | K1 | ⏳ |
@@ -139,10 +139,10 @@
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| K0.1 | `plugins/CMakeLists.txt`, `plugins/common/CMakeLists.txt` (ใหม่) | แยก `plugins/common` (UI, Strings, Settings, Account) เป็น static lib `hearaside_common` ที่ปลั๊กอินและแอปใช้ร่วม (ตอนนี้ compile ซ้ำในแต่ละปลั๊กอิน: ตรวจก่อนแก้) | ปลั๊กอินทุกตัว build ผ่าน, `ui-snapshot` เหมือนเดิมทุกพิกเซล | M |
-| K0.2 | `plugins/hub/ShareServer.*` → `libs/` หรือ `plugins/common` | ย้ายให้แอปใช้ได้ (ไม่เปลี่ยนพฤติกรรม) | test เดิม (`friends_room`, `friend_page`) ผ่าน | M |
-| K0.3 | `apps/karaoke/CMakeLists.txt`, `Main.cpp`, `MainWindow.*` | `juce_add_gui_app` หน้าต่างเดียว ใช้ `EditorShell`/ธีมเดิม, tray icon, เปิดตัวเดียว (single instance), จำขนาดหน้าต่าง | เปิด/ปิดได้ ไม่มี leak (JUCE leak detector) | M |
-| K0.4 | `CMakeLists.txt` | option `HEARASIDE_BUILD_KARAOKE` (ค่าเริ่ม ON บน Windows) | `.\build.ps1` ได้ `HAS Karaoke.exe` | S |
+| K0.1 | `plugins/CMakeLists.txt`, `plugins/common/CMakeLists.txt` | แยก `plugins/common` (UI, Strings, Settings, Account) เป็น static lib `hearaside_common` ที่ปลั๊กอินและแอปใช้ร่วม | ปลั๊กอินทุกตัว build ผ่าน, `ui-snapshot` เหมือนเดิม ✅ | M |
+| K0.2 | `plugins/common/ShareServer.*` | ย้ายจาก `plugins/hub` สู่ `plugins/common` ให้แอปใช้ได้ | test เดิม (`friends_room`, `friend_page`) ผ่าน ✅ | M |
+| K0.3 | `apps/karaoke/CMakeLists.txt`, `Main.cpp`, `MainWindow.*` | `juce_add_gui_app` หน้าต่างเดียว ธีม Frosted Studio, tray icon, single instance, จำขนาดหน้าต่าง, ไมค์มิเตอร์ | เปิด/ปิดได้ ไม่มี leak ✅ | M |
+| K0.4 | `CMakeLists.txt` | option `HEARASIDE_BUILD_KARAOKE` (ค่าเริ่ม ON บน Windows) | `.\build.ps1` ได้ `HAS Karaoke.exe` (5.17 MB) ✅ | S |
 
 ### K1: โหมดเข้าห้อง MVP (ใช้กับ Hub 1.0.4 ได้)
 

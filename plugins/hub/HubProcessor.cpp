@@ -326,6 +326,19 @@ void HubProcessor::timerCallback() {
     serviceShare();
     serviceControl();
     serviceSilence();
+    serviceVirtualMic();
+}
+
+// Only the Hub that owns the bus sends, so a second Hub never fights for the device. A failed open is
+// retried every 5 s (the cable may be installed or plugged back in); a new choice is tried at once.
+void HubProcessor::serviceVirtualMic() {
+    const auto want = engine_.role() == HubEngine::Role::Owner ? settings_->virtualMicDevice() : juce::String();
+    if (want != virtualMicWant_) { virtualMicWant_ = want; virtualMicTry_ = 0; virtualMicError_.clear(); }
+    if (want == virtualMic_.device() && (want.isEmpty() || virtualMic_.busName() == busName_)) return;
+    const auto now = juce::Time::getMillisecondCounter();
+    if (virtualMicTry_ != 0 && now - virtualMicTry_ < 5000) return;
+    virtualMicTry_ = now;
+    virtualMicError_ = virtualMic_.start(want, busName_);
 }
 
 void HubProcessor::serviceSilence() {

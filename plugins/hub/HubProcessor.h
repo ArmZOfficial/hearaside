@@ -9,6 +9,7 @@
 #include "ShareDirectory.h"
 #include "ShareServer.h"
 #include "Strings.h"
+#include "VirtualMic.h"
 #include "ssengine/engine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -143,6 +144,9 @@ public:
     juce::String shareBase() const;
     juce::String permanentUrl(bool listen) const;   // https://<site>/l/<token> (or /s/), "" = not set
     const ControlServer& control() const noexcept { return control_; }   // REST API
+    // Virtual mic (Settings > Connection): device from Settings::virtualMicDevice(), "" error = fine
+    const VirtualMic& virtualMic() const noexcept { return virtualMic_; }
+    juce::String virtualMicError() const { return virtualMicError_; }
 
     // ---- friends room (S2) ------------------------------------------------------------------
     // Each friend gets a send-in link of their own; the Hub plays them (headphones + Stream Mix) and
@@ -237,6 +241,10 @@ private:
     void ensureStrongTokens();
     void serviceControl();
     void serviceSilence();
+    void serviceVirtualMic();
+    VirtualMic virtualMic_;
+    juce::String virtualMicWant_, virtualMicError_;
+    juce::uint32 virtualMicTry_ = 0;
     juce::uint32 silentSince_ = 0;
     bool viewersSilent_ = false;
     juce::String silentTrack_;

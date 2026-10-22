@@ -88,6 +88,18 @@ public:
             };
             list_.add(std::make_unique<SettingRow>(tr(Str::RestApi), tr(Str::RestApiCapShort), &rest_, 280, 34));
             refreshRest();
+            // Virtual mic (TikTok LIVE Studio via VB-Cable): Off + the Windows output devices
+            micDevices_ = VirtualMic::outputDevices();
+            const auto chosen = st->virtualMicDevice();
+            if (chosen.isNotEmpty() && !micDevices_.contains(chosen)) micDevices_.add(chosen);   // unplugged: keep it visible
+            juce::StringArray items { tr(Str::VirtualMicOff) };
+            items.addArray(micDevices_);
+            mic_.setItems(items);
+            mic_.setSelected(micDevices_.indexOf(chosen) + 1);
+            mic_.setTitle(tr(Str::VirtualMic));
+            mic_.onChange = [this](int i) { ed_.settings()->setVirtualMicDevice(i > 0 ? micDevices_[i - 1] : juce::String()); };
+            list_.add(std::make_unique<SettingRow>(tr(Str::VirtualMic), tr(Str::VirtualMicCap), &mic_, 280, 38));
+            refreshMic();
         } else if (section == 3) {
             accountPanel_ = std::make_unique<AccountPanel>(AccountPanel::Mode::Full);
             accountPanel_->onToast = [this](const juce::String& msg) { ed_.toast(msg); };
@@ -174,6 +186,23 @@ private:
         rest_.resized();
     }
 
+    // Row 6 caption: how to get a cable, what's being sent, or why the device didn't open.
+    void refreshMic() {
+        if (list_.rows().size() < 7) return;
+        auto& proc = ed_.proc();
+        const auto want = ed_.settings()->virtualMicDevice();
+        juce::String cap;
+        if (want.isEmpty())
+            cap = VirtualMic::cableIndex(micDevices_) < 0 ? tr(Str::VirtualMicNoCable) : tr(Str::VirtualMicCap);
+        else if (proc.virtualMicError().isNotEmpty())
+            cap = trf(Str::VirtualMicFailed, { proc.virtualMicError() });
+        else if (const auto s = proc.virtualMic().status(); s.streaming)
+            cap = trf(Str::VirtualMicSending, { want.upToFirstOccurrenceOf(" (", false, false), juce::String(juce::roundToInt(s.bufferMs)) });
+        else
+            cap = tr(Str::VirtualMicWaiting);
+        if (cap != micCap_) { micCap_ = cap; list_.rows()[6]->setTexts(tr(Str::VirtualMic), cap); }
+    }
+
     void resetAll() {
         auto& s = ed_.settings();
         auto& proc = ed_.proc();
@@ -200,6 +229,7 @@ private:
             delay_.setText(trf(Str::AboutMs, { juce::String(proc.latency().total(), 1) }));
             delay_.setJustification(juce::Justification::centredRight);
             if (!bus_.hasKeyboardFocus(true) && bus_.getText() != proc.busName()) bus_.setText(proc.busName(), false);
+            refreshMic();
         }
     }
 
@@ -219,6 +249,9 @@ private:
     TextField bus_, shareBase_;
     Switch permanent_;
     RestRow rest_;
+    Dropdown mic_;
+    juce::StringArray micDevices_;
+    juce::String micCap_;
     GhostButton showAgain_, setup_, reset_;
     RightButton showAgainBox_, setupBox_, resetBox_;
 };

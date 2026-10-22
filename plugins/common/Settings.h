@@ -56,6 +56,11 @@ public:
     int lineUpLimitMs() const { return juce::jlimit(100, 1000, file_->getIntValue("lineUpLimitMs", 600)); }
     void setLineUpLimitMs(int ms) { file_->setValue("lineUpLimitMs", juce::jlimit(100, 1000, ms)); }
 
+    // Virtual mic: the output device the Hub plays the Stream Mix into (VB-Cable "CABLE Input" for
+    // TikTok LIVE Studio). "" = off.
+    juce::String virtualMicDevice() const { return file_->getValue("virtualMicDevice"); }
+    void setVirtualMicDevice(const juce::String& d) { file_->setValue("virtualMicDevice", d); }
+
     // One-off facts about this user ("triedPreview", "startHidden"...), saved quietly.
     bool flag(const juce::String& key) const { return file_->getBoolValue("flag." + key, false); }
     void setFlag(const juce::String& key, bool on) { if (flag(key) != on) file_->setValue("flag." + key, on); }

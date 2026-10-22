@@ -3,7 +3,7 @@
     "date":  "23 Oct 2026",
     "installer":  "/downloads/HEARASIDE-Setup-1.0.6.exe",
     "sizeMb":  "24.2",
-    "sha256":  "752c720acaf8956f47ab89df90752961d8f25e19a925cdfa7351be4f871198ed",
+    "sha256":  "19db546fe04258b1a28e470f121677185e5f9194f81d2444d132ae3b9bac3517",
     "obsMin":  "32",
     "notes":  [
                   {
@@ -45,5 +45,5 @@
     "vst2":  true,
     "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.6.exe",
     "karaokeSizeMb":  "8.1",
-    "karaokeSha256":  "4a4ee10e07d5681b3fa475feed6f440d92806ce5942c458cea1cd586dc887b1e"
+    "karaokeSha256":  "a3de06b4ed7eb088d622a0c107d646fb53fec8d92a3eef55cabaefdb46f04c14"
 }

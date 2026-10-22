@@ -1157,7 +1157,7 @@ MainWindow::MainWindow()
     AudioSettings::loadState(deviceManager_, settings_);
 
     content_ = std::make_unique<KaraokeContent>(*this, deviceManager_);
-    setContentOwned(content_.release(), false);
+    setContentNonOwned(content_.get(), false);
 
     setUsingNativeTitleBar(false);
     setResizable(true, true);
@@ -1178,6 +1178,7 @@ MainWindow::~MainWindow() {
     AudioSettings::saveState(deviceManager_, settings_);
     settings_->removeChangeListener(this);
     clearContentComponent();
+    content_.reset();
     setLookAndFeel(nullptr);
 }
 

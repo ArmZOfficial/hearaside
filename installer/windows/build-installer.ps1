@@ -46,6 +46,15 @@ $hasVst2 = [bool](Get-ChildItem -Path $plugins -Recurse -Filter 'HEARASIDE *.dll
 $obsDll = Join-Path $BuildDir 'obs\hearaside-obs\hearaside-obs.dll'
 if (-not (Test-Path $obsDll)) { throw "OBS plug-in not built: $obsDll" }
 
+# --- HAS Karaoke standalone ------------------------------------------------------------------
+$karaokeSrc = Join-Path $BuildDir 'apps\karaoke\HearasideKaraoke_artefacts\Release\HAS Karaoke.exe'
+$hasKaraoke = Test-Path $karaokeSrc
+if ($hasKaraoke -and $env:HEARASIDE_SIGNTOOL) {
+    "signing HAS Karaoke.exe"
+    $signCmd = $env:HEARASIDE_SIGNTOOL.Replace('$f', "`"$karaokeSrc`"")
+    Invoke-Expression $signCmd
+}
+
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $defs = @("/DAppVersion=$version", "/DBuildDir=$BuildDir", "/DRootDir=$root", "/DCloudflared=$cf", "/DCloudflaredLicense=$cfLicense",
           "/DCloudflaredVersion=$($deps.cloudflared.version)", "/DOutDir=$((Resolve-Path $OutDir).Path)")
@@ -61,6 +70,18 @@ $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 "installer: $exe ($size MB, VST2 $(if ($hasVst2) { 'included' } else { 'not included' }))"
 "sha256:    $hash"
 
+$karaokeDist = $null
+$karaokeHash = ""
+$karaokeSize = ""
+if ($hasKaraoke) {
+    $karaokeDist = Join-Path (Resolve-Path $OutDir) "HAS-Karaoke-$version.exe"
+    Copy-Item -Path $karaokeSrc -Destination $karaokeDist -Force
+    $karaokeHash = Get-Hash $karaokeDist
+    $karaokeSize = [math]::Round((Get-Item $karaokeDist).Length / 1MB, 1)
+    "karaoke:   $karaokeDist ($karaokeSize MB)"
+    "sha256:    $karaokeHash"
+}
+
 # numbers for the website's /download page (web\site\src\content\release.json)
 $rel = Join-Path $root 'web\site\src\content\release.json'
 if (Test-Path $rel) {
@@ -68,6 +89,30 @@ if (Test-Path $rel) {
     $j.version = $version; $j.sizeMb = "$size"; $j.sha256 = $hash; $j.date = (Get-Date -Format 'd MMM yyyy')
     $j.installer = "/downloads/HEARASIDE-Setup-$version.exe"
     $j | Add-Member -NotePropertyName vst2 -NotePropertyValue $hasVst2 -Force
-    [IO.File]::WriteAllText($rel, ($j | ConvertTo-Json -Depth 6) + "`n", (New-Object Text.UTF8Encoding $false))
+    if ($hasKaraoke) {
+        $j | Add-Member -NotePropertyName karaokeInstaller -NotePropertyValue "/downloads/HAS-Karaoke-$version.exe" -Force
+        $j | Add-Member -NotePropertyName karaokeSizeMb -NotePropertyValue "$karaokeSize" -Force
+        $j | Add-Member -NotePropertyName karaokeSha256 -NotePropertyValue "$karaokeHash" -Force
+    }
+    $jsonText = ($j | ConvertTo-Json -Depth 6) + "`n"
+    [IO.File]::WriteAllText($rel, $jsonText, (New-Object Text.UTF8Encoding $false))
     "release.json updated"
+
+    # Also mirror into web\site\public for direct HTTP fetching by UpdateChecker
+    $publicDir = Join-Path $root 'web\site\public'
+    if (Test-Path $publicDir) {
+        [IO.File]::WriteAllText((Join-Path $publicDir 'release.json'), $jsonText, (New-Object Text.UTF8Encoding $false))
+        $publicContent = Join-Path $publicDir 'content'
+        New-Item -ItemType Directory -Force $publicContent | Out-Null
+        [IO.File]::WriteAllText((Join-Path $publicContent 'release.json'), $jsonText, (New-Object Text.UTF8Encoding $false))
+
+        $publicDl = Join-Path $publicDir 'downloads'
+        New-Item -ItemType Directory -Force $publicDl | Out-Null
+        if ($hasKaraoke -and (Test-Path $karaokeDist)) {
+            Copy-Item -Path $karaokeDist -Destination (Join-Path $publicDl "HAS-Karaoke-$version.exe") -Force
+        }
+        Copy-Item -Path $exe -Destination (Join-Path $publicDl "HEARASIDE-Setup-$version.exe") -Force
+        "public release files mirrored"
+    }
 }
+

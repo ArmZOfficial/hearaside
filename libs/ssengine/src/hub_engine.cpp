@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ssengine/engine.h"
 
+#include <bit>
 #include <cmath>
 #include <numbers>
 #include <cstring>
@@ -99,6 +100,7 @@ void HubEngine::maintain() {
         applyMemory(*b);
         if (beacon_) beaconPublish(beacon_->header());
     }
+    scanCountdown_ = 0;
 }
 
 void HubEngine::prepare(double sampleRate, int maxBlock) {
@@ -145,6 +147,8 @@ void HubEngine::prepare(double sampleRate, int maxBlock) {
         s.panR.prepare(sampleRate_, 20.0); s.panR.snap(1.0f);
         s.mon.prepare(sampleRate_, 10.0);
     }
+    activeSlotsMask_.store(0, std::memory_order_relaxed);
+    scanCountdown_ = 0;
     outUsed_.fill(false);
     wasPlaying_ = false;
     expectedTime_ = kNoTime;
@@ -851,11 +855,38 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     // and the plug-ins above the Hub have already processed it.
     for (int c = 0; c < 2; ++c) std::memcpy(outs_[0][size_t(c)].data(), io[std::min(c, numCh - 1)], size_t(n) * sizeof(float));
 
+    // ---- update active slot bitmask ---------------------------------------------------------
+    // Refresh bitmask periodically (every 16 blocks) or on reanchor to discover newly claimed slots.
+    // Inactive slots found during loop processing are cleared from the bitmask immediately.
+    uint64_t activeMask = activeSlotsMask_.load(std::memory_order_relaxed);
+    if (reanchorAll || scanCountdown_ == 0) {
+        scanCountdown_ = 16;
+        activeMask = 0;
+        for (int i = 0; i < kMaxSlots; ++i) {
+            if (b->slots[i].state.load(std::memory_order_acquire) == kSlotActive) {
+                activeMask |= (uint64_t(1) << i);
+            } else if (slots_[i].known) {
+                slots_[i].known = false; slots_[i].needAnchor = true; slots_[i].xfActive = false;
+                slots_[i].gain.snap(0.0f); slots_[i].mon.snap(0.0f);
+            }
+        }
+        activeSlotsMask_.store(activeMask, std::memory_order_relaxed);
+    } else {
+        --scanCountdown_;
+    }
+
     // ---- solo (stems follow the viewers' solo like the Tracks do) ----------------------------
     bool soloActive = false;
-    for (int i = 0; i < kMaxSlots; ++i) {
+    uint64_t soloMask = activeMask;
+    while (soloMask != 0) {
+        const int i = std::countr_zero(soloMask);
+        soloMask &= (soloMask - 1);
         const SlotHeader& sh = b->slots[i];
-        if (sh.state.load(std::memory_order_acquire) != kSlotActive) continue;
+        if (sh.state.load(std::memory_order_acquire) != kSlotActive) {
+            activeMask &= ~(uint64_t(1) << i);
+            activeSlotsMask_.store(activeMask, std::memory_order_relaxed);
+            continue;
+        }
         const uint32_t f = sh.flags.load(std::memory_order_relaxed);
         if ((f & kFlagSolo) && (f & kFlagStr) && sh.sampleRate.load(std::memory_order_relaxed) == sr) { soloActive = true; break; }
     }
@@ -868,10 +899,15 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     float* A[2] = { tmpA_[0].data(), tmpA_[1].data() };
     float* B[2] = { tmpB_[0].data(), tmpB_[1].data() };
 
-    for (int i = 0; i < kMaxSlots; ++i) {
+    uint64_t slotIter = activeMask;
+    while (slotIter != 0) {
+        const int i = std::countr_zero(slotIter);
+        slotIter &= (slotIter - 1);
         SlotHeader& sh = b->slots[i];
         SlotState& s = slots_[i];
         if (sh.state.load(std::memory_order_acquire) != kSlotActive) {
+            activeMask &= ~(uint64_t(1) << i);
+            activeSlotsMask_.store(activeMask, std::memory_order_relaxed);
             if (s.known) { s.known = false; s.needAnchor = true; s.xfActive = false; s.gain.snap(0.0f); s.mon.snap(0.0f); }
             continue;
         }
@@ -984,12 +1020,16 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         // ---- headphones: You Hear + Headphone Level (a bypassed Track passes its audio) -------
         s.mon.setTarget((f & kFlagBypassed) ? 1.0f
                         : (f & kFlagMon) ? ssdsp::dbToGain(bitsFloat(sh.monTrimBits.load(std::memory_order_relaxed))) : 0.0f);
-        if (s.mon.isSmoothing() || s.mon.current() > 0.0f) {
+        if (s.mon.isSmoothing()) {
             for (int j = 0; j < n; ++j) {
                 const float gm = s.mon.next();
                 phones_[0][size_t(j)] += A[0][j] * gm;
                 phones_[1][size_t(j)] += A[1][j] * gm;
             }
+        } else if (s.mon.current() > 0.0f) {
+            const float gm = s.mon.current();
+            ssdsp::vectorAddScaled(phones_[0].data(), A[0], gm, n);
+            ssdsp::vectorAddScaled(phones_[1].data(), A[1], gm, n);
         }
 
         // ---- stems + per-track viewers meter: gain / pan / solo / panic ----------------------
@@ -1156,7 +1196,8 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
         float* r = outs_[o][1].data();
         if (used[size_t(o)]) {
             if (!outUsed_[size_t(o)]) limiters_[size_t(o)].reset();
-            for (int j = 0; j < n; ++j) { l[j] *= mg[j]; r[j] *= mg[j]; }
+            ssdsp::vectorMultiply(l, mg, n);
+            ssdsp::vectorMultiply(r, mg, n);
             limiters_[size_t(o)].setCeiling(ceiling);
             limiters_[size_t(o)].process(l, r, n, p.limiterOn);
         }

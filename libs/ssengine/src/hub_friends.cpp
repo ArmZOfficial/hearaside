@@ -321,7 +321,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
                 for (int c = 0; c < 2; ++c) {
                     float* x = outs_[size_t(o)][size_t(c)].data();
                     const float* l = late_[size_t(o)][size_t(c)].data();
-                    for (int i = 0; i < n; ++i) x[i] += l[i];
+                    ssdsp::vectorAdd(x, l, n);
                 }
 
     // ---- mix every friend ----------------------------------------------------------------------
@@ -393,7 +393,7 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
                     dst[i] += delayScratch_[1][size_t(i)] + (delayScratch_[0][size_t(i)] - delayScratch_[1][size_t(i)]) * a;
                 }
             } else {
-                for (int i = 0; i < n; ++i) dst[i] += delayScratch_[0][size_t(i)];
+                ssdsp::vectorAdd(dst, delayScratch_[0].data(), n);
             }
         }
         d.pos = endPos;

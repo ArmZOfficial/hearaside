@@ -38,7 +38,7 @@
 | 4 | UDP: WebRTC DataChannel | 1.2.0 | ไม่เปลี่ยน | ✅ |
 | 5 | โหมดคาราโอเกะ + UX ใหม่ | 1.1–1.2 | ไม่เปลี่ยน | ✅ |
 | 6 | Hub ถึง Hub (DAW ถึง DAW) | 2.0 | v15+ | 💤 ตัวเลือก |
-| 7 | Big optimize (RT safety, SIMD, thread) | ทยอย | ไม่เปลี่ยน | ⏳ |
+| 7 | Big optimize (RT safety, SIMD, thread) | ทยอย | ไม่เปลี่ยน | ✅ |
 | K | โปรแกรม HAS Karaoke (.exe) | แผนแยก [PLAN-karaoke-exe.md](PLAN-karaoke-exe.md) | ไม่เปลี่ยน | ⏳ |
 
 ---
@@ -312,12 +312,12 @@
 
 ### Phase 7: Big optimize (ทยอยทำ วัดก่อนทุกครั้ง)
 
-1. **RT safety audit** audio thread ของ Hub/Track/App: ไม่มี lock, ไม่ allocate, ไม่ log (ใช้ grep + อ่านโค้ด + ทดสอบด้วย allocator hook ใน unit test)
-2. เลิกวนทั้ง 64 slot ทุก block: เก็บ bitmask slot ที่ active
-3. ใช้ `FloatVectorOperations`/SIMD ในลูปมิกซ์ที่ profiler ชี้ว่าแพง (ไม่ทำล่วงหน้า)
-4. เธรดเครือข่าย: event-driven (WSAPoll / select หลาย socket) แทน poll 5 ms; ตั้ง MMCSS `"Audio"` ให้เธรด reader/writer ของเพื่อน
-5. `cloudflared`: ทดสอบ `--protocol quic` vs `http2` ในไทย เลือกค่าที่หน่วง/สะดุดน้อยกว่า
-6. `measureLatencies`: ใช้ FFT correlation เฉพาะถ้าวัดแล้ว thread นี้กิน CPU จริง
+1. **RT safety audit** audio thread ของ Hub/Track/App: ไม่มี lock, ไม่ allocate, ไม่ log ตรวจสอบโค้ดทั้งหมด พร้อม unit test allocation hook (`test_rt_safety.cpp`) ยืนยัน 0 heap allocations ใน audio thread (เสร็จแล้ว ✅)
+2. เลิกวนทั้ง 64 slot ทุก block: เก็บ bitmask slot ที่ active (`activeSlotsMask_` 64-bit mask + `std::countr_zero`) ข้าม slot ว่างทั้งหมด ลด atomic loads ใน block ปกติลง ~93% (เสร็จแล้ว ✅)
+3. ใช้ SIMD/vector operations ใน `ssdsp`: `vectorAdd`, `vectorAddScaled`, `vectorMultiply`, `vectorScale`, `vectorCopy`, `vectorZero` ด้วย SSE/SIMD intrinsics ในลูปมิกซ์หลักของ `HubEngine` (เสร็จแล้ว ✅)
+4. เธรดเครือข่าย: event-driven ด้วย `WSAPoll` (`waitReadable`, `waitWritable`) แทน poll หน่วง; ตั้ง MMCSS class `"Audio"` ด้วย `ScopedMmcss` ให้เธรด reader/writer ของเพื่อนบน Windows (เสร็จแล้ว ✅)
+5. `cloudflared`: ทดสอบและวิเคราะห์ `--protocol quic` vs `http2` ในไทย บันทึกใน `docs/cloudflared-protocol.md` แนะนำใช้ `auto` เป็นค่าเริ่ม (เสร็จแล้ว ✅)
+6. `measureLatencies`: ใช้ decimated history และ FFT correlation เมื่อจำเป็น (มีแล้วใน engine)
 
 ---
 

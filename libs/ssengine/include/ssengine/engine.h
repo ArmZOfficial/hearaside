@@ -136,6 +136,7 @@ public:
     struct SourceReadStats { int64_t leadMin = 0, leadMax = 0; uint32_t jumps = 0, blocks = 0; };
     SourceReadStats takeSourceReadStats(int index) noexcept;
     int lastBlockSize() const noexcept { return lastBlock_.load(std::memory_order_relaxed); }
+    uint64_t activeSlotsMask() const noexcept { return activeSlotsMask_.load(std::memory_order_relaxed); }
 
     // ---- friends room (S2 / S4) ---------------------------------------------------------
     // What the Hub does with each friend (set from the message thread, read on the audio thread).
@@ -338,6 +339,8 @@ private:
     bool    wasPlaying_ = false;
     int64_t expectedTime_ = kNoTime;
     uint64_t blockCounter_ = 0;
+    std::atomic<uint64_t> activeSlotsMask_{ 0 };
+    uint32_t scanCountdown_ = 0;
     bool    wasOwner_ = false;
     bool    wasOffline_ = false;
 };

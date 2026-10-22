@@ -15,7 +15,9 @@
 #include <winsock2.h>   // setsockopt, send, WSAPoll: after juce_core (as everywhere), before windows.h
 #include <windows.h>
 #include <bcrypt.h>
+#include <avrt.h>
 #pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "avrt.lib")
 #elif defined(__APPLE__)
 #include <stdlib.h>
 #else
@@ -120,6 +122,45 @@ void waitWritable(juce::StreamingSocket& s, int ms) {
     ::poll(&p, 1, ms);
 #endif
 }
+
+// Waits until the socket is readable (or the time is up). Returns 1 if readable, 0 if timed out, < 0 on error / closed.
+int waitReadable(juce::StreamingSocket& s, int ms) {
+    const int h = s.getRawSocketHandle();
+    if (h < 0) return -1;
+#ifdef _WIN32
+    WSAPOLLFD p { static_cast<SOCKET>(h), POLLRDNORM, 0 };
+    const int r = WSAPoll(&p, 1, ms);
+    if (r < 0) return -1;
+    if (r == 0) return 0;
+    if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
+    return (p.revents & POLLRDNORM) ? 1 : 0;
+#else
+    pollfd p { h, POLLIN, 0 };
+    const int r = ::poll(&p, 1, ms);
+    if (r < 0) return -1;
+    if (r == 0) return 0;
+    if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
+    return (p.revents & POLLIN) ? 1 : 0;
+#endif
+}
+
+// MMCSS "Audio" priority for real-time network audio threads on Windows
+struct ScopedMmcss {
+#ifdef _WIN32
+    HANDLE handle = nullptr;
+    explicit ScopedMmcss(const wchar_t* taskName) {
+        DWORD taskIndex = 0;
+        handle = AvSetMmThreadCharacteristicsW(taskName, &taskIndex);
+    }
+    ~ScopedMmcss() {
+        if (handle) AvRevertMmThreadCharacteristics(handle);
+    }
+#else
+    explicit ScopedMmcss(const wchar_t*) {}
+#endif
+    ScopedMmcss(const ScopedMmcss&) = delete;
+    ScopedMmcss& operator=(const ScopedMmcss&) = delete;
+};
 
 // Everything, or false after 5 s without the socket taking a byte (a page, a short frame: not for audio).
 bool writeAll(juce::StreamingSocket& s, const void* data, size_t n) {
@@ -934,6 +975,7 @@ struct ShareServer::FriendOut {
 // hearing when the packet's first frame was captured; with that the Hub knows how late the voice is.
 // Two threads: this one only reads (a slow line down must never make the microphone wait), friendSend writes.
 void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::String& token) {
+    ScopedMmcss mmcss(L"Audio");
     auto& s = *c.sock;
     auto& h = bus_->friends[slot];
     const auto idx = size_t(slot);
@@ -1198,7 +1240,7 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
         }
 
         // ---- microphone ------------------------------------------------------------------
-        const int ready = s.waitUntilReady(true, 20);
+        const int ready = waitReadable(s, 20);
         if (ready < 0) break;
         if (ready == 1) {
             const uint8_t op = readMessage(s, msg, 5000, running_, onPing);
@@ -1266,6 +1308,7 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
 // soon as it arrives; never their own). Never waits for the line: what the socket does not take is not queued,
 // the Hub jumps ahead instead (SendQueue, catchUp). Also: the delay for the friend's screen and the ping.
 void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, FriendOut& out) {
+    ScopedMmcss mmcss(L"Audio");
     const auto idx = size_t(slot);
     auto& h = bus_->friends[slot];
     auto& net = friendNet_[idx];

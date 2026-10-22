@@ -5,7 +5,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
+
+#if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
+#include <xmmintrin.h>
+#include <emmintrin.h>
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
 
 namespace ssdsp {
 
@@ -13,6 +21,106 @@ constexpr float kMinusInfDb = -60.0f;   // at or below this a gain is treated as
 
 inline float dbToGain(float db) noexcept { return db <= kMinusInfDb ? 0.0f : std::pow(10.0f, db * 0.05f); }
 inline float gainToDb(float g) noexcept { return g <= 1.0e-9f ? -200.0f : 20.0f * std::log10(g); }
+
+// ---------------------------------------------------------------------------------------------
+// Vector operations (SIMD-accelerated on x86_64 SSE / ARM NEON / auto-vectorized)
+inline void vectorAdd(float* dst, const float* src, int n) noexcept {
+#if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
+    int i = 0;
+    for (; i + 4 <= n; i += 4) {
+        __m128 a = _mm_loadu_ps(dst + i);
+        __m128 b = _mm_loadu_ps(src + i);
+        _mm_storeu_ps(dst + i, _mm_add_ps(a, b));
+    }
+    for (; i < n; ++i) dst[i] += src[i];
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+    int i = 0;
+    for (; i + 4 <= n; i += 4) {
+        float32x4_t a = vld1q_f32(dst + i);
+        float32x4_t b = vld1q_f32(src + i);
+        vst1q_f32(dst + i, vaddq_f32(a, b));
+    }
+    for (; i < n; ++i) dst[i] += src[i];
+#else
+    for (int i = 0; i < n; ++i) dst[i] += src[i];
+#endif
+}
+
+inline void vectorAddScaled(float* dst, const float* src, float scale, int n) noexcept {
+#if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
+    int i = 0;
+    const __m128 s = _mm_set1_ps(scale);
+    for (; i + 4 <= n; i += 4) {
+        __m128 d = _mm_loadu_ps(dst + i);
+        __m128 b = _mm_loadu_ps(src + i);
+        _mm_storeu_ps(dst + i, _mm_add_ps(d, _mm_mul_ps(b, s)));
+    }
+    for (; i < n; ++i) dst[i] += src[i] * scale;
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+    int i = 0;
+    const float32x4_t s = vdupq_n_f32(scale);
+    for (; i + 4 <= n; i += 4) {
+        float32x4_t d = vld1q_f32(dst + i);
+        float32x4_t b = vld1q_f32(src + i);
+        vst1q_f32(dst + i, vmlaq_f32(d, b, s));
+    }
+    for (; i < n; ++i) dst[i] += src[i] * scale;
+#else
+    for (int i = 0; i < n; ++i) dst[i] += src[i] * scale;
+#endif
+}
+
+inline void vectorMultiply(float* dst, const float* src, int n) noexcept {
+#if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
+    int i = 0;
+    for (; i + 4 <= n; i += 4) {
+        __m128 a = _mm_loadu_ps(dst + i);
+        __m128 b = _mm_loadu_ps(src + i);
+        _mm_storeu_ps(dst + i, _mm_mul_ps(a, b));
+    }
+    for (; i < n; ++i) dst[i] *= src[i];
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+    int i = 0;
+    for (; i + 4 <= n; i += 4) {
+        float32x4_t a = vld1q_f32(dst + i);
+        float32x4_t b = vld1q_f32(src + i);
+        vst1q_f32(dst + i, vmulq_f32(a, b));
+    }
+    for (; i < n; ++i) dst[i] *= src[i];
+#else
+    for (int i = 0; i < n; ++i) dst[i] *= src[i];
+#endif
+}
+
+inline void vectorScale(float* dst, float scale, int n) noexcept {
+#if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
+    int i = 0;
+    const __m128 s = _mm_set1_ps(scale);
+    for (; i + 4 <= n; i += 4) {
+        __m128 a = _mm_loadu_ps(dst + i);
+        _mm_storeu_ps(dst + i, _mm_mul_ps(a, s));
+    }
+    for (; i < n; ++i) dst[i] *= scale;
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+    int i = 0;
+    const float32x4_t s = vdupq_n_f32(scale);
+    for (; i + 4 <= n; i += 4) {
+        float32x4_t a = vld1q_f32(dst + i);
+        vst1q_f32(dst + i, vmulq_f32(a, s));
+    }
+    for (; i < n; ++i) dst[i] *= scale;
+#else
+    for (int i = 0; i < n; ++i) dst[i] *= scale;
+#endif
+}
+
+inline void vectorCopy(float* dst, const float* src, int n) noexcept {
+    if (n > 0) std::memcpy(dst, src, size_t(n) * sizeof(float));
+}
+
+inline void vectorZero(float* dst, int n) noexcept {
+    if (n > 0) std::memset(dst, 0, size_t(n) * sizeof(float));
+}
 
 // ---------------------------------------------------------------------------------------------
 // Linear ramp smoother (like juce::SmoothedValue<Linear>), no allocation.
@@ -43,7 +151,7 @@ public:
         if (!isSmoothing()) {
             const float g = current_;
             if (g == 1.0f) return true;
-            for (int c = 0; c < numCh; ++c) for (int i = 0; i < n; ++i) ch[c][i] *= g;
+            for (int c = 0; c < numCh; ++c) vectorScale(ch[c], g, n);
             return g != 0.0f;
         }
         for (int i = 0; i < n; ++i) {

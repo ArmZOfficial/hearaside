@@ -7,6 +7,7 @@
 #pragma once
 
 #include "ssbus/bus.h"
+#include "ssnet/aec.h"
 
 #include <juce_core/juce_core.h>
 
@@ -81,6 +82,13 @@ public:
     };
     FriendStats friendStats(int slot) const;
 
+    // Acoustic Echo Cancellation (Phase 3)
+    void setFriendAecMode(int slot, ssnet::AecMode mode);
+    ssnet::AecMode friendAecMode(int slot) const;
+    void setFriendLeakDetected(int slot, bool leak);
+    bool friendLeakDetected(int slot) const;
+    float friendErleDb(int slot) const;
+
     static juce::String newToken();    // 26 characters from the OS's secure random source (130 bits)
     static juce::String newSecret();   // 64 hex characters (256 bits), proves who owns the permanent links
     static bool secureRandom(void* dst, size_t n);
@@ -117,6 +125,7 @@ private:
     std::array<std::atomic<uint32_t>, ssbus::kMaxFriends> friendGen_ {};
     std::array<std::atomic<bool>, ssbus::kMaxFriends> friendKick_ {}, friendRemeasure_ {};
     std::array<std::mutex, ssbus::kMaxFriends> friendWrite_;
+    std::array<std::unique_ptr<ssnet::FriendEcho>, ssbus::kMaxFriends> friendEcho_;
     struct FriendNet {   // FriendStats, as atomics: the reader and the writer thread of a session fill it
         std::atomic<float> rtt { -1.0f }, up { 0.0f }, down { 0.0f }, micGap { 0.0f }, lag { 0.0f };
         std::atomic<uint32_t> skips { 0 };

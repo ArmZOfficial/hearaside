@@ -29,6 +29,8 @@ struct FriendView {
     bool inDaw = false;         // a DAW track carries this friend (S7), not the Hub
     int feeder = -1;            // that track's feeder index
     int outSlot = -1;           // the Track at the end of that channel (-1 = not paired yet)
+    bool leakDetected = false;  // speaker leak detected
+    bool echoInMaster = false;  // friend voice present in master bus while route is Direct
     bool live() const noexcept { return state == State::Live; }
 };
 

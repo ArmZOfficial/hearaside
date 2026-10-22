@@ -121,6 +121,16 @@ enum class Str {
     DawYours,
     FriendRecordEchoNote,
     FriendBufferWarning,
+    FriendSpeakerLeak,
+    FriendEchoInMaster,
+    SetupDirectMonTitle,
+    SetupDirectMonYou,
+    SetupDirectMonFix,
+    SetupDirectMonOk,
+    DirectMonBanner,
+    TurnedOffVocalMonToast,
+    DirectMonSetting,
+    DirectMonSettingCap,
     Count
 };
 

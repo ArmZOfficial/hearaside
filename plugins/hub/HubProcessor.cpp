@@ -262,6 +262,30 @@ void HubProcessor::rename(int slot, const juce::String& name) {
         ssbus::requestRename(bus->slots[slot], name.trim().toStdString());
 }
 
+std::vector<int> HubProcessor::vocalSlots() const {
+    std::vector<int> out;
+    const auto ts = tracks();
+    auto has = [](const juce::String& name, std::initializer_list<const char*> words) {
+        for (const char* w : words) if (name.containsIgnoreCase(juce::String::fromUTF8(w))) return true;
+        return false;
+    };
+    for (const auto& v : ts) {
+        if (has(v.name, { "ร้อง", "ไมค์", "vocal", "vox", "mic", "voice", "lead" }))
+            out.push_back(v.slot);
+    }
+    if (out.empty()) {
+        for (const auto& v : ts) {
+            if (!v.mon && v.str) { out.push_back(v.slot); break; }
+        }
+    }
+    if (out.empty() && ts.size() == 1) out.push_back(ts.front().slot);
+    return out;
+}
+
+void HubProcessor::muteVocalMonitor() {
+    for (int s : vocalSlots()) send(s, ssbus::ParamId::Mon, 0.0f);
+}
+
 void HubProcessor::setParam(const char* id, float plain) {
     if (auto* p = apvts_.getParameter(id)) {
         p->beginChangeGesture();

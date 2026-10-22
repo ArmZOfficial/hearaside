@@ -155,6 +155,8 @@ public:
         std::atomic<uint32_t> underruns{ 0 };     // short gaps the jitter buffer had to hide (counters restart when no packet came for 0.8 s)
         std::atomic<uint32_t> concealedMs{ 0 };   // silence played for them (gaps + restarts), ms
         std::atomic<uint32_t> jitterP95MsBits{ 0 }; // how late packets arrive over the last ~5 s, p95 (ms, 0 = not measured yet)
+        std::atomic<uint32_t> leakDetected{ 0 };    // speaker leak detected (friendMix leaked into friend mic)
+        std::atomic<uint32_t> echoInMaster{ 0 };    // friend voice present in master bus while route is Direct
     };
     FriendControl& friendControl(int i) noexcept { return friendCtl_[size_t(i)]; }
     const FriendInfo& friendInfo(int i) const noexcept { return friendInfo_[size_t(i)]; }
@@ -229,7 +231,8 @@ private:
     void friendsReset() noexcept;
     bool friendsSoloActive() const noexcept;
     void friendsMix(int n, const HubParams& p, std::array<bool, ssbus::kNumStreamOuts>& used, bool soloActive,
-                    int64_t timeSamples = ssengine::kNoTime, bool playing = false) noexcept;
+                    int64_t timeSamples = ssengine::kNoTime, bool playing = false,
+                    uint32_t w0 = 0, uint32_t w = 0, int phase = 0) noexcept;
     uint64_t anchorFor(int i, int n, int64_t timeSamples, bool playing, bool& viaTimeline) noexcept;
     void startCrossfade(SlotState& s, uint64_t oldReadPos) noexcept;
 
@@ -265,6 +268,12 @@ private:
     std::array<uint32_t, ssbus::kMaxSources> srcQuiet_{};
     struct SrcStats { std::atomic<int64_t> leadMin { INT64_MAX }, leadMax { INT64_MIN }; std::atomic<uint32_t> jumps { 0 }, blocks { 0 }; };
     std::array<SrcStats, ssbus::kMaxSources> srcStats_{};
+    // Friend audio signals for echo and leak detection
+    std::vector<float> capFriendMix_;               // capLen_
+    std::vector<float> capFriends_;                 // kMaxFriends x capLen_
+    float decFriendMix_ = 0.0f;
+    std::array<float, ssbus::kMaxFriends> decFriends_{};
+    std::array<uint32_t, ssbus::kMaxFriends> friendQuiet_{};
     uint32_t capLen_ = 0;
     std::atomic<uint32_t> capWrite_{ 0 };
     float decIn_ = 0;

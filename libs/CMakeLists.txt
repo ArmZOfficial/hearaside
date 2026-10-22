@@ -47,10 +47,31 @@ set(OPUS_INSTALL_PKG_CONFIG_FILE OFF CACHE BOOL "" FORCE)
 set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
 add_subdirectory(${SS_EXTERNAL}/opus ${CMAKE_CURRENT_BINARY_DIR}/opus EXCLUDE_FROM_ALL)
 
-# ---- ssnet: network wire formats and codec wrappers (MIT, no JUCE) --------------------------
+# ---- speexdsp echo canceller & preprocessor (BSD) -------------------------------------------
+add_library(ss_speex_echo STATIC
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/mdf.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/preprocess.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/filterbank.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/fftwrap.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/kiss_fft.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/kiss_fftr.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/buffer.c
+    ${SS_EXTERNAL}/speexdsp/libspeexdsp/scal.c)
+target_include_directories(ss_speex_echo
+    PUBLIC  ${SS_EXTERNAL}/speexdsp/include
+    PRIVATE ${SS_EXTERNAL}/speexdsp/libspeexdsp)
+target_compile_definitions(ss_speex_echo
+    PUBLIC  FLOATING_POINT USE_KISS_FFT
+    PRIVATE EXPORT= inline=__inline)
+if(MSVC)
+    target_compile_options(ss_speex_echo PRIVATE /wd4244 /wd4305 /wd4267 /wd4018)
+endif()
+
+# ---- ssnet: network wire formats, codecs, and echo cancellation (MIT, no JUCE) -------------
 add_library(ssnet STATIC
-    ssnet/src/opus_codec.cpp)
+    ssnet/src/opus_codec.cpp
+    ssnet/src/aec.cpp)
 target_include_directories(ssnet PUBLIC ssnet/include)
-target_link_libraries(ssnet PUBLIC opus)
+target_link_libraries(ssnet PUBLIC opus ss_speex_echo)
 
 

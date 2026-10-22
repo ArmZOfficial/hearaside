@@ -840,12 +840,45 @@ void ShareServer::receiveFrom(Conn& c) {
     --senders_;
 }
 
+void ShareServer::setFriendAecMode(int slot, ssnet::AecMode mode) {
+    if (slot >= 0 && slot < ssbus::kMaxFriends) {
+        if (!friendEcho_[size_t(slot)]) friendEcho_[size_t(slot)] = std::make_unique<ssnet::FriendEcho>();
+        friendEcho_[size_t(slot)]->setMode(mode);
+    }
+}
+
+ssnet::AecMode ShareServer::friendAecMode(int slot) const {
+    if (slot >= 0 && slot < ssbus::kMaxFriends && friendEcho_[size_t(slot)])
+        return friendEcho_[size_t(slot)]->mode();
+    return ssnet::AecMode::Auto;
+}
+
+void ShareServer::setFriendLeakDetected(int slot, bool leak) {
+    if (slot >= 0 && slot < ssbus::kMaxFriends) {
+        if (!friendEcho_[size_t(slot)]) friendEcho_[size_t(slot)] = std::make_unique<ssnet::FriendEcho>();
+        friendEcho_[size_t(slot)]->setLeakDetected(leak);
+    }
+}
+
+bool ShareServer::friendLeakDetected(int slot) const {
+    if (slot >= 0 && slot < ssbus::kMaxFriends && friendEcho_[size_t(slot)])
+        return friendEcho_[size_t(slot)]->leakDetected();
+    return false;
+}
+
+float ShareServer::friendErleDb(int slot) const {
+    if (slot >= 0 && slot < ssbus::kMaxFriends && friendEcho_[size_t(slot)])
+        return friendEcho_[size_t(slot)]->erleDb();
+    return 0.0f;
+}
+
 // What leaves for one friend: the writer thread fills and empties it, the reader thread adds pongs.
 struct ShareServer::FriendOut {
     std::mutex lock;
     ssbus::SendQueue q;
     std::atomic<bool> over { false };   // either thread: the session is finished
     std::atomic<uint8_t> codec { ssnet::CodecPcm16 };   // negotiated codec: CodecOpus or CodecPcm16
+    std::atomic<bool> hearMyself { false };             // (3.5) "Hear myself from Hub"
 };
 
 // A friend's browser: the microphone comes in (HRA1 or HRA2), the Stream Mix as the DAW makes it goes out
@@ -868,6 +901,9 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
     net.rtt.store(-1.0f); net.up.store(0.0f); net.down.store(0.0f); net.micGap.store(0.0f); net.lag.store(0.0f);
     net.skips.store(0); net.upBytes.store(0); net.downBytes.store(0);
     limitSendBuffer(s);
+
+    if (!friendEcho_[idx]) friendEcho_[idx] = std::make_unique<ssnet::FriendEcho>();
+    friendEcho_[idx]->init(48000, 480, 200);
 
     std::vector<uint8_t> msg;
     std::vector<float> l, r;
@@ -929,13 +965,25 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     std::nth_element(sorted.begin(), sorted.begin() + long(sorted.size() / 2), sorted.end());
                     net.rtt.store(sorted[sorted.size() / 2], std::memory_order_relaxed);
                 }
-            } else if (op == 1) {   // client codec announcement e.g. {"codec":"opus"}
+            } else if (op == 1) {   // client control messages e.g. {"codec":"opus"}, {"hearMyself":true}, {"aec":"on"}
                 const juce::String text(reinterpret_cast<const char*>(msg.data()), msg.size());
                 const auto j = juce::JSON::parse(text);
                 if (j.hasProperty("codec")) {
                     const auto codecName = j["codec"].toString();
                     if (codecName == "opus") out.codec.store(ssnet::CodecOpus);
                     else if (codecName == "pcm16") out.codec.store(ssnet::CodecPcm16);
+                }
+                if (j.hasProperty("hearMyself")) {
+                    out.hearMyself.store(bool(j["hearMyself"]), std::memory_order_relaxed);
+                }
+                if (j.hasProperty("speakerMode")) {
+                    if (bool(j["speakerMode"])) setFriendAecMode(slot, ssnet::AecMode::On);
+                }
+                if (j.hasProperty("aec")) {
+                    const auto mode = j["aec"].toString();
+                    if (mode == "on") setFriendAecMode(slot, ssnet::AecMode::On);
+                    else if (mode == "off") setFriendAecMode(slot, ssnet::AecMode::Off);
+                    else if (mode == "auto") setFriendAecMode(slot, ssnet::AecMode::Auto);
                 }
             }
             ssnet::Hra3Header h3{};
@@ -970,6 +1018,21 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     float* const decCh[2] = { l.data(), r.data() };
                     const int decFrames = opusDec.decode(h3Payload, int(h3PayloadSize), decCh, h3.frames);
                     if (decFrames > 0) {
+                        float dMs = ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed));
+                        if (dMs < 0.0f) dMs = net.rtt.load(std::memory_order_relaxed);
+                        if (dMs < 0.0f) dMs = 80.0f;
+                        const int delaySamples = int(dMs * 48.0f);
+                        if (friendEcho_[idx]) {
+                            int rem = decFrames, off = 0;
+                            while (rem >= 480) {
+                                friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
+                                if (h3.chans == 2) {
+                                    std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
+                                }
+                                off += 480;
+                                rem -= 480;
+                            }
+                        }
                         const auto t = juce::Time::getMillisecondCounter();
                         if (lastMic != 0 && float(t - lastMic) > net.micGap.load(std::memory_order_relaxed))
                             net.micGap.store(float(t - lastMic), std::memory_order_relaxed);
@@ -1024,10 +1087,27 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     const auto* pcm = reinterpret_cast<const int16_t*>(msg.data() + hdr);
                     l.resize(frames);
                     r.resize(frames);
-                    float pk = 0.0f;
                     for (uint32_t i = 0; i < frames; ++i) {
                         l[i] = pcm[i * chans] / 32768.0f;
                         r[i] = pcm[i * chans + chans - 1] / 32768.0f;
+                    }
+                    float dMs = ssbus::bitsFloat(h.delayBits.load(std::memory_order_relaxed));
+                    if (dMs < 0.0f) dMs = net.rtt.load(std::memory_order_relaxed);
+                    if (dMs < 0.0f) dMs = 80.0f;
+                    const int delaySamples = int(dMs * (float(rate) / 1000.0f));
+                    if (friendEcho_[idx]) {
+                        int rem = int(frames), off = 0;
+                        while (rem >= 480) {
+                            friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
+                            if (chans == 2) {
+                                std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
+                            }
+                            off += 480;
+                            rem -= 480;
+                        }
+                    }
+                    float pk = 0.0f;
+                    for (uint32_t i = 0; i < frames; ++i) {
                         pk = std::max(pk, std::max(std::abs(l[i]), std::abs(r[i])));
                     }
                     // how late is the average sample of this packet when it arrives? (Stream Mix frames are the Hub's)
@@ -1156,9 +1236,14 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
                 ssbus::ringReadAt(bus_->friendVoiceAudio[k], bus_->friendVoiceWrite[k], mixCursor, vd, n);   // a gap = silence
             }
             for (int j = 0; j < ssbus::kMaxFriends; ++j) {
-                if (j == slot) continue;   // nobody hears themselves come back
+                if (j == slot && !out.hearMyself.load(std::memory_order_relaxed)) continue;   // nobody hears themselves come back unless opted in
                 const float* v = voices[size_t(j)].data();
                 for (uint32_t i = 0; i < n; ++i) { ml[i] += v[i]; mr[i] += v[i]; }
+            }
+            if (slot >= 0 && slot < ssbus::kMaxFriends && friendEcho_[size_t(slot)]) {
+                std::vector<float> refMono(n);
+                for (uint32_t i = 0; i < n; ++i) refMono[i] = 0.5f * (ml[i] + mr[i]);
+                friendEcho_[size_t(slot)]->pushReference(refMono.data(), n);
             }
             if (useOpus) {
                 const float* const encCh[2] = { ml.data(), mr.data() };

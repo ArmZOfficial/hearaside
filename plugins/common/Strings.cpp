@@ -736,6 +736,16 @@ Table build() {
     s(Str::DawYours, "DAW ของคุณ", "your DAW");
     s(Str::FriendRecordEchoNote, "ปิด monitor ของแทร็กที่อัดเพื่อน (เสียงจะออกแทร็กเมื่อกดอัดหรือเปิด “เฉพาะเสียงโปรแกรม” เพื่อกันเสียงสะท้อน)", "Turn off monitoring on this track (audio only leaves the plug-in while recording or with “Program only” enabled to prevent echo).");
     s(Str::FriendBufferWarning, "ตั้ง buffer 128–256 เพื่อให้เพื่อนหน่วงน้อย", "Set DAW buffer to 128–256 for lower friend latency");
+    s(Str::FriendSpeakerLeak, "ลำโพงรั่ว", "Speaker leak");
+    s(Str::FriendEchoInMaster, "เพื่อนดังซ้ำใน master (ปิด monitor ของแทร็กใน DAW)", "Friend heard in master (turn off track monitoring in DAW)");
+    s(Str::SetupDirectMonTitle, "หากเปิด Direct Monitor ที่ Audio Interface", "If Audio Interface Direct Monitor is on");
+    s(Str::SetupDirectMonYou, "อาจได้ยินเสียงร้องตัวเอง 2 ครั้ง (เสียงก้อง/แตก)", "You may hear your vocal twice (comb filtering / echo)");
+    s(Str::SetupDirectMonFix, "ปิด “คุณได้ยิน” ในแทร็กร้อง (%t)", "Turn off “You hear” on vocal track (%t)");
+    s(Str::SetupDirectMonOk, "แทร็กร้อง (%t): ปิด “คุณได้ยิน” แล้ว", "Vocal track (%t): “You hear” is off");
+    s(Str::DirectMonBanner, "Audio interface เปิด Direct Monitor ไหม? คลิกเพื่อปิด “คุณได้ยิน” ของแทร็กร้อง (%t) กันเสียงสะท้อน", "Is Audio Interface Direct Monitor on? Click to turn off “You hear” on vocal track (%t) to prevent echo");
+    s(Str::TurnedOffVocalMonToast, "ปิด “คุณได้ยิน” ในแทร็กร้องแล้ว", "Turned off “You hear” on vocal tracks");
+    s(Str::DirectMonSetting, "Direct Monitor บน Audio Interface", "Audio Interface Direct Monitor");
+    s(Str::DirectMonSettingCap, "ปิด “คุณได้ยิน” ของแทร็กร้องให้อัตโนมัติ เพื่อป้องกันเสียงก้องซ้อน", "Automatically turns off “You hear” on vocal tracks to prevent echo");
     return t;
 }
 

@@ -51,6 +51,7 @@ struct Room {
         int64_t sent = 0;             // friend frames written so far
         bool open = false;
         uint32_t rate = kRate;   // (set by openFriend)
+        std::function<float(int64_t)> customSample;
     };
     Friend friends[kMaxFriends];
     // a HEARASIDE Track at the end of a DAW channel that carries a friend (S7): content = noise(t - lag, seed)
@@ -91,7 +92,8 @@ struct Room {
             h.heartbeatNs.store(nowNs());
             while (f.sent + 960 + f.netFrames <= t) {   // a packet arrives once its last frame was captured plus the network
                 std::vector<float> pk(960);
-                for (int i = 0; i < 960; ++i) pk[size_t(i)] = noiseAt(f.sent + i, f.seed);
+                for (int i = 0; i < 960; ++i)
+                    pk[size_t(i)] = f.customSample ? f.customSample(f.sent + i) : noiseAt(f.sent + i, f.seed);
                 const float* src[1] = { pk.data() };
                 ringWrite(b->friendAudio[j], h.writePos, src, 1, 960);
                 f.sent += 960;
@@ -928,3 +930,87 @@ TEST_CASE("friends: a probe the Hub ended takes the sweep command back") {
     rig.probe();
     CHECK(rig.b->feeders[rig.fidx].hubCommand.load() == 0);
 }
+
+TEST_CASE("friends: speaker leak detection activates when friend mic receives friendMix at positive lag") {
+    Room r("leak", 48000);
+    r.music = true;
+    r.openFriend(0, kVoice, 40.0);
+
+    // Friend 0 microphone receives music delayed by 50 ms (2400 frames) with gain 0.8
+    r.friends[0].customSample = [](int64_t t) {
+        return 0.8f * noiseAt(t - 2400, kMusic);
+    };
+
+    r.run(1.2);
+    r.hub.measureLatencies();
+    CHECK(r.hub.friendInfo(0).leakDetected.load() == 1);
+
+    // Stop the leak: friend 0 sends clean vocal
+    r.friends[0].customSample = nullptr;
+    r.run(1.2);
+    r.hub.measureLatencies();
+    CHECK(r.hub.friendInfo(0).leakDetected.load() == 0);
+}
+
+TEST_CASE("friends: echo in master detection activates when friend voice enters master while route is Direct") {
+    Room r("echo_mast", 48000);
+    r.music = false;
+    r.openFriend(0, kVoice, 40.0);
+    CHECK(r.hub.bus()->friends[0].route.load() == kRouteDirect);
+
+    // Let the jitter buffer prime and stabilize
+    r.run(0.5);
+
+    // Friend 0's voice leaks into master bus (e.g. via DAW track monitoring with 5 ms DAW latency)
+    r.beforeHub = [&](int64_t t0, std::vector<float>& l) {
+        const float tms = bitsFloat(r.hub.friendInfo(0).totalMsBits.load());
+        const int64_t totFrames = int64_t(tms * 48.0f + 0.5f);
+        for (size_t i = 0; i < l.size(); ++i)
+            l[i] += 0.8f * noiseAt(t0 + int64_t(i) - totFrames - 240, kVoice);
+    };
+
+    r.run(1.0);
+    r.hub.measureLatencies();
+    CHECK(r.hub.friendInfo(0).echoInMaster.load() == 1);
+
+    // If route is switched to DAW, friend in master is intended, not an unwanted echo warning
+    r.hub.bus()->friends[0].route.store(kRouteDaw);
+    r.hub.measureLatencies();
+    CHECK(r.hub.friendInfo(0).echoInMaster.load() == 0);
+
+    // When route is Direct but leak stopped, warning clears
+    r.hub.bus()->friends[0].route.store(kRouteDirect);
+    r.beforeHub = nullptr;
+    r.run(1.0);
+    r.hub.measureLatencies();
+    CHECK(r.hub.friendInfo(0).echoInMaster.load() == 0);
+}
+
+TEST_CASE("friends: direct monitor check turns off vocal monitor to prevent comb filtering") {
+    Room r("direct_mon", 48000);
+    BusLayout* b = r.hub.bus();
+    bool dup = false;
+    int sidx = claimSlot(*b, makeUuid(), kRate, 2, dup);
+    REQUIRE(sidx >= 0);
+    setSlotIdentity(b->slots[sidx], "Lead Vocal", 0);
+    b->slots[sidx].flags.store(kFlagMon | kFlagStr);
+
+    // Initial state: mon is active
+    CHECK((b->slots[sidx].flags.load() & kFlagMon) != 0);
+
+    // Send command to turn off mon (simulating Hub's direct monitor checklist action)
+    postCommand(b->slots[sidx], ParamId::Mon, 0.0f);
+
+    uint32_t cursor = 0;
+    int delivered = pollCommands(b->slots[sidx], cursor, [&](ParamId id, float val) {
+        if (id == ParamId::Mon) {
+            uint32_t f = b->slots[sidx].flags.load();
+            if (val > 0.5f) f |= kFlagMon; else f &= ~kFlagMon;
+            b->slots[sidx].flags.store(f);
+        }
+    });
+
+    CHECK(delivered == 1);
+    CHECK((b->slots[sidx].flags.load() & kFlagMon) == 0);
+}
+

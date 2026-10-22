@@ -271,6 +271,61 @@ HubEngine::FxLatency HubEngine::measureLatencies() {
             const double m = std::max(0.0, lagMs[size_t(i)] - lineUp);
             out.masterMs = out.masterMs < 0.0 ? m : std::min(out.masterMs, m);
         }
+
+        // ---- Friend echo & speaker leak detection (Phase 3.3) --------------------
+        std::vector<float> fMix;
+        copyLast(capFriendMix_.data(), fMix);
+        std::vector<double> cumMix(size_t(M) + 1, 0.0);
+        for (int k = 0; k < M; ++k)
+            cumMix[size_t(k) + 1] = cumMix[size_t(k)] + double(fMix[size_t(k)]) * fMix[size_t(k)];
+        const double eMix = cumMix[size_t(yStart + N)] - cumMix[size_t(yStart)];
+        const bool mixSound = eMix > double(N) * 1e-6;
+
+        std::vector<float> fMic;
+        std::vector<double> cumMic(size_t(M) + 1, 0.0);
+        for (int j = 0; j < kMaxFriends; ++j) {
+            FriendHeader& fh = b->friends[j];
+            const uint32_t fid = fh.id.load(std::memory_order_acquire);
+            if (fid == 0 || fh.state.load(std::memory_order_relaxed) != kFriendLive) {
+                friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+                friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+                continue;
+            }
+
+            copyLast(capFriends_.data() + size_t(j) * capLen_, fMic);
+            for (int k = 0; k < M; ++k)
+                cumMic[size_t(k) + 1] = cumMic[size_t(k)] + double(fMic[size_t(k)]) * fMic[size_t(k)];
+            const double eMic = cumMic[size_t(yStart + N)] - cumMic[size_t(yStart)];
+            const bool micSound = eMic > double(N) * 1e-6;
+
+            // (1) Speaker leak: mix sent to friend leaked back through friend's mic (score > 0.4 at positive lag)
+            if (mixSound && micSound) {
+                double lag = 0, score = 0;
+                if (bestLag(fMic.data(), fMix.data(), N, yStart, 0, K, cumMix, eMic, 0.4, lag, true, &score)) {
+                    friendInfo_[size_t(j)].leakDetected.store(1, std::memory_order_relaxed);
+                } else {
+                    friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+                }
+            } else if (micSound) {
+                friendInfo_[size_t(j)].leakDetected.store(0, std::memory_order_relaxed);
+            }
+
+            // (2) Echo in master: friend's voice in master bus while route is Direct (score > 0.4)
+            if (fh.route.load(std::memory_order_relaxed) == kRouteDirect) {
+                if (sound && micSound) {
+                    double lag = 0, score = 0;
+                    if (bestLag(y.data(), fMic.data(), N, yStart, -Kneg, K, cumMic, ey, 0.4, lag, true, &score)) {
+                        friendInfo_[size_t(j)].echoInMaster.store(1, std::memory_order_relaxed);
+                    } else {
+                        friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+                    }
+                } else if (micSound) {
+                    friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+                }
+            } else {
+                friendInfo_[size_t(j)].echoInMaster.store(0, std::memory_order_relaxed);
+            }
+        }
     }
 
     // ---- S7: Match active feeders with end-of-track slots & measure Li ---------
@@ -997,12 +1052,12 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
     }
 
     // ---- history for measuring the master plug-ins' latency ----------------------------------
+    const uint32_t w0 = capLen_ > 0 ? capWrite_.load(std::memory_order_relaxed) : 0u;
+    const int phase = decCount_;
+    uint32_t w = w0;
     if (capLen_ > 0) {
         // Each history sample sums 4 input samples. The work is per live slot rather than
         // every slot x every sample (64 x 2048 branchy iterations per block before).
-        const uint32_t w0 = capWrite_.load(std::memory_order_relaxed);
-        const int phase = decCount_;
-        uint32_t w = w0;
         {
             const float* l = outs_[0][0].data();
             const float* r = outs_[0][1].data();
@@ -1079,12 +1134,14 @@ void HubEngine::processChunk(float* const* io, int numCh, int n, const HubParams
             quiet_[size_t(i)] += w - w0;
             decSlot_[size_t(i)] = 0.0f;
         }
-        capWrite_.store(w, std::memory_order_release);
     }
 
     const bool probeMute = probeFeeder_.load(std::memory_order_relaxed) >= 0;   // the Hub is listening for the sweep
     // ---- friends: headphones + Stream Mix (after the Line-up delay, before the limiter) ------------
-    friendsMix(n, p, used, soloActive, timeSamples, playing);
+    friendsMix(n, p, used, soloActive, timeSamples, playing, w0, w, phase);
+    if (capLen_ > 0) {
+        capWrite_.store(w, std::memory_order_release);
+    }
 
     // ---- master gain, limiter, meters, write ------------------------------------------------
     master_.setTarget(p.panic || p.silence || probeMute ? 0.0f : ssdsp::dbToGain(p.masterDb));

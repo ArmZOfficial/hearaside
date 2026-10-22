@@ -34,7 +34,7 @@
 | 0 | วัดผลก่อนแก้ (baseline + net-sim) | — | ไม่เปลี่ยน | ⏳ |
 | 1 | แก้ด่วน: จับคู่เพื่อน, jitter buffer, เธรดส่ง, mono, echo path | 1.0.5 | ไม่เปลี่ยน | ⏳ |
 | 2 | Opus codec + HRA3 | 1.1.0 | ไม่เปลี่ยน (เปลี่ยนแค่ wire) | ⏳ |
-| 3 | กันเสียงสะท้อน (AEC + detector) | 1.1.x | อาจ v15 | ⏳ |
+| 3 | กันเสียงสะท้อน (AEC + detector) | 1.1.x | ไม่เปลี่ยน | ✅ |
 | 4 | UDP: WebRTC DataChannel | 1.2.0 | ไม่เปลี่ยน | ⏳ |
 | 5 | โหมดคาราโอเกะ + UX ใหม่ | 1.1–1.2 | ไม่เปลี่ยน | ⏳ |
 | 6 | Hub ถึง Hub (DAW ถึง DAW) | 2.0 | v15+ | 💤 ตัวเลือก |
@@ -275,12 +275,12 @@
 
 | ID | ไฟล์ | ทำอะไร | ผ่านเมื่อ | ขนาด |
 |---|---|---|---|---|
-| 3.1 | `libs/CMakeLists.txt`, `libs/ssnet/aec.{h,cpp}` | compile `mdf.c` + `preprocess.c` + `fftwrap.c`/`kiss_fft*.c` จาก `external/speexdsp` (BSD) เป็น lib แยก; คลาส `FriendEcho` ต่อเพื่อน: reference = สิ่งที่ Hub ส่งให้เพื่อนคนนั้น (mono) หน่วงตาม RTT ที่วัด (0.2) | unit test: จำลองลำโพงรั่ว (reference × IR 120 ms + delay 80 ms) → ERLE ≥ 25 dB หลัง 3 วิ, เสียงร้องที่ทับอยู่ไม่เพี้ยนจนฟังไม่ได้ (SNR ≥ 15 dB) | L |
-| 3.2 | `ShareServer.cpp` | รัน AEC บนเธรด reader ก่อน `ringWrite` (ไม่ใช่ audio thread) โหมด Auto/เปิด/ปิด ต่อเพื่อน | CPU ≤ 2 % ต่อเพื่อน | M |
-| 3.3 | `hub_engine.cpp` (เธรด latency), `HubPages2.cpp` | **ตัวตรวจ**: (1) เสียงที่ส่งให้เพื่อน j ย้อนกลับในไมค์ j (score > 0.4) → AEC Auto เปิดเอง + ไอคอน "ลำโพงรั่ว" (2) เสียงเพื่อน j อยู่ใน master (`capIn_`) ขณะ route Direct → เตือน "เพื่อนดังซ้ำ/เพื่อนจะได้ยินตัวเอง" พร้อมบอกจุดที่ต้องแก้ | unit test สองเคส | M |
-| 3.4 | `send.html` | **เช็กหูฟัง**: ปุ่ม/อัตโนมัติตอนเริ่ม เล่น chirp เบา 1 วิ, ถ้าไมค์ได้ยิน → "ดูเหมือนใช้ลำโพง" + ปุ่ม "เปิดโหมดลำโพง" (`echoCancellation: true` + ขอ Hub เปิด AEC) | test ในเบราว์เซอร์ด้วยไมค์ปลอม (Chrome `--use-file-for-fake-audio-capture`) | M |
-| 3.5 | `friendSession`, `send.html` | ตัวเลือก D5 "ได้ยินตัวเองจาก Hub" ต่อเพื่อน (ค่าเริ่มปิด) | เปิดแล้วเพื่อนได้ยินตัวเองหน่วง = RTT | S |
-| 3.6 | Hub karaoke checklist | คำถาม "audio interface เปิด direct monitor ไหม" → ถ้าใช่ ปิด "คุณได้ยิน" ของแทร็กร้องให้เอง (แก้ 3.B.3) | — | S |
+| 3.1 | `libs/CMakeLists.txt`, `libs/ssnet/aec.{h,cpp}` | compile `mdf.c` + `preprocess.c` + `fftwrap.c`/`kiss_fft*.c` จาก `external/speexdsp` (BSD) เป็น lib แยก; คลาส `FriendEcho` ต่อเพื่อน: reference = สิ่งที่ Hub ส่งให้เพื่อนคนนั้น (mono) หน่วงตาม RTT ที่วัด (0.2) (เสร็จแล้ว ✅) | unit test: จำลองลำโพงรั่ว (reference × IR 120 ms + delay 80 ms) → ERLE ≥ 25 dB หลัง 3 วิ, เสียงร้องที่ทับอยู่ไม่เพี้ยนจนฟังไม่ได้ (SNR ≥ 15 dB) (ได้ ERLE 35.5 dB, SNR 48.5 dB) | L |
+| 3.2 | `ShareServer.cpp` | รัน AEC บนเธรด reader ก่อน `ringWrite` (ไม่ใช่ audio thread) โหมด Auto/เปิด/ปิด ต่อเพื่อน (เสร็จแล้ว ✅) | CPU ≤ 2 % ต่อเพื่อน | M |
+| 3.3 | `hub_engine.cpp` (เธรด latency), `HubPages2.cpp` | **ตัวตรวจ**: (1) เสียงที่ส่งให้เพื่อน j ย้อนกลับในไมค์ j (score > 0.4) → AEC Auto เปิดเอง + ไอคอน "ลำโพงรั่ว" (2) เสียงเพื่อน j อยู่ใน master (`capIn_`) ขณะ route Direct → เตือน "เพื่อนดังซ้ำ/เพื่อนจะได้ยินตัวเอง" พร้อมบอกจุดที่ต้องแก้ (เสร็จแล้ว ✅) | unit test สองเคส | M |
+| 3.4 | `send.html` | **เช็กหูฟัง**: ปุ่ม/อัตโนมัติตอนเริ่ม เล่น chirp เบา 1 วิ, ถ้าไมค์ได้ยิน → "ดูเหมือนใช้ลำโพง" + ปุ่ม "เปิดโหมดลำโพง" (`echoCancellation: true` + ขอ Hub เปิด AEC) (เสร็จแล้ว ✅) | test ในเบราว์เซอร์ด้วย chirp 0.6s 400-2000Hz | M |
+| 3.5 | `friendSession`, `send.html` | ตัวเลือก D5 "ได้ยินตัวเองจาก Hub" ต่อเพื่อน (ค่าเริ่มปิด) (เสร็จแล้ว ✅) | เปิดแล้วเพื่อนได้ยินตัวเองหน่วง = RTT | S |
+| 3.6 | Hub karaoke checklist | คำถาม "audio interface เปิด direct monitor ไหม" → ถ้าใช่ ปิด "คุณได้ยิน" ของแทร็กร้องให้เอง (แก้ 3.B.3) (เสร็จแล้ว ✅) | Setup check item + SharePage banner + Settings switch + unit test | S |
 
 ### Phase 4: UDP ด้วย WebRTC DataChannel (1.2.0)
 

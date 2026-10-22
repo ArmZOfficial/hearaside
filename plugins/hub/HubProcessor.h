@@ -96,6 +96,8 @@ public:
     std::vector<TrackView> tracks() const;       // active slots, in insertion order
     void send(int slot, ssbus::ParamId id, float value);
     void rename(int slot, const juce::String& name);
+    std::vector<int> vocalSlots() const;
+    void muteVocalMonitor();
     std::vector<SourceView> sources() const;     // App Audio instances, in insertion order
     void sendSource(int index, ssbus::SourceParam id, float value);
     void chooseSourceApp(int index, const juce::String& exe);

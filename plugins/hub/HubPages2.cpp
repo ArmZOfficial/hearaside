@@ -157,8 +157,10 @@ public:
             dot = Dot::Warn;
             text = trf(Str::RecordingTime, { clock(ed_.proc().friendRecordSec(id_)) });
         } else if (v_.state == FriendView::State::Live) {
-            dot = v_.overLimit ? Dot::Warn : Dot::Ok;
-            if (v_.inDaw) text = v_.outSlot >= 0 ? trf(Str::SingingInDaw, { ed_.proc().feederTrackName(v_.feeder) }) : tr(Str::InDawNotHeadphones);
+            dot = (v_.overLimit || v_.leakDetected || v_.echoInMaster) ? Dot::Warn : Dot::Ok;
+            if (v_.echoInMaster) text = tr(Str::FriendEchoInMaster);
+            else if (v_.leakDetected) text = tr(Str::FriendSpeakerLeak);
+            else if (v_.inDaw) text = v_.outSlot >= 0 ? trf(Str::SingingInDaw, { ed_.proc().feederTrackName(v_.feeder) }) : tr(Str::InDawNotHeadphones);
             else if (v_.overLimit) text = trf(Str::FriendOverLimit, { juce::String(ed_.proc().lineUpLimitMs()) });
             else text = tr(Str::FriendSinging);
         } else if (v_.state == FriendView::State::Offline) {
@@ -263,6 +265,15 @@ public:
             addAndMakeVisible(c);
         addChildComponent(bufferBanner_);
         bufferBanner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::FriendBufferWarning));
+        addChildComponent(directMonBanner_);
+        directMonBanner_.setInterceptsMouseClicks(true, false);
+        directMonBanner_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        directMonBannerClick_.fn = [this] {
+            ed.proc().muteVocalMonitor();
+            ed.toast(tr(Str::TurnedOffVocalMonToast));
+            tick();
+        };
+        directMonBanner_.addMouseListener(&directMonBannerClick_, false);
         scroll_.setContent(body_);
         spread_.setIcon(icons::Icon::Spread);
         add_.setIcon(icons::Icon::Plus);
@@ -321,6 +332,13 @@ public:
         lineSwitch_.setTitle(tr(Str::LineUpFriends));
         receiveField_.setTitle(tr(Str::LinkToReceive));
         bufferBanner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::FriendBufferWarning));
+        const auto vocals = ed.proc().vocalSlots();
+        juce::String monNames;
+        const auto ts = ed.proc().tracks();
+        for (int s : vocals) {
+            for (const auto& v : ts) if (v.slot == s && v.mon) monNames << (monNames.isEmpty() ? "" : ", ") << v.name;
+        }
+        directMonBanner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::DirectMonBanner).replace("%t", monNames));
         for (auto* c : cardViews_) c->refreshTexts();
         repaint();
     }
@@ -379,6 +397,28 @@ public:
             bufferBanner_.setVisible(bufferWarn);
             relayout = true;
         }
+
+        const auto vocalsNow = proc.vocalSlots();
+        bool anyVocalMon = false;
+        juce::String monNamesNow;
+        if (proc.friendCount() > 0) {
+            const auto tsNow = proc.tracks();
+            for (int s : vocalsNow) {
+                for (const auto& v : tsNow) {
+                    if (v.slot == s && v.mon) {
+                        anyVocalMon = true;
+                        monNamesNow << (monNamesNow.isEmpty() ? "" : ", ") << v.name;
+                    }
+                }
+            }
+        }
+        if (anyVocalMon)
+            directMonBanner_.set(Banner::Style::Warning, icons::Icon::Warning, tr(Str::DirectMonBanner).replace("%t", monNamesNow));
+        if (anyVocalMon != directMonBanner_.isVisible()) {
+            directMonBanner_.setVisible(anyVocalMon);
+            relayout = true;
+        }
+
         if (relayout) resized();
         repaint();
     }
@@ -462,6 +502,11 @@ public:
         if (bufferBanner_.isVisible()) {
             const int bh = bufferBanner_.idealHeight(juce::roundToInt(c.getWidth()));
             bufferBanner_.setBounds(c.removeFromTop(float(bh)).toNearestInt());
+            c.removeFromTop(10.0f);
+        }
+        if (directMonBanner_.isVisible()) {
+            const int bh = directMonBanner_.idealHeight(juce::roundToInt(c.getWidth()));
+            directMonBanner_.setBounds(c.removeFromTop(float(bh)).toNearestInt());
             c.removeFromTop(10.0f);
         }
         if (!narrow) {
@@ -662,7 +707,11 @@ private:
     LinkField listenField_, backupField_;
     GhostButton open_, copy_ { {}, GhostButton::Style::Solid }, install_, backupCopy_, measure_ { {}, GhostButton::Style::Ghost };
     Switch listenSwitch_, lineSwitch_;
-    Banner bufferBanner_;
+    Banner bufferBanner_, directMonBanner_;
+    struct ClickListener : juce::MouseListener {
+        std::function<void()> fn;
+        void mouseUp(const juce::MouseEvent& e) override { if (fn && !e.mods.isPopupMenu()) fn(); }
+    } directMonBannerClick_;
     ScrollArea scroll_ { 14 };
     juce::Component body_;
     juce::OwnedArray<FriendCard> cards_;

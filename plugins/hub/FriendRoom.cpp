@@ -161,6 +161,7 @@ void FriendRoom::service(BusLayout* bus, ssengine::HubEngine& engine, ShareServe
                       | (e.solo ? ssengine::HubEngine::kFriendSolo : 0u), std::memory_order_relaxed);
         c.gainBits.store(floatBits(e.volumeDb), std::memory_order_relaxed);
         c.panBits.store(floatBits(e.pan), std::memory_order_relaxed);
+        share.setFriendLeakDetected(e.slot, engine.friendInfo(e.slot).leakDetected.load(std::memory_order_relaxed) != 0);
     }
     if (bus == nullptr) { published_ = nullptr; return; }
     if (bus == published_ && !pushAll_) return;
@@ -220,6 +221,8 @@ std::vector<FriendView> FriendRoom::views(const BusLayout* bus, const ssengine::
             v.totalMs = bitsFloat(info.totalMsBits.load(std::memory_order_relaxed));
             v.lineMs = bitsFloat(info.lineMsBits.load(std::memory_order_relaxed));
             v.overLimit = info.overLimit.load(std::memory_order_relaxed) != 0;
+            v.leakDetected = info.leakDetected.load(std::memory_order_relaxed) != 0;
+            v.echoInMaster = info.echoInMaster.load(std::memory_order_relaxed) != 0;
         }
         out.push_back(v);
     }

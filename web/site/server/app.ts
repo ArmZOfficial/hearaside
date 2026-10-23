@@ -11,6 +11,8 @@ import type { Store } from './lib/store.js';
 import { deviceRoutes } from './routes/device.js';
 import { meRoutes } from './routes/me.js';
 import { devRoutes } from './routes/dev.js';
+import { adminRoutes } from './routes/admin.js';
+import { downloadRoutes } from './routes/download.js';
 import { shareRoutes } from './routes/share.js';
 import { store as redisStore } from './share/redis.js';
 import { memoryStore as dirMemory, type DirStore } from './share/directory.js';
@@ -28,6 +30,8 @@ export function createApp(store: Store = process.env.STORE === 'memory' ? new Me
   v1.get('/health', (_req, res) => { res.json({ ok: true }); });
   v1.use(deviceRoutes(store));
   v1.use(meRoutes(store, dir));
+  v1.use(downloadRoutes(store));
+  v1.use(adminRoutes(store, dir));
   if (store instanceof MemoryStore) v1.use(devRoutes(store));
   app.use('/api/v1', v1);
   app.use('/api', shareRoutes(store, dir));

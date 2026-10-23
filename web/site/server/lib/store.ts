@@ -54,6 +54,21 @@ export interface DeviceRow {
 export interface LinkRow { id: string; userId: string; kind: 'listen' | 'send'; label: string; createdAt: string; revokedAt: string | null; tokenHash: string }
 export interface FriendRow { id: string; ownerId: string; name: string; createdAt: string }
 
+export type DownloadSource = 'site' | 'github' | 'manual';
+/** github / manual numbers live on this fixed day ("before counting started") */
+export const BASE_DAY = '2000-01-01';
+export interface DownloadRow { day: string; version: string; source: DownloadSource; count: number }
+
+export interface AdminUserRow {
+  id: string; email: string; handle: string; displayName: string; createdAt: string; lastSeenAt: string | null;
+  devices: number; links: number; deletedAt: string | null;
+}
+export interface AdminCounts {
+  users: number; deleted: number; devices: number; activeDevices7d: number; links: number;
+  /** new accounts per UTC day, last 30 days (days without any are left out) */
+  signups: { day: string; count: number }[];
+}
+
 export class StoreError extends Error {
   constructor(public code: 'handle_taken' | 'handle_reserved' | 'not_found' | 'conflict') {
     super(code);
@@ -100,6 +115,16 @@ export interface Store {
   listFriends(userId: string): Promise<FriendRow[]>;
   addFriend(userId: string, name: string): Promise<FriendRow>;
   removeFriend(userId: string, id: string): Promise<boolean>;
+
+  /** +1 for a download of `version` today (atomic) */
+  bumpDownload(version: string): Promise<void>;
+  /** replaces the number imported from GitHub / typed in by the admin for `version` */
+  setDownloadBase(version: string, source: 'github' | 'manual', count: number): Promise<void>;
+  downloadRows(): Promise<DownloadRow[]>;
+
+  adminCounts(): Promise<AdminCounts>;
+  /** newest first; `q` matches username, display name or email */
+  adminUsers(q: string, offset: number, limit: number): Promise<{ total: number; users: AdminUserRow[] }>;
 
   /** "Delete account": revoke devices + links and remove the photo now; the rest within 30 days */
   deleteAccount(userId: string): Promise<void>;

@@ -17,6 +17,7 @@ const Reset = lazy(loadPage(() => import('./routes/Reset')));
 const Verify = lazy(loadPage(() => import('./routes/Verify')));
 const LinkPage = lazy(loadPage(() => import('./routes/Link')));
 const Account = lazy(loadPage(() => import('./routes/Account')));
+const Admin = lazy(loadPage(() => import('./routes/Admin')));
 const NotFound = lazy(loadPage(() => import('./routes/NotFound')));
 
 /** marketing pages, in both languages, written out as HTML by the prerender step */
@@ -60,6 +61,8 @@ export default function App() {
       {both('/link', <LinkPage />)}
       {both('/account', <Account />)}
       {both('/account/:section', <Account />)}
+      <Route path="/admin" element={page(<Admin />)} />
+      <Route path="/admin/:section" element={page(<Admin />)} />
       <Route path="*" element={page(<NotFound />)} />
     </Routes>
   );

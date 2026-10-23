@@ -3,7 +3,7 @@
 import { randomBytes } from 'node:crypto';
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
 import type { SyncedSettings } from '../../shared/schemas.js';
-import { StoreError, type AuthUser, type DeviceCode, type DeviceRow, type FriendRow, type LinkRow, type Profile, type Store } from './store.js';
+import { BASE_DAY, StoreError, type AdminCounts, type AdminUserRow, type DownloadRow, type AuthUser, type DeviceCode, type DeviceRow, type FriendRow, type LinkRow, type Profile, type Store } from './store.js';
 
 type Row = Record<string, unknown>;
 
@@ -211,5 +211,74 @@ export class SupabaseStore implements Store {
     check(await this.db.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', userId));
     // no new sign-ins or session refreshes until purge_expired() removes the user after 30 days
     await this.db.auth.admin.updateUserById(userId, { ban_duration: '876000h' });
+  }
+
+  async bumpDownload(version: string) {
+    check(await this.db.rpc('bump_download', { p_version: version }));
+  }
+  async setDownloadBase(version: string, source: 'github' | 'manual', count: number) {
+    check(await this.db.from('download_daily').upsert({ day: BASE_DAY, version, source, count }, { onConflict: 'day,version,source' }));
+  }
+  async downloadRows(): Promise<DownloadRow[]> {
+    return list(await this.db.from('download_daily').select('*').limit(10000)).map(r => ({ day: r.day, version: r.version, source: r.source, count: r.count }));
+  }
+
+  async adminCounts(): Promise<AdminCounts> {
+    const count = async (q: PromiseLike<{ count: number | null; error: { message: string; code?: string } | null }>) => {
+      const r = await q;
+      if (r.error) throw new Error(`database: ${r.error.message}`);
+      return r.count ?? 0;
+    };
+    const head = { count: 'exact', head: true } as const;
+    const week = new Date(Date.now() - 7 * 86_400_000).toISOString(), month = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const [users, deleted, devices, activeDevices7d, links, recent] = await Promise.all([
+      count(this.db.from('profiles').select('id', head)),
+      count(this.db.from('profiles').select('id', head).not('deleted_at', 'is', null)),
+      count(this.db.from('devices').select('id', head).is('revoked_at', null)),
+      count(this.db.from('devices').select('id', head).is('revoked_at', null).gte('last_seen_at', week)),
+      count(this.db.from('share_links').select('id', head).is('revoked_at', null)),
+      this.db.from('profiles').select('created_at').gte('created_at', month).limit(20000),
+    ]);
+    const per = new Map<string, number>();
+    for (const r of list(recent)) { const d = String(r.created_at).slice(0, 10); per.set(d, (per.get(d) ?? 0) + 1); }
+    return { users, deleted, devices, activeDevices7d, links, signups: [...per].sort(([a], [b]) => a.localeCompare(b)).map(([day, c]) => ({ day, count: c })) };
+  }
+
+  async adminUsers(q: string, offset: number, limit: number) {
+    const needle = q.trim().replace(/[%,()*]/g, '');
+    let ids: string[] | null = null;
+    if (needle.includes('@')) {
+      // email lives in auth.users: walk the (small) user list for a match
+      const found: string[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const { data, error } = await this.db.auth.admin.listUsers({ page, perPage: 200 });
+        if (error) throw new Error(`auth: ${error.message}`);
+        found.push(...data.users.filter(u => (u.email ?? '').toLowerCase().includes(needle.toLowerCase())).map(u => u.id));
+        if (data.users.length < 200) break;
+      }
+      ids = found;
+    }
+    let sel = this.db.from('profiles').select('*', { count: 'exact' });
+    if (ids) sel = sel.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+    else if (needle) sel = sel.or(`handle.ilike.%${needle}%,display_name.ilike.%${needle}%`);
+    const r = await sel.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+    const rows = list(r);
+    const total = r.count ?? rows.length;
+    const pids = rows.map(p => p.id as string);
+    const [devs, lks, users] = await Promise.all([
+      pids.length ? this.db.from('devices').select('user_id,last_seen_at').in('user_id', pids).is('revoked_at', null) : { data: [], error: null },
+      pids.length ? this.db.from('share_links').select('user_id').in('user_id', pids).is('revoked_at', null) : { data: [], error: null },
+      Promise.all(pids.map(id => this.getUser(id))),
+    ]);
+    const devRows = list(devs as never) as Row[], linkRows = list(lks as never) as Row[];
+    const out: AdminUserRow[] = rows.map((p, i) => {
+      const mine = devRows.filter(d => d.user_id === p.id);
+      return {
+        id: p.id, email: users[i]?.email ?? '', handle: p.handle, displayName: p.display_name ?? '', createdAt: p.created_at,
+        lastSeenAt: mine.map(d => d.last_seen_at as string).sort().pop() ?? null, devices: mine.length,
+        links: linkRows.filter(l => l.user_id === p.id).length, deletedAt: p.deleted_at ?? null,
+      };
+    });
+    return { total, users: out };
   }
 }

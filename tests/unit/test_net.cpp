@@ -49,6 +49,45 @@ TEST_CASE("HRA3 wire header packing and parsing") {
     CHECK(!ssnet::parseHra3(packet, sizeof(ssnet::Hra3Header) - 1, parsed, parsedPayload, parsedPayloadSize));
 }
 
+TEST_CASE("HRA3 seqGap: in order, lost, late, repeated, across the u32 wrap") {
+    CHECK(ssnet::seqGap(6, 5) == 0);              // next one
+    CHECK(ssnet::seqGap(8, 5) == 2);              // two lost
+    CHECK(ssnet::seqGap(4, 5) == -2);             // late (reordered): dropped
+    CHECK(ssnet::seqGap(5, 5) == -1);             // repeated: dropped
+    CHECK(ssnet::seqGap(0, 0xFFFFFFFFu) == 0);    // wrap
+    CHECK(ssnet::seqGap(1, 0xFFFFFFFFu) == 1);
+    CHECK(ssnet::seqGap(0xFFFFFFFFu, 1) == -3);   // late across the wrap
+
+    // 1,2,4,3,5 over an unordered line: 3 arrives after 4 and must not be played or reset the count
+    uint32_t last = 1;
+    int played = 1, concealed = 0;
+    for (const uint32_t s : { 2u, 4u, 3u, 5u }) {
+        const int32_t g = ssnet::seqGap(s, last);
+        if (g < 0) continue;
+        concealed += g;
+        ++played;
+        last = s;
+    }
+    CHECK(played == 4);
+    CHECK(concealed == 1);
+    CHECK(last == 5);
+}
+
+TEST_CASE("FriendEcho Auto: a leak must last 2 s to switch on, then stays on until reset") {
+    ssnet::FriendEcho aec;
+    REQUIRE(aec.init(48000, 480, 200));
+    for (int i = 0; i < ssnet::FriendEcho::kLeakLatchTicks - 1; ++i) aec.setLeakDetected(true);
+    aec.setLeakDetected(false);                   // one quiet reading starts the count again
+    for (int i = 0; i < ssnet::FriendEcho::kLeakLatchTicks - 1; ++i) aec.setLeakDetected(true);
+    CHECK(!aec.leakDetected());
+    aec.setLeakDetected(true);
+    CHECK(aec.leakDetected());
+    aec.setLeakDetected(false);                   // the canceller hides the leak from the detector: stay on
+    CHECK(aec.leakDetected());
+    aec.reset();
+    CHECK(!aec.leakDetected());
+}
+
 TEST_CASE("Opus mono encode, decode, and SNR") {
     ssnet::OpusEnc enc;
     REQUIRE(enc.init(48000, 1, ssnet::OpusEnc::App::Voip));

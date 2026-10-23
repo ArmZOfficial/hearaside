@@ -444,7 +444,7 @@ async function start() {
   connect();
 }
 
-let decoder = null, useOpus = false, activeCodec = "auto", activeBitrate = 128000;
+let decoder = null, lastDownSeq = null, useOpus = false, activeCodec = "auto", activeBitrate = 128000;
 
 async function checkOpusDecoder() {
   if (typeof AudioDecoder === "undefined") return false;
@@ -640,7 +640,9 @@ function handleAudioData(buf) {
   const magic = d.getUint32(0, true);
   if (magic === 0x33415248) {   // "HRA3"
     if (!node) return;
-    const c = d.getUint8(4);
+    const c = d.getUint8(4), seq = d.getUint32(8, true);
+    if (lastDownSeq !== null && ((seq - lastDownSeq) | 0) <= 0) return;   // late or repeated (unordered DataChannel)
+    lastDownSeq = seq;
     if (c === 1 && decoder && decoder.state === "configured") {
       const payload = new Uint8Array(buf, 22);
       try {
@@ -664,6 +666,7 @@ async function connect() {
   if (mine !== gen || state === "idle") return;
   if (!url) { view("connecting", L.offline); later(connect); return; }
   useOpus = false;
+  lastDownSeq = null;   // the Hub numbers each connection from 0
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { backoff = 2000; idleOffline = false; view("connecting", L.waiting); updateTransportBadge(); };

@@ -191,7 +191,7 @@ public:
             g.setColour(p.ink2);
             g.setFont(uiFont(11.5f, Weight::Medium));
             const juce::String delayStr = trf(Str::DelayMsLabel, { juce::String(juce::roundToInt(v_.totalMs > 0.0f ? v_.totalMs : v_.delayMs)) });
-            const juce::String aecStr = v_.aecMode == 1 ? "AEC On" : (v_.aecMode == 2 ? "AEC Off" : "AEC Auto");
+            const juce::String aecStr = v_.aecMode == 1 ? "AEC On" : (v_.aecMode == 0 ? "AEC Off" : "AEC Auto");
             const juce::String spkIcon = v_.leakDetected ? juce::String(juce::CharPointer_UTF8(" \xc2\xb7 Spk"))
                                                          : juce::String(juce::CharPointer_UTF8(" \xc2\xb7 \xf0\x9f\x8e\xa7"));
             g.drawText(delayStr + " (" + aecStr + ")" + spkIcon, delay_, juce::Justification::centredRight, false);

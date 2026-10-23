@@ -696,7 +696,7 @@ async function start() {
   meter();
 }
 
-let encoder = null, decoder = null, useOpus = false, upSeq = 0, echoQueue = [], downPosQueue = [];
+let encoder = null, decoder = null, useOpus = false, upSeq = 0, encTs = 0, lastDownSeq = null, echoQueue = [], downPosQueue = [];
 
 async function setupOpus(chans) {
   if (typeof AudioEncoder === "undefined" || typeof AudioDecoder === "undefined") return false;
@@ -760,8 +760,9 @@ async function setupOpus(chans) {
         v.setBigUint64(12, BigInt(Math.max(0, Math.round(echo || 0))), true); // pos / echo
         v.setUint16(20, 480, true);         // frames per packet
         new Uint8Array(buf, hdr).set(payload);
-        if (rtcActive && rtcDc && rtcDc.readyState === "open" && rtcDc.bufferedAmount < 40000) {
-          rtcDc.send(buf);
+        if (rtcActive && rtcDc && rtcDc.readyState === "open") {
+          // backed up: drop this one; a packet sent on the WebSocket instead would arrive out of order
+          if (rtcDc.bufferedAmount < 40000) rtcDc.send(buf);
         } else if (ws && ws.readyState === 1 && ws.bufferedAmount <= 40000) {
           ws.send(buf);
         }
@@ -941,7 +942,9 @@ function handleAudioData(buf) {
   const magic = d.getUint32(0, true);
   if (magic === 0x33415248) {   // "HRA3"
     if (!node) return;
-    const codec = d.getUint8(4);
+    const codec = d.getUint8(4), seq = d.getUint32(8, true);
+    if (lastDownSeq !== null && ((seq - lastDownSeq) | 0) <= 0) return;   // late or repeated (unordered DataChannel)
+    lastDownSeq = seq;
     if (codec === 1 && decoder && decoder.state === "configured") {
       const pos = Number(d.getBigUint64(12, true));
       const payload = new Uint8Array(buf, 22);
@@ -969,6 +972,7 @@ async function connect() {
   if (!url) { status(L.offline); later(connect); return; }
   duplex = false;
   useOpus = false;
+  lastDownSeq = null;   // the Hub numbers each connection from 0
   ws = new WebSocket(url);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
@@ -1027,7 +1031,7 @@ function send(f, echo, chans) {
         sampleRate: 48000,
         numberOfFrames: 480,
         numberOfChannels: chans,
-        timestamp: upSeq * 10000,
+        timestamp: encTs++ * 10000,   // upSeq only moves in the async output callback
         data: data
       });
       echoQueue.push(echo);
@@ -1042,11 +1046,8 @@ function send(f, echo, chans) {
   d.setUint16(10, latencyKnown ? 1 : 0, true); d.setUint32(12, n, true);
   if (v2) d.setBigUint64(16, BigInt(Math.max(0, Math.round(echo || 0))), true);
   for (let i = 0; i < f.length; i++) s[i] = muted ? 0 : Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767)));
-  if (rtcActive && rtcDc && rtcDc.readyState === "open" && rtcDc.bufferedAmount < 40000) {
-    rtcDc.send(buf);
-  } else if (ws && ws.readyState === 1 && ws.bufferedAmount <= 40000) {
-    ws.send(buf);
-  }
+  // PCM has no sequence number: it stays on the ordered WebSocket, never the unordered DataChannel
+  if (ws && ws.readyState === 1 && ws.bufferedAmount <= 40000) ws.send(buf);
 }
 
 function meter() {

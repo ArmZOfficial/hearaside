@@ -7,6 +7,10 @@
 
 namespace ssengine {
 
+// after a gap the bigger buffer is kept this long before it may shrink: Wi-Fi and browsers stall every few
+// seconds, and shrinking back after 5 s made every stall gap again (and moved the Line up delay each time)
+constexpr double kHoldAfterGapSec = 30.0;
+
 using namespace ssbus;
 
 FriendReader::FriendReader() = default;
@@ -131,7 +135,7 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
         if (fill < need) {   // still waiting: a short gap keeps its place, a long one starts over
             if (mutedOut_ >= sampleRate_ * 0.03) {   // long gap: learn from it as well, or a stall every few seconds repeats forever
                 target_ = std::min(target_ + missing_ + mutedOut_ * fr / sampleRate_, blockFr_ + fr * 0.4);
-                holdSec_ = 5.0;
+                holdSec_ = kHoldAfterGapSec;
                 return reprime();
             }
             mutedOut_ += n;
@@ -142,7 +146,7 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
         // data is back: raise the target by what was missing, so the next one like it does not gap
         target_ = std::min(target_ + missing_ + mutedOut_ * fr / sampleRate_, blockFr_ + fr * 0.4);
         drift_.setTarget(target_);
-        holdSec_ = 5.0;
+        holdSec_ = kHoldAfterGapSec;
         muted_ = false;
         fadeLeft_ = fadeFrames;
         fadeFrom_[0] = lastOut_[0]; fadeFrom_[1] = lastOut_[1];   // a fade longer than a block must keep fading from this, not from the mixed block end

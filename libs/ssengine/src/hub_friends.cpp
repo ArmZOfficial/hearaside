@@ -249,7 +249,9 @@ void HubEngine::friendsMix(int n, const HubParams& p, std::array<bool, kNumStrea
         const float d = bitsFloat(b->friends[j].delayBits.load(std::memory_order_relaxed));
         const float tms = std::max(0.0f, d) + bitsFloat(info.bufferMsBits.load(std::memory_order_relaxed));
         info.totalMsBits.store(floatBits(tms), std::memory_order_relaxed);
-        tot[size_t(j)] = uint32_t(tms * float(sampleRate_) * 0.001f + 0.5f);
+        // Line up waits for the jitter buffer's target, not its fill: the fill moves with every packet and D would follow it
+        const float lineMs = std::max(0.0f, d) + float(friends_[size_t(j)]->reader.targetMs());
+        tot[size_t(j)] = uint32_t(lineMs * float(sampleRate_) * 0.001f + 0.5f);
         const bool measured = d >= 0.0f;
         const bool over = tms > limitMs;
         info.overLimit.store(over ? 1 : 0, std::memory_order_relaxed);

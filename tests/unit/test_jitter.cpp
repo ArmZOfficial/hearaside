@@ -28,6 +28,7 @@ struct Result {
     int gaps10 = 0, underruns = 0, reprimes = 0;   // reprimes: seen from outside (primed() went false)
     int reprimesCounted = 0;
     double maxStep = 0;              // largest sample-to-sample step after the first second
+    double minBufMs = 1e9, maxBufMs = 0;   // the buffer after 30 s: how far the delay swings
     bool playingAtEnd = false;
 };
 
@@ -76,7 +77,10 @@ Result simulate(double seconds, const std::function<double(int)>& arrive, const 
             prev = x;
             if (keep) res.out.push_back(x);
         }
-        if (now > 30000.0 && r.primed()) { bufSum += r.bufferMs(); ++bufN; }
+        if (now > 30000.0 && r.primed()) {
+            bufSum += r.bufferMs(); ++bufN;
+            res.minBufMs = std::min(res.minBufMs, r.bufferMs()); res.maxBufMs = std::max(res.maxBufMs, r.bufferMs());
+        }
     }
     res.seconds = seconds;
     res.avgBufMs = bufN ? bufSum / bufN : 0;
@@ -229,3 +233,27 @@ TEST_CASE("jitter: a 500 ms outage re-primes and then plays again") {
         CHECK(peak > 0.3);
     }
 }
+
+// A browser over home Wi-Fi: 10 ms packets, +-5 ms jitter, and every 1.5-4 s a stall of 80-250 ms (Wi-Fi power save,
+// retries, the page's main thread busy) after which the waiting packets arrive at once, in order.
+std::function<double(int)> wifiBrowser(uint32_t seed) {
+    auto s = std::make_shared<uint32_t>(seed);
+    auto nextStall = std::make_shared<double>(2000.0);
+    auto stallEnd = std::make_shared<double>(0.0);
+    return [=](int i) {
+        const double due = 40.0 + i * 10.0;
+        if (due >= *nextStall) { *stallEnd = due + 80.0 + rnd(*s) * 170.0; *nextStall = due + 1500.0 + rnd(*s) * 2500.0; }
+        const double t = due + (rnd(*s) * 2.0 - 1.0) * 5.0;
+        return t < *stallEnd ? *stallEnd : t;
+    };
+}
+
+void wifi(int block) {
+    const Result r = simulate(180.0, wifiBrowser(21), sine, false, block);
+    std::printf("    wifi browser 3 min, block %d: gaps>=10ms %d, short gaps %d, re-primes %d, concealed %.0f ms, buffer avg %.1f min %.1f max %.1f ms, max step %.3f\n",
+                block, r.gaps10, r.underruns, r.reprimesCounted, r.concealedMs, r.avgBufMs, r.minBufMs, r.maxBufMs, r.maxStep);
+    CHECK(r.playingAtEnd);
+}
+TEST_CASE("jitter: browser over Wi-Fi (stalls of 80-250 ms every 1.5-4 s), block 256") { wifi(256); }
+TEST_CASE("jitter: browser over Wi-Fi, block 512") { wifi(512); }
+TEST_CASE("jitter: browser over Wi-Fi, block 1024") { wifi(1024); }

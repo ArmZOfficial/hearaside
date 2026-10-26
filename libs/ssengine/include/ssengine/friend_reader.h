@@ -28,7 +28,8 @@ public:
     // not enough audio has arrived yet): out is silence. `rate` is the friend's sample rate.
     bool pull(const ssbus::ChannelRing& ring, const std::atomic<uint64_t>& writePos, uint32_t rate, float* const* out, int n) noexcept;
 
-    double bufferMs() const noexcept { return bufferMs_; }   // the jitter buffer in use right now
+    double bufferMs() const noexcept { return bufferMs_; }   // the jitter buffer in use right now (moves with every packet)
+    double targetMs() const noexcept { return key_ != 0 ? target_ * 1000.0 / double(key_) : 0.0; }   // what it aims for: steady
     bool   primed() const noexcept { return primed_; }
     // 0.1 metrics (audio thread, no allocation): short gaps concealed, silence played after the first sound,
     // and the p95 of how late data arrives against a steady flow over the last ~5 s (ms, -1 = not enough data yet)

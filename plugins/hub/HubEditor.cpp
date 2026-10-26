@@ -447,7 +447,7 @@ void ChannelRow::showMenu() {
         Dot headDot;
         const auto status = statusText(headDot);
         const bool solo = d_.solo, inDaw = d_.inDaw;
-        Menu m(236);
+        Menu m(300);   // wide enough for the Radmin VPN item
         m.header(name + juce::String(juce::CharPointer_UTF8(" \xc2\xb7 ")) + status);
         m.item(tr(Str::CopyFriendLink), [&proc, id, name, self] {
             const auto link = proc.friendLink(id);

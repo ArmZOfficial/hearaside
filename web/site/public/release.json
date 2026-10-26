@@ -7,6 +7,16 @@
     "obsMin":  "32",
     "notes":  [
                   {
+                      "version":  "1.0.8",
+                      "en":  "Friends singing fix (drops late packets, FEC recovery, latched AEC Auto on mic leak), redesigned HAS Karaoke (proper Thai UTF-8 text, \"Hear yourself\" / \"Others hear you\" switches, startup howl fix, Discord-style UI), and Streamlabs Desktop source support.",
+                      "th":  "แก้เสียงเพื่อนร้องขาดๆ กระตุกๆ (ตัดแพ็กเก็ตที่มาช้า, กู้เสียงด้วย FEC, เปิด AEC อัตโนมัติเมื่อเสียงไมค์รั่ว), ยกเครื่อง HAS Karaoke ใหม่ (ภาษาไทยไม่เพี้ยน, สวิตช์ได้ยินเสียงตัวเอง/คนอื่นได้ยิน, แก้เสียงหอนตอนเปิด, ดีไซน์ Discord-style) และรองรับ Streamlabs Desktop เป็นตัวเลือกในตัวติดตั้ง"
+                  },
+                  {
+                      "version":  "1.0.7",
+                      "en":  "WebRTC UDP DataChannel audio transport in HAS Karaoke with automatic failover, startup and deep link crash fixes, admin dashboard with download tracking, and animated download page.",
+                      "th":  "ระบบส่งเสียง WebRTC UDP DataChannel ใน HAS Karaoke พร้อมสลับเส้นทางอัตโนมัติเมื่อมีปัญหา, แก้บั๊กเปิดโปรแกรมไม่ขึ้นและ deep link, ระบบจัดการหลังบ้านและนับยอดดาวน์โหลด และหน้าดาวน์โหลดพร้อมสถานะติดตั้ง"
+                  },
+                  {
                       "version":  "1.0.6",
                       "en":  "Introduces HAS Karaoke standalone desktop app (8 MB, no DAW or OBS needed) for friends to sing together with built-in vocal effects, plus automatic version check and modular installer types.",
                       "th":  "เพิ่มแอป HAS Karaoke สำหรับเพื่อนแบบเดี่ยว (8 MB ไม่ต้องมี DAW หรือ OBS) พร้อมเอฟเฟกต์เสียงในตัว ระบบแจ้งเตือนเมื่อมีเวอร์ชันใหม่ และตัวเลือกติดตั้งแบบแยกชุดใน installer"

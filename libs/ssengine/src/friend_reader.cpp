@@ -64,6 +64,17 @@ double FriendReader::halfPacket(double fr) const noexcept {
     return pkt < 1.0e17 && pkt > blockFr_ ? pkt * 0.5 : 0.0;
 }
 
+// frames from `from` on (at most `maxFrames`) that are silent on both channels (-40 dBFS)
+uint64_t FriendReader::quietRun(const ChannelRing& ring, uint64_t from, uint64_t maxFrames) noexcept {
+    constexpr float kQuiet = 0.01f;
+    uint64_t k = 0;
+    for (; k < maxFrames; ++k) {
+        const uint32_t i = uint32_t((from + k) & kRingMask);
+        if (std::abs(ring.ch[0][i]) > kQuiet || std::abs(ring.ch[1][i]) > kQuiet) break;
+    }
+    return k;
+}
+
 // block + measured jitter + 2 ms + half a packet; until there is a measurement a modest guess
 double FriendReader::idealTarget(double fr) const noexcept {
     const double half = halfPacket(fr);
@@ -166,6 +177,27 @@ bool FriendReader::pull(const ChannelRing& ring, const std::atomic<uint64_t>& wr
             drift_.setTarget(target_);
             windowSec_ = 0.0;
             minMargin_ = 1.0e9;
+        }
+        // more buffered than the target (a stall raised it, or a burst came in): drop the extra where the friend is
+        // silent instead of draining it at the drift's 0.5 % for half a minute; with no silence for 3 s, drop it anyway
+        // (the smoothed fill: the instant one saws up and down by a packet with every arrival)
+        if (fillAvg_ - target_ > fr * 0.006) {
+            skipWaitSec_ += dt;
+            const double excess = std::max(0.0, std::min(fillAvg_ - target_, fill - need - fr * 0.002));   // never into a gap
+            uint64_t skip = quietRun(ring, cursor_, uint64_t(excess));
+            if (skip < uint64_t(std::min(excess, fr * 0.005))) skip = 0;   // a few silent samples are no pause
+            if (skip == 0 && skipWaitSec_ >= 3.0) skip = uint64_t(excess);
+            if (skip > 0) {
+                cursor_ += skip;
+                fill -= double(skip);
+                fillAvg_ -= double(skip);
+                drift_.reset(target_);   // its integral still pushes for the old error: it would overshoot below the target
+                fadeLeft_ = fadeFrames;
+                fadeFrom_[0] = lastOut_[0]; fadeFrom_[1] = lastOut_[1];
+                skipWaitSec_ = 0.0;
+            }
+        } else {
+            skipWaitSec_ = 0.0;
         }
         const double c = drift_.update(fill, dt);
         rs->setCorrectionPpm(int(std::lround(c * 1.0e6)));

@@ -229,3 +229,43 @@ TEST_CASE("jitter: a 500 ms outage re-primes and then plays again") {
         CHECK(peak > 0.3);
     }
 }
+
+// one 120 ms stall at 10 s raises the target; the extra must go within seconds, not the half minute the drift's
+// 0.5 % needs: dropped in the friend's pauses, or after 3 s anyway when they never pause
+void stallRecovers(const char* what, float (*sig)(uint64_t, uint32_t)) {
+    auto ring = std::make_unique<ChannelRing>();
+    std::atomic<uint64_t> wp{ 0 };
+    FriendReader r;
+    r.prepare(48000.0, kBlock);
+    std::vector<float> l(kBlock), rr(kBlock), pk(480);
+    float* o[2] = { l.data(), rr.data() };
+    const double blockMs = kBlock * 1000.0 / 48000.0;
+    auto arrive = [](int i) { return i >= 1000 && i < 1012 ? 10120.0 : i * 10.0 + 0.3 * (i % 3); };
+    int next = 0, reprimes = 0;
+    bool wasPrimed = false;
+    double before = 0, after = 0, peak = 0;
+    for (int k = 0; k < int(26000.0 / blockMs); ++k) {
+        const double now = k * blockMs;
+        while (arrive(next) <= now) {
+            for (int i = 0; i < 480; ++i) pk[size_t(i)] = sig(uint64_t(next) * 480u + uint64_t(i), 48000);
+            const float* src[1] = { pk.data() };
+            ringWrite(*ring, wp, src, 1, 480);
+            ++next;
+        }
+        r.pull(*ring, wp, 48000, o, kBlock);
+        if (k > 0 && wasPrimed && !r.primed()) ++reprimes;
+        wasPrimed = r.primed();
+        if (now < 9500.0) before = r.bufferMs();
+        if (now > 10500.0) peak = std::max(peak, r.bufferMs());
+        after = r.bufferMs();    }
+    std::printf("    %s: buffer %.1f ms before the stall, %.1f ms at most after it, %.1f ms 16 s later, re-primes %d\n",
+                what, before, peak, after, reprimes);
+    CHECK(peak > before + 20.0);    // the stall did raise it
+    CHECK(after < before + 8.0);    // and it came back down (the drift alone was still at ~+20 ms here)
+    CHECK(reprimes <= 1);
+}
+
+float phrases(uint64_t f, uint32_t rate) { return (f / (rate / 10)) % 6 < 4 ? sine(f, rate) : 0.0f; }   // 400 ms sung, 200 ms pause
+
+TEST_CASE("jitter: after a 120 ms stall the extra buffer is dropped in the friend's pauses") { stallRecovers("pauses", phrases); }
+TEST_CASE("jitter: after a 120 ms stall with no pauses at all the extra still goes") { stallRecovers("no pauses", sine); }

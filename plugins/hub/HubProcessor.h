@@ -168,6 +168,7 @@ public:
     void setFriendSolo(uint32_t id, bool on) { friendRoom_.setSolo(id, on); }
     void spreadFriends() { friendRoom_.spreadOut(); }
     juce::String friendLink(uint32_t id) const;                 // the link to send them ("" when sharing can't start)
+    juce::String friendRadminLink(uint32_t id) const;           // the same over Radmin VPN ("" without it)
     juce::String newFriendLink(uint32_t id);                    // the old link stops working
     void remeasureFriend(uint32_t id);                          // "Measure again"
     void setLineUp(bool on);

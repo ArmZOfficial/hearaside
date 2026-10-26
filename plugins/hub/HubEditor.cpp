@@ -455,6 +455,13 @@ void ChannelRow::showMenu() {
             juce::SystemClipboard::copyTextToClipboard(link);
             self->ed_.toast(trf(Str::CopiedFriendLink, { name }));
         });
+        if (proc.friendRadminLink(id).isNotEmpty())   // friends in the same Radmin VPN network, with HAS Karaoke
+            m.item(tr(Str::CopyRadminLink), [&proc, id, name, self] {
+                const auto link = proc.friendRadminLink(id);
+                if (link.isEmpty() || self == nullptr) return;
+                juce::SystemClipboard::copyTextToClipboard(link);
+                self->ed_.toast(trf(Str::CopiedRadminLink, { name }));
+            });
         if (!inDaw) {
             m.item(tr(Str::Pan), [self] { if (self) self->ed_.showPage(HubEditor::Page::Share); }, panText + juce::String(juce::CharPointer_UTF8(" \xe2\x80\xba")));
             m.item(tr(Str::MeasureDelayAgain), [&proc, id, name, self] {

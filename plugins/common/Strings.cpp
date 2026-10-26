@@ -397,6 +397,8 @@ Table build() {
     s(Str::FriendNotOpened, "ยังไม่ได้เปิดลิงก์", "Hasn’t opened the link yet");
     s(Str::FriendOffline, "ออฟไลน์", "Offline");
     s(Str::CopyFriendLink, "คัดลอกลิงก์ส่งเสียงของเพื่อน", "Copy their send-in link");
+    s(Str::CopyRadminLink, "คัดลอกลิงก์ Radmin VPN (HAS Karaoke)", "Copy Radmin VPN link (HAS Karaoke)");
+    s(Str::CopiedRadminLink, "คัดลอกลิงก์ Radmin ของ %s แล้ว ให้เพื่อนวางใน HAS Karaoke", "Radmin link for %s copied. They paste it into HAS Karaoke");
     s(Str::CopiedFriendLink, "คัดลอกลิงก์ส่งเสียงของ %s แล้ว", "Copied %s’s send-in link");
     s(Str::MeasureAgain, "วัดใหม่", "Measure again");
     s(Str::MeasureDelayAgain, "วัดความหน่วงใหม่", "Measure delay again");

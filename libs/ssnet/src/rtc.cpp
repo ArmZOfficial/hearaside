@@ -44,6 +44,10 @@ struct RtcPeer::Impl {
                 // Ignore invalid ice server URL
             }
         }
+        if (config.portRangeBegin != 0) {
+            rtcConfig.portRangeBegin = config.portRangeBegin;
+            rtcConfig.portRangeEnd = config.portRangeEnd;
+        }
         if (rtcConfig.iceServers.empty()) {
             rtcConfig.iceServers.emplace_back("stun:stun.cloudflare.com:3478");
             rtcConfig.iceServers.emplace_back("stun:stun.l.google.com:19302");

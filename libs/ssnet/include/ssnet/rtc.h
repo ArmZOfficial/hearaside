@@ -17,7 +17,12 @@ struct IceServerConfig {
 
 struct RtcPeerConfig {
     std::vector<IceServerConfig> iceServers;
+    uint16_t portRangeBegin = 0, portRangeEnd = 0;   // 0 = any port; the Hub uses kHubUdpFirst..kHubUdpLast
 };
+
+// UDP ports of the Hub's WebRTC peers (friends, listeners): the installer allows them in Windows Firewall
+// for the local network and Radmin VPN (26.0.0.0/8), so those links stay on UDP.
+constexpr uint16_t kHubUdpFirst = 47830, kHubUdpLast = 47999;
 
 enum class RtcState {
     New,

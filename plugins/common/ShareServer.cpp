@@ -875,7 +875,8 @@ void ShareServer::streamTo(Conn& c) {
                 pcm[2 * i + 1] = int16_t(std::lround(std::clamp(r[i], -1.0f, 1.0f) * 32767.0f));
             }
         }
-        if (rtcPeer && rtcPeer->isOpen()) {
+        // only Opus (HRA3) packets carry a sequence number, so only they may take the unordered DataChannel
+        if (rtcPeer && rtcPeer->isOpen() && std::memcmp(packet.data(), &ssnet::kMagic3, 4) == 0) {
             rtcPeer->send(packet.data(), packet.size());
         } else {
             thread_local std::vector<uint8_t> framed;
@@ -1053,13 +1054,17 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     opusDecInited = true;
                     lastSeq = h3.seq;
                     lastSeqValid = true;
-                } else if (lastSeqValid && h3.seq > lastSeq + 1) {
-                    const uint32_t missed = std::min<uint32_t>(h3.seq - lastSeq - 1, 10);
+                } else if (lastSeqValid && ssnet::seqGap(h3.seq, lastSeq) < 0) {
+                    return;   // late or repeated (the DataChannel is unordered): its place has already been played
+                } else if (lastSeqValid && ssnet::seqGap(h3.seq, lastSeq) > 0) {
+                    const uint32_t missed = std::min<uint32_t>(uint32_t(ssnet::seqGap(h3.seq, lastSeq)), 10);
                     l.resize(h3.frames);
                     r.resize(h3.frames);
                     for (uint32_t m = 0; m < missed; ++m) {
                         float* const plcCh[2] = { l.data(), r.data() };
-                        opusDec.decodePlc(plcCh, h3.frames);
+                        // the packet just before this one comes back from this packet's in-band FEC, older ones are concealed
+                        if (m + 1 < missed || opusDec.decode(h3Payload, int(h3PayloadSize), plcCh, h3.frames, true) <= 0)
+                            opusDec.decodePlc(plcCh, h3.frames);
                         const std::lock_guard<std::mutex> lock(friendWrite_[idx]);
                         if (friendGen_[idx].load() != gen) break;
                         const float* src[2] = { l.data(), h3.chans == 2 ? r.data() : l.data() };
@@ -1446,7 +1451,7 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
                     pcm[2 * i + 1] = int16_t(std::lround(std::clamp(mr[i], -1.0f, 1.0f) * 32767.0f));
                 }
             }
-            if (out.rtcPeer && out.rtcPeer->isOpen()) {
+            if (out.rtcPeer && out.rtcPeer->isOpen() && std::memcmp(packet.data(), &ssnet::kMagic3, 4) == 0) {   // PCM has no sequence: ordered WebSocket
                 out.rtcPeer->send(packet.data(), packet.size());
                 net.downBytes.fetch_add(packet.size(), std::memory_order_relaxed);
                 mixCursor += n;

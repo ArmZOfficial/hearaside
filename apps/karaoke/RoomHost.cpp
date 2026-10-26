@@ -135,7 +135,7 @@ void RoomHost::stopRoom() {
 void RoomHost::processAudio(const float* vocalL, const float* vocalR,
                             const float* musicL, const float* musicR,
                             float* outHeadphoneL, float* outHeadphoneR,
-                            int numSamples) noexcept {
+                            int numSamples, bool vocalToHeadphones, bool vocalToStream) noexcept {
     if (numSamples <= 0) return;
 
     const bool running = isRunning_.load(std::memory_order_relaxed);
@@ -145,8 +145,8 @@ void RoomHost::processAudio(const float* vocalL, const float* vocalR,
             const float vR = vocalR ? vocalR[i] : (vocalL ? vocalL[i] : 0.0f);
             const float mL = musicL ? musicL[i] : 0.0f;
             const float mR = musicR ? musicR[i] : (musicL ? musicL[i] : 0.0f);
-            if (outHeadphoneL) outHeadphoneL[i] = vL + mL;
-            if (outHeadphoneR) outHeadphoneR[i] = vR + mR;
+            if (outHeadphoneL) outHeadphoneL[i] = (vocalToHeadphones ? vL : 0.0f) + mL;
+            if (outHeadphoneR) outHeadphoneR[i] = (vocalToHeadphones ? vR : 0.0f) + mR;
         }
         return;
     }
@@ -162,10 +162,12 @@ void RoomHost::processAudio(const float* vocalL, const float* vocalR,
         const float vR = vocalR ? vocalR[i] : (vocalL ? vocalL[i] : 0.0f);
         const float mL = musicL ? musicL[i] : 0.0f;
         const float mR = musicR ? musicR[i] : (musicL ? musicL[i] : 0.0f);
-        const float sL = vL + mL;
-        const float sR = vR + mR;
+        const float sL = (vocalToStream ? vL : 0.0f) + mL;
+        const float sR = (vocalToStream ? vR : 0.0f) + mR;
         streamL[i] = sL;
         streamR[i] = sR;
+        if (outHeadphoneL) outHeadphoneL[i] = (vocalToHeadphones ? vL : 0.0f) + mL;
+        if (outHeadphoneR) outHeadphoneR[i] = (vocalToHeadphones ? vR : 0.0f) + mR;
         pkL = std::max(pkL, std::abs(sL));
         pkR = std::max(pkR, std::abs(sR));
     }
@@ -179,9 +181,7 @@ void RoomHost::processAudio(const float* vocalL, const float* vocalR,
     // Write friendMixAudio: what friends hear of host & music
     ssbus::ringWrite(bus_->friendMixAudio, bus_->friendMixWrite, streamSrc, 2, uint32_t(numSamples));
 
-    // Headphone out starts with Host vocal + Music
-    if (outHeadphoneL) std::memcpy(outHeadphoneL, streamL, size_t(numSamples) * sizeof(float));
-    if (outHeadphoneR) std::memcpy(outHeadphoneR, streamR, size_t(numSamples) * sizeof(float));
+    // Headphone out (written above) starts with Host vocal (when you hear yourself) + Music
 
     // 2. Read each friend's microphone from shared memory and mix into headphones + friendVoiceAudio
     float* friendDst[2] = { scratchFriendL_.data(), scratchFriendR_.data() };

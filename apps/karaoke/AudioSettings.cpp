@@ -1,4 +1,5 @@
 #include "AudioSettings.h"
+#include "Utf8.h"
 #include "Components.h"
 
 namespace hearaside::karaoke {
@@ -25,22 +26,24 @@ void AudioSettings::saveState(juce::AudioDeviceManager& dm, SharedSettings& sett
     }
 }
 
+// Ask for 2 inputs (a mono mic still gets its 1): opened with only channel 1, a stereo USB mic (Fantech Leviosa)
+// can deliver loud noise until the channels are re-picked. Saved states without explicit channels use this count.
 void AudioSettings::loadState(juce::AudioDeviceManager& dm, SharedSettings& settings) {
     const juce::String xmlStr = settings->audioDeviceState("karaoke");
     if (xmlStr.isNotEmpty()) {
         if (auto xml = juce::XmlDocument::parse(xmlStr)) {
-            dm.initialise(1, 2, xml.get(), true);
+            dm.initialise(2, 2, xml.get(), true);
             return;
         }
     }
-    dm.initialiseWithDefaultDevices(1, 2);
+    dm.initialiseWithDefaultDevices(2, 2);
 }
 
 class AudioSettingsDialogContent : public juce::Component {
 public:
     AudioSettingsDialogContent(juce::AudioDeviceManager& dm, const theme::Palette& pal)
         : dm_(dm), pal_(pal),
-          selector_(dm, 1, 2, 2, 2, true, true, true, false) {
+          selector_(dm, 1, 2, 2, 2, false, false, true, false) {   // no MIDI rows: the app has no MIDI
         addAndMakeVisible(selector_);
         setSize(520, 380);
     }
@@ -56,7 +59,7 @@ public:
         g.setFont(uiFont(12.0f, Weight::Medium));
         g.setColour(pal_.ink);
 
-        juce::String latText = "ความหน่วงรวม: " + juce::String(info.totalMs, 1) + " ms (" +
+        juce::String latText = "ความหน่วงรวม: "_th + juce::String(info.totalMs, 1) + " ms (" +
                                juce::String(info.inputMs, 1) + " ms in + " +
                                juce::String(info.outputMs, 1) + " ms out)";
         if (info.totalMs <= 10.0) {
@@ -71,7 +74,7 @@ public:
                        juce::Justification::centredLeft);
         } else {
             drawStatusDot(g, juce::Point<float>(bannerArea.getX() + 14.0f, bannerArea.getCentreY()), Dot::Warn, pal_);
-            g.drawText(latText + " (แนะนำ Exclusive หรือ buffer เล็ก)",
+            g.drawText(latText + " (แนะนำ Exclusive หรือ buffer เล็ก)"_th,
                        juce::Rectangle<float>(bannerArea.getX() + 26.0f, bannerArea.getY(), bannerArea.getWidth() - 30.0f, bannerArea.getHeight()),
                        juce::Justification::centredLeft);
         }
@@ -92,7 +95,7 @@ void AudioSettings::showSettingsDialog(juce::AudioDeviceManager& dm, const theme
     auto content = std::make_unique<AudioSettingsDialogContent>(dm, pal);
     juce::DialogWindow::LaunchOptions opt;
     opt.content.setOwned(content.release());
-    opt.dialogTitle = "ตั้งค่าอุปกรณ์เสียง (Audio Settings)";
+    opt.dialogTitle = "ตั้งค่าอุปกรณ์เสียง (Audio Settings)"_th;
     opt.dialogBackgroundColour = pal.paper;
     opt.escapeKeyTriggersCloseButton = true;
     opt.useNativeTitleBar = false;

@@ -44,7 +44,9 @@ public:
     void processAudio(const float* vocalL, const float* vocalR,
                       const float* musicL, const float* musicR,
                       float* outHeadphoneL, float* outHeadphoneR,
-                      int numSamples) noexcept;
+                      int numSamples,
+                      bool vocalToHeadphones = true,   // "Hear yourself"
+                      bool vocalToStream = true) noexcept;   // "Others hear you": OBS and the friends
 
     // Room info & Links
     juce::String roomName() const;

@@ -3,7 +3,7 @@
 ; AppId never changes, so a newer installer upgrades the old one in place.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.6"
+  #define AppVersion "1.0.8"
 #endif
 #ifndef BuildDir
   #error BuildDir is required (use build-installer.ps1)
@@ -66,6 +66,10 @@ english.Next3=In OBS, add a source called HEARASIDE
 english.OpenObs=Open OBS now
 english.OpenGuide=Open the getting started guide
 english.RemoveSettings=Also remove my HEARASIDE settings (your recordings are never removed)
+english.CompStreamlabs=HEARASIDE for Streamlabs Desktop (changes Streamlabs; a Streamlabs update removes it)
+english.CloseStreamlabs=Close Streamlabs Desktop, then click Back and Next to go on.
+english.StreamlabsFailed=HEARASIDE could not be added to Streamlabs Desktop:
+english.StreamlabsUninstallFailed=Streamlabs Desktop could not be restored (close it, then uninstall HEARASIDE again):
 thai.CompVst3=HEARASIDE VST3 (Hub, Track, App Audio)
 thai.CompVst2=HEARASIDE VST2 (Hub, Track, App Audio)
 thai.CompObs=HEARASIDE สำหรับ OBS (source และ control dock)
@@ -87,6 +91,10 @@ thai.Next3=ใน OBS เพิ่ม source ชื่อ HEARASIDE
 thai.OpenObs=เปิด OBS ตอนนี้
 thai.OpenGuide=เปิดคู่มือเริ่มต้นใช้งาน
 thai.RemoveSettings=ลบการตั้งค่า HEARASIDE ของฉันด้วย (ไฟล์อัดเสียงจะไม่ถูกลบ)
+thai.CompStreamlabs=HEARASIDE สำหรับ Streamlabs Desktop (แก้ไข Streamlabs และจะหายไปเมื่อ Streamlabs อัปเดต)
+thai.CloseStreamlabs=ปิด Streamlabs Desktop ก่อน แล้วกด ย้อนกลับ และ ถัดไป เพื่อติดตั้งต่อ
+thai.StreamlabsFailed=เพิ่ม HEARASIDE เข้า Streamlabs Desktop ไม่สำเร็จ:
+thai.StreamlabsUninstallFailed=คืนค่า Streamlabs Desktop ไม่สำเร็จ (ปิด Streamlabs แล้วถอนการติดตั้ง HEARASIDE อีกครั้ง):
 
 [Types]
 Name: "full"; Description: "{cm:TypeFull}"
@@ -101,6 +109,10 @@ Name: "vst2"; Description: "{cm:CompVst2}"; Types: full
 Name: "obs"; Description: "{cm:CompObs}"; Types: full
 Name: "karaoke"; Description: "{cm:CompKaraoke}"; Types: full karaoke
 Name: "cloudflared"; Description: "{cm:CompCloudflared}"; Types: full karaoke
+#ifdef WithStreamlabs
+; opt-in: it patches Streamlabs itself (hearaside-streamlabs.exe); only offered for the Streamlabs this build fits
+Name: "streamlabs"; Description: "{cm:CompStreamlabs}"; Check: StreamlabsSupported
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -127,6 +139,13 @@ Source: "{#BuildDir}\obs\hearaside-obs\hearaside-obs.dll"; DestDir: "{commonappd
 Source: "{#Cloudflared}"; DestDir: "{app}\cloudflared"; DestName: "cloudflared.exe"; Flags: ignoreversion; Components: cloudflared
 Source: "{#CloudflaredLicense}"; DestDir: "{app}\cloudflared"; DestName: "LICENSE.txt"; Flags: ignoreversion; Components: cloudflared
 Source: "{#RootDir}\installer\windows\licenses.txt"; DestDir: "{app}"; DestName: "licenses.txt"; Flags: ignoreversion
+#ifdef WithStreamlabs
+; Streamlabs Desktop: its own build of the OBS source (libobs fork) and the tool that patches Streamlabs
+Source: "{#StreamlabsTool}"; DestDir: "{app}\streamlabs"; Flags: ignoreversion; Components: streamlabs
+Source: "{#StreamlabsDll}"; DestDir: "{app}\streamlabs"; Flags: ignoreversion; Components: streamlabs
+; also extracted to {tmp} at start-up to check the installed Streamlabs
+Source: "{#StreamlabsTool}"; Flags: dontcopy
+#endif
 
 [Icons]
 Name: "{autoprograms}\HEARASIDE\HAS Karaoke"; Filename: "{app}\HAS Karaoke.exe"; Components: karaoke
@@ -155,6 +174,57 @@ Filename: "https://hearaside.netlify.app/guides/getting-started"; Description: "
 [Code]
 var
   Vst2Page: TInputDirWizardPage;
+  StreamlabsChecked: Boolean;
+  StreamlabsCheckCode: Integer;
+
+function StreamlabsDir: string;
+begin
+  Result := ExpandConstant('{commonpf64}\Streamlabs OBS');
+end;
+
+// hearaside-streamlabs.exe check: 0 = fits, 2 = fits but running, 3 = other libobs, 4 = not installed
+function StreamlabsCheck: Integer;
+begin
+  Result := 4;
+#ifdef WithStreamlabs
+  if not FileExists(StreamlabsDir + '\Streamlabs OBS.exe') then exit;
+  ExtractTemporaryFile('hearaside-streamlabs.exe');
+  if not Exec(ExpandConstant('{tmp}\hearaside-streamlabs.exe'), 'check "' + StreamlabsDir + '"', '', SW_HIDE, ewWaitUntilTerminated, Result) then
+    Result := 4;
+#endif
+end;
+
+function StreamlabsSupported: Boolean;
+begin
+  if not StreamlabsChecked then
+  begin
+    StreamlabsCheckCode := StreamlabsCheck;
+    StreamlabsChecked := True;
+  end;
+  Result := (StreamlabsCheckCode = 0) or (StreamlabsCheckCode = 2);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+#ifdef WithStreamlabs
+  if WizardIsComponentSelected('streamlabs') and (StreamlabsCheck = 2) then
+    Result := CustomMessage('CloseStreamlabs');
+#endif
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Code: Integer;
+begin
+#ifdef WithStreamlabs
+  if (CurStep = ssPostInstall) and WizardIsComponentSelected('streamlabs') then
+    if not Exec(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe'),
+                'install "' + StreamlabsDir + '" "' + ExpandConstant('{app}\streamlabs\hearaside-obs.dll') + '"',
+                '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      SuppressibleMsgBox(CustomMessage('StreamlabsFailed') + ' ' + IntToStr(Code), mbError, MB_OK, IDOK);
+#endif
+end;
 
 function ObsExe(Param: string): string;
 var
@@ -239,9 +309,16 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Vst2: string;
+  Code: Integer;
 begin
   if CurUninstallStep = usUninstall then
   begin
+    // put Streamlabs back before its tool is removed
+    if FileExists(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe')) then
+      if not Exec(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe'), 'uninstall "' + StreamlabsDir + '"',
+                  '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+        if not UninstallSilent then
+          MsgBox(CustomMessage('StreamlabsUninstallFailed') + ' ' + IntToStr(Code), mbError, MB_OK);
     // the VST2 folder was chosen at install time
     if RegQueryStringValue(HKLM, 'Software\HEARASIDE', 'Vst2Dir', Vst2) then
       DelTree(AddBackslash(Vst2) + 'HEARASIDE', True, True, True);

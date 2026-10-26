@@ -4,6 +4,7 @@ juce_add_gui_app(HearasideKaraoke
     COMPANY_NAME "HEARASIDE"
     COMPANY_WEBSITE "https://github.com/ArmZOfficial/hearaside"
     BUNDLE_ID "com.hearaside.karaoke"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/icon.svg"
     VERSION "${PROJECT_VERSION}"
 )
 

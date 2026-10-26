@@ -55,10 +55,20 @@ if ($hasKaraoke -and $env:HEARASIDE_SIGNTOOL) {
     Invoke-Expression $signCmd
 }
 
+# --- Streamlabs Desktop: its own build of the OBS source + the tool that patches Streamlabs (optional) -------
+$slobsDll = Join-Path $BuildDir 'obs\hearaside-obs\streamlabs\hearaside-obs.dll'
+$slobsTool = Join-Path $BuildDir 'obs\streamlabs-setup\hearaside-streamlabs_artefacts\Release\hearaside-streamlabs.exe'
+$hasStreamlabs = (Test-Path $slobsDll) -and (Test-Path $slobsTool)
+if ($hasStreamlabs -and $env:HEARASIDE_SIGNTOOL) {
+    "signing hearaside-streamlabs.exe"
+    Invoke-Expression ($env:HEARASIDE_SIGNTOOL.Replace('$f', "`"$slobsTool`""))
+}
+
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $defs = @("/DAppVersion=$version", "/DBuildDir=$BuildDir", "/DRootDir=$root", "/DCloudflared=$cf", "/DCloudflaredLicense=$cfLicense",
           "/DCloudflaredVersion=$($deps.cloudflared.version)", "/DOutDir=$((Resolve-Path $OutDir).Path)")
 if ($hasVst2) { $defs += '/DWithVst2=1' }
+if ($hasStreamlabs) { $defs += '/DWithStreamlabs=1', "/DStreamlabsDll=$slobsDll", "/DStreamlabsTool=$slobsTool" }
 if ($env:HEARASIDE_SIGNTOOL) { $defs += "/Ssigntool=$env:HEARASIDE_SIGNTOOL" ; $defs += '/DSigned=1' }
 
 & $iscc @defs (Join-Path $PSScriptRoot 'hearaside.iss')
@@ -67,7 +77,7 @@ if ($LASTEXITCODE) { throw 'Inno Setup failed' }
 $exe = Join-Path (Resolve-Path $OutDir) "HEARASIDE-Setup-$version.exe"
 $hash = Get-Hash $exe
 $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-"installer: $exe ($size MB, VST2 $(if ($hasVst2) { 'included' } else { 'not included' }))"
+"installer: $exe ($size MB, VST2 $(if ($hasVst2) { 'included' } else { 'not included' }), Streamlabs $(if ($hasStreamlabs) { 'included' } else { 'not included' }))"
 "sha256:    $hash"
 
 $karaokeDist = $null

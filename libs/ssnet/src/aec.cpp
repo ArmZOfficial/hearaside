@@ -21,6 +21,7 @@ FriendEcho::FriendEcho(FriendEcho&& o) noexcept
     , filterLength_(o.filterLength_)
     , mode_(o.mode_)
     , leakDetected_(o.leakDetected_)
+    , leakRun_(o.leakRun_)
     , erleDb_(o.erleDb_)
     , echoState_(o.echoState_)
     , prepState_(o.prepState_)
@@ -41,6 +42,7 @@ FriendEcho& FriendEcho::operator=(FriendEcho&& o) noexcept {
         filterLength_ = o.filterLength_;
         mode_ = o.mode_;
         leakDetected_ = o.leakDetected_;
+        leakRun_ = o.leakRun_;
         erleDb_ = o.erleDb_;
         echoState_ = o.echoState_;
         prepState_ = o.prepState_;
@@ -105,6 +107,8 @@ bool FriendEcho::init(int sampleRate, int frameSize, int filterLengthMs) {
     spxPlay_.resize(size_t(frameSize_));
     spxOut_.resize(size_t(frameSize_));
     erleDb_ = 0.0f;
+    leakDetected_ = false;
+    leakRun_ = 0;
 
     return true;
 }
@@ -114,6 +118,8 @@ void FriendEcho::reset() {
     std::fill(refRing_.begin(), refRing_.end(), 0.0f);
     refWritePos_ = 0;
     erleDb_ = 0.0f;
+    leakDetected_ = false;
+    leakRun_ = 0;
 }
 
 void FriendEcho::pushReference(const float* ref, size_t n) {

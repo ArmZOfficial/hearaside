@@ -1,4 +1,5 @@
 #include "PreflightChecker.h"
+#include "Utf8.h"
 
 #include <juce_events/juce_events.h>
 
@@ -226,11 +227,11 @@ PreflightResult PreflightChecker::evaluate(const float* micSignal, int numMicSam
     if (issues.empty()) {
         res.isReady = true;
         res.summary = juce::String::fromUTF8("พร้อมร้อง ✓");
-        res.advice = goods.empty() ? juce::String::fromUTF8("ระบบเสียงพร้อมใช้งาน") : juce::StringArray(goods.data(), int(goods.size())).joinIntoString(" · ");
+        res.advice = goods.empty() ? juce::String::fromUTF8("ระบบเสียงพร้อมใช้งาน") : juce::StringArray(goods.data(), int(goods.size())).joinIntoString(" · "_th);
     } else {
         res.isReady = false;
         res.summary = juce::String::fromUTF8("ต้องปรับตั้งค่าก่อนร้อง");
-        res.advice = juce::StringArray(issues.data(), int(issues.size())).joinIntoString(" · ");
+        res.advice = juce::StringArray(issues.data(), int(issues.size())).joinIntoString(" · "_th);
     }
 
     return res;

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
 
-project(Hearaside VERSION 1.0.6 LANGUAGES C CXX)
+project(Hearaside VERSION 1.0.8 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,9 @@ endif()
 
 if(HEARASIDE_BUILD_OBS)
     add_subdirectory(obs/hearaside-obs)
+    if(HEARASIDE_STREAMLABS_PLUGIN AND TARGET juce::juce_core)
+        add_subdirectory(obs/streamlabs-setup)   # the installer's "Streamlabs Desktop" component
+    endif()
 endif()
 
 if(HEARASIDE_BUILD_TOOLS)

@@ -50,6 +50,10 @@ inline bool parseHra3(const void* data, size_t size, Hra3Header& outHdr, const u
     return true;
 }
 
+// Packets missing between the last played seq and this one (survives the u32 wrap). Below 0 = late or repeated:
+// over the unordered DataChannel such a packet's place has already been played, so it is dropped.
+inline int32_t seqGap(uint32_t seq, uint32_t lastSeq) noexcept { return int32_t(seq - lastSeq) - 1; }
+
 inline void writeHra3(void* dest, const Hra3Header& hdr, const void* payload, size_t payloadSize) {
     std::memcpy(dest, &hdr, sizeof(Hra3Header));
     if (payload != nullptr && payloadSize > 0)

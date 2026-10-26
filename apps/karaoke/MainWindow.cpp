@@ -1,13 +1,18 @@
 #include "MainWindow.h"
+#include "Utf8.h"
 #include "AudioSettings.h"
+#include "Backdrop.h"
 #include "JoinClient.h"
 #include "MusicPlayer.h"
 #include "PreflightChecker.h"
 #include "RoomHost.h"
+#include "ScrollArea.h"
+#include "SettingsPanel.h"
 #include "UpdateChecker.h"
 #include "VocalChain.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace hearaside::karaoke {
@@ -17,103 +22,67 @@ enum class AppMode {
     Host
 };
 
+// "A new HEARASIDE is out": a row in the house style under the header
 class UpdateBanner : public juce::Component {
 public:
     UpdateBanner() {
+        downloadBtn_.setSmall(true);
         downloadBtn_.onClick = [this] {
             if (info_.downloadUrl.isNotEmpty()) {
                 juce::URL(info_.downloadUrl).launchInDefaultBrowser();
             }
         };
-        downloadBtn_.setTooltip("เปิดหน้าดาวน์โหลด HEARASIDE รุ่นล่าสุด");
+        downloadBtn_.setTooltip("เปิดหน้าดาวน์โหลด HEARASIDE รุ่นล่าสุด"_th);
         addAndMakeVisible(downloadBtn_);
 
         dismissBtn_.onClick = [this] {
             setVisible(false);
             if (onDismiss) onDismiss();
         };
-        dismissBtn_.setTooltip("ปิดการแจ้งเตือน");
         addAndMakeVisible(dismissBtn_);
     }
 
-    void showUpdate(const ReleaseInfo& info, const theme::Palette& p) {
+    void showUpdate(const ReleaseInfo& info) {
         info_ = info;
-        pal_ = &p;
         setVisible(true);
-        repaint();
-    }
-
-    void setPalette(const theme::Palette& p) {
-        pal_ = &p;
         repaint();
     }
 
     std::function<void()> onDismiss;
 
     void paint(juce::Graphics& g) override {
-        if (pal_ == nullptr) return;
-        const auto& p = *pal_;
+        const auto& p = paletteOf(*this);
         const auto b = getLocalBounds().toFloat();
+        drawInset(g, b, theme::radius::row, p);
+        drawStatusDot(g, juce::Point<float>(b.getX() + 18.0f, b.getCentreY()), Dot::Ok, p);
 
-        // Subtle frosted accent background
-        g.setColour(juce::Colour(0xff2d68ff).withAlpha(0.12f));
-        g.fillRoundedRectangle(b, 6.0f);
-        g.setColour(juce::Colour(0xff2d68ff).withAlpha(0.45f));
-        g.drawRoundedRectangle(b.reduced(0.5f), 6.0f, 1.0f);
-
-        drawStatusDot(g, juce::Point<float>(b.getX() + 14.0f, b.getCentreY()), Dot::Rec, p, 4.0f);
-
+        juce::String text = "พบ HEARASIDE รุ่นใหม่ "_th + info_.latestVersion + " (รุ่นปัจจุบัน "_th + info_.currentVersion + ")";
+        if (info_.releaseDate.isNotEmpty()) text += " · "_th + info_.releaseDate;
+        const auto f = uiFont(12.5f, Weight::Medium);
+        const auto area = b.withTrimmedLeft(32.0f).withTrimmedRight(float(downloadBtn_.getWidth() + dismissBtn_.getWidth() + 24));
         g.setColour(p.ink);
-        g.setFont(uiFont(12.0f, Weight::Medium));
-        juce::String text = "พบ HEARASIDE รุ่นใหม่ " + info_.latestVersion + " (รุ่นปัจจุบัน " + info_.currentVersion + ")";
-        if (info_.releaseDate.isNotEmpty()) text += " · " + info_.releaseDate;
-        g.drawText(text, juce::Rectangle<float>(b.getX() + 26.0f, b.getY(), b.getWidth() - 170.0f, b.getHeight()),
-                   juce::Justification::centredLeft);
+        g.setFont(f);
+        g.drawText(ellipsize(f, text, area.getWidth()), area, juce::Justification::centredLeft, false);
     }
 
     void resized() override {
-        const int w = getWidth();
-        const int h = getHeight();
-        downloadBtn_.setBounds(w - 110, (h - 22) / 2, 78, 22);
-        dismissBtn_.setBounds(w - 28, (h - 22) / 2, 22, 22);
+        auto r = getLocalBounds().reduced(6, 0);
+        dismissBtn_.setBounds(r.removeFromRight(30).withSizeKeepingCentre(30, 30));
+        r.removeFromRight(6);
+        const int dw = downloadBtn_.idealWidth();
+        downloadBtn_.setBounds(r.removeFromRight(dw).withSizeKeepingCentre(dw, 28));
     }
 
 private:
     ReleaseInfo info_;
-    const theme::Palette* pal_ = nullptr;
+    GhostButton downloadBtn_ { "ดาวน์โหลด"_th, GhostButton::Style::Solid };
+    IconButton dismissBtn_ { icons::Icon::Close, "ปิดการแจ้งเตือน"_th };
+};
 
-    class ActionBtn : public juce::Button {
-    public:
-        ActionBtn(const juce::String& text) : juce::Button(text), text_(text) {}
-        void paintButton(juce::Graphics& g, bool highlighted, bool down) override {
-            auto b = getLocalBounds().toFloat();
-            g.setColour(down ? juce::Colour(0xff1e50d0) : (highlighted ? juce::Colour(0xff3b73ff) : juce::Colour(0xff2d68ff)));
-            g.fillRoundedRectangle(b, 5.0f);
-            g.setColour(juce::Colours::white);
-            g.setFont(uiFont(11.0f, Weight::SemiBold));
-            g.drawText(text_, b, juce::Justification::centred);
-        }
-    private:
-        juce::String text_;
-    };
-
-    class CloseBtn : public juce::Button {
-    public:
-        CloseBtn() : juce::Button("close") {}
-        void paintButton(juce::Graphics& g, bool highlighted, bool /*down*/) override {
-            auto b = getLocalBounds().toFloat();
-            if (highlighted) {
-                g.setColour(juce::Colours::black.withAlpha(0.08f));
-                g.fillRoundedRectangle(b, 4.0f);
-            }
-            g.setColour(highlighted ? juce::Colours::black : juce::Colours::grey);
-            g.setFont(uiFont(12.0f, Weight::SemiBold));
-            g.drawText("✕", b, juce::Justification::centred);
-        }
-    };
-
-    ActionBtn downloadBtn_ { "ดาวน์โหลด" };
-    CloseBtn dismissBtn_;
+// A scrolled column whose painting is done by the owner
+struct PaintBody : juce::Component {
+    std::function<void(juce::Graphics&)> painter;
+    void paint(juce::Graphics& g) override { if (painter) painter(g); }
 };
 
 class KaraokeContent : public juce::Component,
@@ -123,32 +92,34 @@ class KaraokeContent : public juce::Component,
 public:
     KaraokeContent(MainWindow& owner, juce::AudioDeviceManager& dm)
         : owner_(owner), deviceManager_(dm),
-          joinBtn_(icons::Icon::Broadcast, 42.0f),
-          themeToggleBtn_(icons::Icon::Sliders, "เปลี่ยนธีม สว่าง / มืด"),
-          settingsBtn_(icons::Icon::Sliders, "ตั้งค่าอุปกรณ์เสียง (Audio Settings)"),
-          muteBtn_(),
+          joinBtn_(icons::Icon::Broadcast, 40.0f),
+          themeToggleBtn_(icons::Icon::Appearance, "เปลี่ยนธีม สว่าง / มืด"_th),
+          settingsBtn_(icons::Icon::Sliders, "ตั้งค่าอุปกรณ์เสียง (Audio Settings)"_th),
           micMeter_(6.0f, false),
-          preflightBtn_(icons::Icon::Check, 34.0f),
-          startStopRoomBtn_(icons::Icon::Broadcast, 36.0f),
-          prevBtn_(icons::Icon::ChevronLeft, "เพลงก่อนหน้า"),
-          nextBtn_(icons::Icon::ChevronRight, "เพลงถัดไป") {
+          preflightBtn_(icons::Icon::Check, 44.0f),
+          startStopRoomBtn_(icons::Icon::Broadcast, 40.0f),
+          prevBtn_(icons::Icon::ChevronLeft, "เพลงก่อนหน้า"_th),
+          nextBtn_(icons::Icon::ChevronRight, "เพลงถัดไป"_th) {
         setWantsKeyboardFocus(true);
         settings_->addChangeListener(this);
         deviceManager_.addAudioCallback(this);
 
         // Mode switch tabs
         modeSwitch_.setSegments({
-            { "เข้าห้อง (Singer)", icons::Icon::Count },
-            { "เปิดห้อง (Host)", icons::Icon::Count }
+            { tr(Str::KaraokeModeSinger), icons::Icon::Headphones },
+            { tr(Str::KaraokeModeHost), icons::Icon::Broadcast }
         });
+        modeSwitch_.setTall(true);
         modeSwitch_.setSelected(0, false);
         modeSwitch_.onChange = [this](int idx) {
             appMode_ = (idx == 0) ? AppMode::Singer : AppMode::Host;
-            updateModeVisibility();
+            applyMode();
             resized();
             repaint();
         };
         addAndMakeVisible(modeSwitch_);
+        statusChip_.setInterceptsMouseClicks(false, false);
+        addAndMakeVisible(statusChip_);
 
         // Header controls
         themeToggleBtn_.onClick = [this] {
@@ -166,40 +137,36 @@ public:
         // ==========================================
         // Singer Mode Controls
         // ==========================================
-        linkInput_.setPlaceholder("วางลิงก์ส่งเสียง เช่น https://.../s/<token> หรือ has://join?u=...");
+        linkInput_.setPlaceholder("วางลิงก์ส่งเสียง เช่น https://.../s/<token> หรือ has://join?u=..."_th);
         linkInput_.onReturnKey = [this] { onJoinToggleClicked(); };
-        addAndMakeVisible(linkInput_);
 
-        joinBtn_.setButtonText("เข้าห้อง");
+        joinBtn_.setButtonText("เข้าห้อง"_th);
         joinBtn_.onClick = [this] { onJoinToggleClicked(); };
-        addAndMakeVisible(joinBtn_);
 
-        preflightBtn_.setButtonText("เช็กก่อนร้อง");
+        preflightBtn_.setButtonText("เช็กก่อนร้อง"_th);
         preflightBtn_.onClick = [this] {
             if (preflight_.isTesting()) {
                 preflight_.cancel();
-                preflightBtn_.setButtonText("เช็กก่อนร้อง");
+                preflightBtn_.setButtonText("เช็กก่อนร้อง"_th);
                 preflightBtn_.setActive(false);
-                overlay_.toast("ยกเลิกการตรวจเสียง", 1200);
+                overlay_.toast("ยกเลิกการตรวจเสียง"_th, 1200);
             } else {
                 const auto room = joinClient_.roomInfo();
                 preflight_.startCheck(room.rttMs, room.jitterP95Ms, joinClient_.isSpeakerMode());
-                preflightBtn_.setButtonText("กำลังตรวจ...");
+                preflightBtn_.setButtonText("กำลังตรวจ..."_th);
                 preflightBtn_.setActive(true);
-                overlay_.toast("กำลังตรวจไมค์และลำโพง...", 1500);
+                overlay_.toast("กำลังตรวจไมค์และลำโพง..."_th, 1500);
             }
             repaint();
         };
-        addAndMakeVisible(preflightBtn_);
 
-        speakerModeSwitch_.onClick = [this] {
-            const bool spk = !speakerModeSwitch_.isOn();
-            speakerModeSwitch_.setOn(spk, true);
+        speakerRow_.onClick = [this] {
+            const bool spk = !speakerRow_.isOn();
+            speakerRow_.setOn(spk, true);
             joinClient_.setSpeakerMode(spk);
-            overlay_.toast(spk ? "เปิดโหมดลำโพง (ตัดเสียงสะท้อน AEC)" : "ปิดโหมดลำโพง (โหมดหูฟัง)", 2000);
+            overlay_.toast(spk ? "เปิดโหมดลำโพง (ตัดเสียงสะท้อน AEC)"_th : "ปิดโหมดลำโพง (โหมดหูฟัง)"_th, 2000);
             repaint();
         };
-        addAndMakeVisible(speakerModeSwitch_);
 
         joinClient_.onStateChanged = [this](ConnectionState s, const RoomInfo& info) {
             juce::ignoreUnused(s, info);
@@ -209,10 +176,11 @@ public:
         // ==========================================
         // Host Mode Controls
         // ==========================================
-        openFileBtn_.setButtonText("เลือกไฟล์เพลง");
+        openFileBtn_.setButtonText("เลือกไฟล์เพลง"_th);
+        openFileBtn_.setIcon(icons::Icon::Folder);
         openFileBtn_.onClick = [this] {
             fileChooser_ = std::make_unique<juce::FileChooser>(
-                "เลือกไฟล์เพลงสำหรับร้องคาราโอเกะ",
+                "เลือกไฟล์เพลงสำหรับร้องคาราโอเกะ"_th,
                 juce::File::getSpecialLocation(juce::File::userMusicDirectory),
                 "*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.aiff;*.wma"
             );
@@ -227,18 +195,18 @@ public:
                 if (!results.isEmpty()) {
                     musicPlayer_.setSourceMode(MusicSourceMode::AudioFile);
                     musicPlayer_.play();
-                    overlay_.toast("โหลดเพลงเรียบร้อย: " + results[0].getFileNameWithoutExtension(), 2000);
+                    overlay_.toast("โหลดเพลงเรียบร้อย: "_th + results[0].getFileNameWithoutExtension(), 2000);
                 }
                 repaint();
             });
         };
-        addChildComponent(openFileBtn_);
 
-        captureAppBtn_.setButtonText("ดึงเสียงแอป (YouTube/Spotify)");
+        captureAppBtn_.setButtonText("ดึงเสียงแอป (YouTube/Spotify)"_th);
+        captureAppBtn_.setIcon(icons::Icon::Window);
         captureAppBtn_.onClick = [this] {
             auto apps = MusicPlayer::listAudioApps();
             if (apps.empty()) {
-                overlay_.toast("ไม่พบโปรแกรมที่กำลังเล่นเสียงอยู่ (เปิด YouTube หรือ Spotify ก่อน)", 3000);
+                overlay_.toast("ไม่พบโปรแกรมที่กำลังเล่นเสียงอยู่ (เปิด YouTube หรือ Spotify ก่อน)"_th, 3000);
                 return;
             }
             juce::PopupMenu menu;
@@ -253,101 +221,97 @@ public:
                     const uint32_t pid = AppCapture::findRootProcess(chosen.exe);
                     if (pid != 0) {
                         musicPlayer_.startAppCapture(pid, juce::String::fromUTF8(chosen.name.c_str()));
-                        overlay_.toast("กำลังดึงเสียงจาก: " + juce::String::fromUTF8(chosen.name.c_str()), 2500);
+                        overlay_.toast("กำลังดึงเสียงจาก: "_th + juce::String::fromUTF8(chosen.name.c_str()), 2500);
                     } else {
-                        overlay_.toast("ไม่พบโพรเซสของโปรแกรมนี้", 2000);
+                        overlay_.toast("ไม่พบโพรเซสของโปรแกรมนี้"_th, 2000);
                     }
                     repaint();
                 }
             });
         };
-        addChildComponent(captureAppBtn_);
 
         prevBtn_.onClick = [this] { musicPlayer_.prevTrack(); };
-        addChildComponent(prevBtn_);
 
-        playPauseBtn_.setButtonText("เล่น");
+        playPauseBtn_.setButtonText("เล่น"_th);
+        playPauseBtn_.setIcon(icons::Icon::Play);
         playPauseBtn_.onClick = [this] {
             if (musicPlayer_.isPlaying()) {
                 musicPlayer_.pause();
-                playPauseBtn_.setButtonText("เล่น");
+                playPauseBtn_.setButtonText("เล่น"_th);
             } else {
                 musicPlayer_.play();
-                playPauseBtn_.setButtonText("หยุดชั่วคราว");
+                playPauseBtn_.setButtonText("หยุดชั่วคราว"_th);
             }
         };
-        addChildComponent(playPauseBtn_);
 
-        stopBtn_.setButtonText("หยุด");
+        stopBtn_.setButtonText("หยุด"_th);
         stopBtn_.onClick = [this] {
             musicPlayer_.stop();
-            playPauseBtn_.setButtonText("เล่น");
+            playPauseBtn_.setButtonText("เล่น"_th);
         };
-        addChildComponent(stopBtn_);
 
         nextBtn_.onClick = [this] { musicPlayer_.nextTrack(); };
-        addChildComponent(nextBtn_);
 
-        startStopRoomBtn_.setButtonText("เปิดห้องร้องเพลง");
+        startStopRoomBtn_.setButtonText("เปิดห้องร้องเพลง"_th);
         startStopRoomBtn_.onClick = [this] {
             if (roomHost_.isRoomRunning()) {
                 roomHost_.stopRoom();
-                startStopRoomBtn_.setButtonText("เปิดห้องร้องเพลง");
+                startStopRoomBtn_.setButtonText("เปิดห้องร้องเพลง"_th);
                 startStopRoomBtn_.setActive(false);
-                overlay_.toast("ปิดห้องคาราโอเกะเรียบร้อย", 1500);
+                overlay_.toast("ปิดห้องคาราโอเกะเรียบร้อย"_th, 1500);
             } else {
                 bool ok = roomHost_.startRoom("Karaoke Room");
                 if (ok) {
-                    startStopRoomBtn_.setButtonText("ปิดห้อง");
+                    startStopRoomBtn_.setButtonText("ปิดห้อง"_th);
                     startStopRoomBtn_.setActive(true);
-                    overlay_.toast("เปิดห้องเรียบร้อย พร้อมร้องเพลงและส่งเสียงไป OBS", 2500);
+                    overlay_.toast("เปิดห้องเรียบร้อย พร้อมร้องเพลงและส่งเสียงไป OBS"_th, 2500);
                 } else {
-                    overlay_.toast("ไม่สามารถเปิดห้องได้ (พอร์ตอาจถูกใช้งานอยู่)", 2500);
+                    overlay_.toast("ไม่สามารถเปิดห้องได้ (พอร์ตอาจถูกใช้งานอยู่)"_th, 2500);
                 }
             }
             repaint();
         };
-        addChildComponent(startStopRoomBtn_);
 
-        copyFriendLinkBtn_.setButtonText("คัดลอกลิงก์เพื่อน");
+        copyFriendLinkBtn_.setButtonText("คัดลอกลิงก์เพื่อน"_th);
+        copyFriendLinkBtn_.setIcon(icons::Icon::Link);
         copyFriendLinkBtn_.onClick = [this] {
             if (!roomHost_.isRoomRunning()) {
-                overlay_.toast("กรุณากด 'เปิดห้อง' ก่อนคัดลอกลิงก์", 1800);
+                overlay_.toast("กรุณากด 'เปิดห้อง' ก่อนคัดลอกลิงก์"_th, 1800);
                 return;
             }
             const auto url = roomHost_.friendUrl(0);
             if (url.isNotEmpty()) {
                 juce::SystemClipboard::copyTextToClipboard(url);
-                overlay_.toast("คัดลอกลิงก์เพื่อนแล้ว (ส่งให้เพื่อนเข้ามาร้องด้วยกัน)", 2500);
+                overlay_.toast("คัดลอกลิงก์เพื่อนแล้ว (ส่งให้เพื่อนเข้ามาร้องด้วยกัน)"_th, 2500);
             } else {
-                overlay_.toast("กำลังสร้างลิงก์ กรุณารอสักครู่...", 1500);
+                overlay_.toast("กำลังสร้างลิงก์ กรุณารอสักครู่..."_th, 1500);
             }
         };
-        addChildComponent(copyFriendLinkBtn_);
 
-        copyListenLinkBtn_.setButtonText("คัดลอกลิงก์คนฟัง");
+        copyListenLinkBtn_.setButtonText("คัดลอกลิงก์คนฟัง"_th);
+        copyListenLinkBtn_.setIcon(icons::Icon::Headphones);
         copyListenLinkBtn_.onClick = [this] {
             if (!roomHost_.isRoomRunning()) {
-                overlay_.toast("กรุณากด 'เปิดห้อง' ก่อนคัดลอกลิงก์", 1800);
+                overlay_.toast("กรุณากด 'เปิดห้อง' ก่อนคัดลอกลิงก์"_th, 1800);
                 return;
             }
             const auto url = roomHost_.listenUrl();
             if (url.isNotEmpty()) {
                 juce::SystemClipboard::copyTextToClipboard(url);
-                overlay_.toast("คัดลอกลิงก์คนฟังแล้ว (ส่งให้คนดูฟังสดผ่านเบราว์เซอร์)", 2500);
+                overlay_.toast("คัดลอกลิงก์คนฟังแล้ว (ส่งให้คนดูฟังสดผ่านเบราว์เซอร์)"_th, 2500);
             } else {
-                overlay_.toast("กำลังสร้างลิงก์ กรุณารอสักครู่...", 1500);
+                overlay_.toast("กำลังสร้างลิงก์ กรุณารอสักครู่..."_th, 1500);
             }
         };
-        addChildComponent(copyListenLinkBtn_);
 
-        recordRoomBtn_.setButtonText("อัดเสียงห้อง WAV");
+        recordRoomBtn_.setButtonText("อัดเสียงห้อง WAV"_th);
+        recordRoomBtn_.setIcon(icons::Icon::Record);
         recordRoomBtn_.onClick = [this] {
             if (roomHost_.isRecording()) {
                 roomHost_.stopRecording();
-                recordRoomBtn_.setButtonText("อัดเสียงห้อง WAV");
+                recordRoomBtn_.setButtonText("อัดเสียงห้อง WAV"_th);
                 recordRoomBtn_.setStyle(GhostButton::Style::Ghost);
-                overlay_.toast("หยุดบันทึกเสียงและบันทึกไฟล์เรียบร้อย", 2000);
+                overlay_.toast("หยุดบันทึกเสียงและบันทึกไฟล์เรียบร้อย"_th, 2000);
             } else {
                 const auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                                     .getChildFile("HEARASIDE")
@@ -359,107 +323,135 @@ public:
                     false
                 );
                 if (roomHost_.startRecording(file)) {
-                    recordRoomBtn_.setButtonText("● กำลังอัดเสียง...");
+                    recordRoomBtn_.setButtonText("● กำลังอัดเสียง..."_th);
                     recordRoomBtn_.setStyle(GhostButton::Style::DangerSolid);
-                    overlay_.toast("เริ่มบันทึกเสียงห้องลงไฟล์: " + file.getFileName(), 2000);
+                    overlay_.toast("เริ่มบันทึกเสียงห้องลงไฟล์: "_th + file.getFileName(), 2000);
                 } else {
-                    overlay_.toast("ไม่สามารถสร้างไฟล์สำหรับบันทึกเสียงได้", 2000);
+                    overlay_.toast("ไม่สามารถสร้างไฟล์สำหรับบันทึกเสียงได้"_th, 2000);
                 }
             }
             repaint();
         };
-        addChildComponent(recordRoomBtn_);
 
         // 8 Friend Slot controls
         for (int i = 0; i < 8; ++i) {
             auto& c = friendSlotControls_[i];
             c.meter = std::make_unique<MeterBar>(4.0f, true);
-            c.muteBtn = std::make_unique<GhostButton>("ปิดเสียง", GhostButton::Style::Ghost);
+            c.muteBtn = std::make_unique<GhostButton>("ปิดเสียง"_th, GhostButton::Style::Ghost);
             c.muteBtn->setSmall(true);
             c.muteBtn->onClick = [this, i] {
                 auto info = roomHost_.slotInfo(i);
                 bool newMuted = !info.isMuted;
                 roomHost_.setSlotMuted(i, newMuted);
-                friendSlotControls_[i].muteBtn->setButtonText(newMuted ? "เปิดเสียง" : "ปิดเสียง");
-                overlay_.toast(newMuted ? ("ปิดเสียง " + info.name + " แล้ว") : ("เปิดเสียง " + info.name + " แล้ว"), 1500);
+                friendSlotControls_[i].muteBtn->setButtonText(newMuted ? "เปิดเสียง"_th : "ปิดเสียง"_th);
+                overlay_.toast(newMuted ? ("ปิดเสียง "_th + info.name + " แล้ว"_th) : ("เปิดเสียง "_th + info.name + " แล้ว"_th), 1500);
             };
 
-            c.kickBtn = std::make_unique<GhostButton>("เตะ", GhostButton::Style::Danger);
+            c.kickBtn = std::make_unique<GhostButton>("เตะ"_th, GhostButton::Style::Danger);
             c.kickBtn->setSmall(true);
             c.kickBtn->onClick = [this, i] {
                 auto info = roomHost_.slotInfo(i);
                 roomHost_.kickSlot(i);
-                overlay_.toast("เตะ " + info.name + " ออกจากห้องแล้ว", 1800);
+                overlay_.toast("เตะ "_th + info.name + " ออกจากห้องแล้ว"_th, 1800);
                 repaint();
             };
 
-            c.copyBtn = std::make_unique<IconButton>(icons::Icon::Link, "คัดลอกลิงก์สำหรับเพื่อนคนนี้");
+            c.copyBtn = std::make_unique<IconButton>(icons::Icon::Link, "คัดลอกลิงก์สำหรับเพื่อนคนนี้"_th);
             c.copyBtn->onClick = [this, i] {
                 juce::String url = roomHost_.friendUrl(i);
                 if (url.isNotEmpty()) {
                     juce::SystemClipboard::copyTextToClipboard(url);
-                    overlay_.toast("คัดลอกลิงก์ของ " + roomHost_.slotInfo(i).name + " แล้ว", 2000);
+                    overlay_.toast("คัดลอกลิงก์ของ "_th + roomHost_.slotInfo(i).name + " แล้ว"_th, 2000);
                 } else {
-                    overlay_.toast("กรุณาเปิดห้องก่อนคัดลอกลิงก์", 1500);
+                    overlay_.toast("กรุณาเปิดห้องก่อนคัดลอกลิงก์"_th, 1500);
                 }
             };
-
-            addChildComponent(*c.meter);
-            addChildComponent(*c.muteBtn);
-            addChildComponent(*c.kickBtn);
-            addChildComponent(*c.copyBtn);
         }
 
         // ==========================================
         // Common Audio Controls (Mic & Sliders)
         // ==========================================
-        addAndMakeVisible(micMeter_);
-
         muteBtn_.onClick = [this] {
             const bool m = !vocalChain_.isMuted();
             vocalChain_.setMuted(m);
-            muteBtn_.setActive(m);
-            overlay_.toast(m ? "ปิดไมค์แล้ว (Muted)" : "เปิดไมค์แล้ว (Unmuted)", 1500);
+            setMicMuted(m);
+            overlay_.toast(m ? "ปิดไมค์แล้ว (Muted)"_th : "เปิดไมค์แล้ว (Unmuted)"_th, 1500);
         };
-        addAndMakeVisible(muteBtn_);
 
         vocalSlider_.setRange(-30.0, 6.0, 0.5);
         vocalSlider_.setValue(0.0, juce::dontSendNotification);
         vocalSlider_.onValueChange = [this] {
             vocalGainLinear_ = std::pow(10.0f, float(vocalSlider_.getValue()) * 0.05f);
+            updateValueTexts();
         };
-        addAndMakeVisible(vocalSlider_);
 
         musicSlider_.setRange(-30.0, 6.0, 0.5);
         musicSlider_.setValue(0.0, juce::dontSendNotification);
         musicSlider_.onValueChange = [this] {
             musicGainLinear_ = std::pow(10.0f, float(musicSlider_.getValue()) * 0.05f);
+            updateValueTexts();
         };
-        addAndMakeVisible(musicSlider_);
 
         reverbSlider_.setRange(0.0, 100.0, 1.0);
         reverbSlider_.setValue(25.0, juce::dontSendNotification);
         reverbSlider_.onValueChange = [this] {
             vocalChain_.setReverbLevel(float(reverbSlider_.getValue()) / 100.0f);
+            updateValueTexts();
         };
-        addAndMakeVisible(reverbSlider_);
 
         echoSlider_.setRange(0.0, 100.0, 1.0);
         echoSlider_.setValue(20.0, juce::dontSendNotification);
         echoSlider_.onValueChange = [this] {
             vocalChain_.setEchoLevel(float(echoSlider_.getValue()) / 100.0f);
+            updateValueTexts();
         };
-        addAndMakeVisible(echoSlider_);
 
-        sendWetSwitch_.onClick = [this] {
-            const bool wet = !sendWetSwitch_.isOn();
-            sendWetSwitch_.setOn(wet, true);
+        sendWetRow_.onClick = [this] {
+            const bool wet = !sendWetRow_.isOn();
+            sendWetRow_.setOn(wet, true);
             vocalChain_.setSendWet(wet);
-            overlay_.toast(wet ? "ส่งเสียง Wet (มี Reverb/Echo ไปให้เพื่อน)" : "ส่งเสียง Dry (เสียงคลีน ให้ห้องใส่เอฟเฟกต์)", 2000);
+            overlay_.toast(wet ? "ส่งเสียง Wet (มี Reverb/Echo ไปให้เพื่อน)"_th : "ส่งเสียง Dry (เสียงคลีน ให้ห้องใส่เอฟเฟกต์)"_th, 2000);
         };
-        addAndMakeVisible(sendWetSwitch_);
 
-        addAndMakeVisible(overlay_);
+        hearSelfRow_.setOn(true, false);
+        hearSelfRow_.setTooltip(tr(Str::KaraokeHearSelfTip));
+        hearSelfRow_.onClick = [this] {
+            const bool on = !hearSelfRow_.isOn();
+            hearSelfRow_.setOn(on, true);
+            hearSelf_.store(on, std::memory_order_relaxed);
+        };
+
+        othersHearRow_.setOn(true, false);
+        othersHearRow_.setTooltip(tr(Str::KaraokeOthersHearTip));
+        othersHearRow_.onClick = [this] {
+            const bool on = !othersHearRow_.isOn();
+            othersHearRow_.setOn(on, true);
+            othersHear_.store(on, std::memory_order_relaxed);
+        };
+
+        for (auto* v : { &vocalValue_, &musicValue_, &reverbValue_, &echoValue_ })
+            v->setJustification(juce::Justification::centredRight);
+        updateValueTexts();
+
+        // ==========================================
+        // Cards: two scrolled columns under the header
+        // ==========================================
+        leftBody_.painter = [this](juce::Graphics& g) { paintLeftBody(g); };
+        rightBody_.painter = [this](juce::Graphics& g) { paintRightBody(g); };
+        leftScroll_.setContent(leftBody_);
+        rightScroll_.setContent(rightBody_);
+        addAndMakeVisible(leftScroll_);
+        addAndMakeVisible(rightScroll_);
+
+        for (juce::Component* c : std::initializer_list<juce::Component*> {
+                 &linkInput_, &joinBtn_, &sendWetRow_, &startStopRoomBtn_, &recordRoomBtn_, &copyFriendLinkBtn_, &copyListenLinkBtn_ })
+            leftBody_.addChildComponent(c);
+        for (auto& c : friendSlotControls_)
+            for (juce::Component* k : std::initializer_list<juce::Component*> { c.meter.get(), c.muteBtn.get(), c.kickBtn.get(), c.copyBtn.get() })
+                leftBody_.addChildComponent(k);
+        for (juce::Component* c : std::initializer_list<juce::Component*> {
+                 &muteBtn_, &micMeter_, &speakerRow_, &preflightBtn_, &openFileBtn_, &captureAppBtn_, &prevBtn_, &playPauseBtn_, &stopBtn_, &nextBtn_ })
+            rightBody_.addChildComponent(c);
 
         addChildComponent(updateBanner_);
         updateBanner_.onDismiss = [this] {
@@ -469,14 +461,15 @@ public:
 
         updateChecker_.checkForUpdates([this](const ReleaseInfo& info) {
             if (info.hasUpdate) {
-                updateBanner_.showUpdate(info, pal());
-                overlay_.toast("พบ HEARASIDE รุ่นใหม่ " + info.latestVersion + " (คลิกที่แถบด้านบนเพื่อดาวน์โหลด)", 3500);
+                updateBanner_.showUpdate(info);
+                overlay_.toast("พบ HEARASIDE รุ่นใหม่ "_th + info.latestVersion + " (คลิกที่แถบด้านบนเพื่อดาวน์โหลด)"_th, 3500);
                 resized();
                 repaint();
             }
         });
 
-        updateModeVisibility();
+        addAndMakeVisible(overlay_);
+        applyMode();
         startTimerHz(30);
         updateDeviceInfo();
     }
@@ -490,42 +483,45 @@ public:
         settings_->removeChangeListener(this);
     }
 
-    void updateModeVisibility() {
+    // Shows the widgets of the mode; "your voice" lives in the left card (Join) or the right card (Host).
+    void applyMode() {
         const bool isSinger = (appMode_ == AppMode::Singer);
 
-        // Singer components
-        linkInput_.setVisible(isSinger);
-        joinBtn_.setVisible(isSinger);
-        preflightBtn_.setVisible(isSinger);
-        speakerModeSwitch_.setVisible(isSinger);
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &linkInput_, &joinBtn_, &sendWetRow_, &speakerRow_, &preflightBtn_ })
+            c->setVisible(isSinger);
+        for (juce::Component* c : std::initializer_list<juce::Component*> {
+                 &openFileBtn_, &captureAppBtn_, &prevBtn_, &playPauseBtn_, &stopBtn_, &nextBtn_,
+                 &startStopRoomBtn_, &copyFriendLinkBtn_, &copyListenLinkBtn_, &recordRoomBtn_ })
+            c->setVisible(!isSinger);
+        for (auto& c : friendSlotControls_)
+            for (juce::Component* k : std::initializer_list<juce::Component*> { c.meter.get(), c.muteBtn.get(), c.kickBtn.get(), c.copyBtn.get() })
+                k->setVisible(!isSinger);
 
-        // Host components
-        openFileBtn_.setVisible(!isSinger);
-        captureAppBtn_.setVisible(!isSinger);
-        prevBtn_.setVisible(!isSinger);
-        playPauseBtn_.setVisible(!isSinger);
-        stopBtn_.setVisible(!isSinger);
-        nextBtn_.setVisible(!isSinger);
-        startStopRoomBtn_.setVisible(!isSinger);
-        copyFriendLinkBtn_.setVisible(!isSinger);
-        copyListenLinkBtn_.setVisible(!isSinger);
-        recordRoomBtn_.setVisible(!isSinger);
+        auto& voiceHome = isSinger ? leftBody_ : rightBody_;
+        for (juce::Component* c : std::initializer_list<juce::Component*> {
+                 &hearSelfRow_, &othersHearRow_, &vocalField_, &musicField_, &reverbField_, &echoField_ })
+            voiceHome.addAndMakeVisible(c);
+        muteBtn_.setVisible(true);
+        micMeter_.setVisible(true);
 
-        for (int i = 0; i < 8; ++i) {
-            auto& c = friendSlotControls_[i];
-            c.meter->setVisible(!isSinger);
-            c.muteBtn->setVisible(!isSinger);
-            c.kickBtn->setVisible(!isSinger);
-            c.copyBtn->setVisible(!isSinger);
-        }
+        hearSelfRow_.setTexts(tr(Str::KaraokeHearSelf), tr(Str::KaraokeHearSelfCap));
+        othersHearRow_.setTexts(tr(Str::KaraokeOthersHear), tr(isSinger ? Str::KaraokeOthersHearCap : Str::KaraokeHostOthersHearCap));
+        speakerRow_.setTexts(tr(Str::KaraokeSpeakerMode), tr(Str::KaraokeSpeakerModeCap));
+        sendWetRow_.setTexts(tr(Str::KaraokeSendWet), tr(Str::KaraokeSendWetCap));
+        vocalField_.setTexts(tr(Str::KaraokeVoice), {});
+        musicField_.setTexts(tr(Str::KaraokeMusic), {});
+        reverbField_.setTexts(tr(Str::KaraokeReverb), {});
+        echoField_.setTexts(tr(Str::KaraokeEcho), {});
+        leftScroll_.setViewPosition(0, 0);
+        rightScroll_.setViewPosition(0, 0);
     }
 
     bool keyPressed(const juce::KeyPress& key) override {
         if (key.isKeyCode(juce::KeyPress::spaceKey) || key.getKeyCode() == 'M' || key.getKeyCode() == 'm') {
             const bool m = !vocalChain_.isMuted();
             vocalChain_.setMuted(m);
-            muteBtn_.setActive(m);
-            overlay_.toast(m ? "ปิดไมค์แล้ว (Muted)" : "เปิดไมค์แล้ว (Unmuted)", 1500);
+            setMicMuted(m);
+            overlay_.toast(m ? "ปิดไมค์แล้ว (Muted)"_th : "เปิดไมค์แล้ว (Unmuted)"_th, 1500);
             return true;
         }
         return false;
@@ -541,29 +537,29 @@ public:
             modeSwitch_.setSelected(0, true);
         }
         linkInput_.setText(clean, juce::dontSendNotification);
-        overlay_.toast("ได้รับลิงก์ห้องแล้ว: กด 'เข้าห้อง' เพื่อเริ่ม", 2500);
+        overlay_.toast("ได้รับลิงก์ห้องแล้ว: กด 'เข้าห้อง' เพื่อเริ่ม"_th, 2500);
     }
 
     void onJoinToggleClicked() {
         if (joinClient_.isLive() || joinClient_.state() == ConnectionState::Connecting) {
             joinClient_.disconnect();
-            joinBtn_.setButtonText("เข้าห้อง");
+            joinBtn_.setButtonText("เข้าห้อง"_th);
             joinBtn_.setActive(false);
-            overlay_.toast("ออกจากห้องเรียบร้อย", 1500);
+            overlay_.toast("ออกจากห้องเรียบร้อย"_th, 1500);
             repaint();
             return;
         }
 
         const juce::String raw = linkInput_.getText().trim();
         if (raw.isEmpty()) {
-            overlay_.toast("กรุณาวางลิงก์ส่งเสียงที่ได้รับจากเพื่อน", 2000);
+            overlay_.toast("กรุณาวางลิงก์ส่งเสียงที่ได้รับจากเพื่อน"_th, 2000);
             return;
         }
 
         joinClient_.connect(raw);
-        joinBtn_.setButtonText("ยกเลิก");
+        joinBtn_.setButtonText("ยกเลิก"_th);
         joinBtn_.setActive(true);
-        overlay_.toast("กำลังเชื่อมต่อห้อง...", 2000);
+        overlay_.toast("กำลังเชื่อมต่อห้อง..."_th, 2000);
         repaint();
     }
 
@@ -617,11 +613,14 @@ public:
 
         const float vocG = vocalGainLinear_;
         const float musG = musicGainLinear_;
+        const bool hearSelf = hearSelf_.load(std::memory_order_relaxed);
+        const bool othersHear = othersHear_.load(std::memory_order_relaxed);
 
         if (appMode_ == AppMode::Singer) {
             // ================= Singer Mode =================
             const bool live = joinClient_.isLive();
             if (live) {
+                if (!othersHear) std::fill_n(scratchNetMic_.data(), n, 0.0f);   // keep sending: silence keeps the line and the timing
                 joinClient_.pushUpstream(scratchNetMic_.data(), n, timelineCounter_);
                 joinClient_.pullDownstream(scratchDownL_.data(), scratchDownR_.data(), n);
             } else {
@@ -632,12 +631,13 @@ public:
 
             preflight_.processAudio(inMic, scratchDownL_.data(), scratchDownR_.data(), n);
 
+            const float selfG = hearSelf ? vocG : 0.0f;
             if (numOutputChannels >= 2 && outputChannelData != nullptr) {
                 float* outL = outputChannelData[0];
                 float* outR = outputChannelData[1];
                 for (int i = 0; i < n; ++i) {
-                    float mixL = (scratchVocalL_[i] * vocG) + (scratchDownL_[i] * musG);
-                    float mixR = (scratchVocalR_[i] * vocG) + (scratchDownR_[i] * musG);
+                    float mixL = (scratchVocalL_[i] * selfG) + (scratchDownL_[i] * musG);
+                    float mixR = (scratchVocalR_[i] * selfG) + (scratchDownR_[i] * musG);
 
                     mixL = std::clamp(mixL, -1.2f, 1.2f);
                     mixR = std::clamp(mixR, -1.2f, 1.2f);
@@ -652,7 +652,7 @@ public:
             } else if (numOutputChannels == 1 && outputChannelData != nullptr) {
                 float* out = outputChannelData[0];
                 for (int i = 0; i < n; ++i) {
-                    float mix = (0.5f * (scratchVocalL_[i] + scratchVocalR_[i]) * vocG) +
+                    float mix = (0.5f * (scratchVocalL_[i] + scratchVocalR_[i]) * selfG) +
                                 (0.5f * (scratchDownL_[i] + scratchDownR_[i]) * musG);
                     out[i] = std::clamp(mix, -0.95f, 0.95f);
                 }
@@ -673,7 +673,7 @@ public:
 
             roomHost_.processAudio(scratchVocalL_.data(), scratchVocalR_.data(),
                                   scratchMusicL_.data(), scratchMusicR_.data(),
-                                  outL, outR, n);
+                                  outL, outR, n, hearSelf, othersHear);
         }
     }
 
@@ -685,35 +685,35 @@ public:
 
         if (appMode_ == AppMode::Singer) {
             if (joinClient_.isLive()) {
-                joinBtn_.setButtonText("ออกจากห้อง");
+                joinBtn_.setButtonText("ออกจากห้อง"_th);
                 joinBtn_.setActive(true);
             } else if (joinClient_.state() == ConnectionState::Connecting) {
-                joinBtn_.setButtonText("กำลังเชื่อมต่อ...");
+                joinBtn_.setButtonText("กำลังเชื่อมต่อ..."_th);
                 joinBtn_.setActive(true);
             } else {
-                joinBtn_.setButtonText("เข้าห้อง");
+                joinBtn_.setButtonText("เข้าห้อง"_th);
                 joinBtn_.setActive(false);
             }
 
             if (preflight_.isTesting()) {
-                preflightBtn_.setButtonText("กำลังตรวจ...");
+                preflightBtn_.setButtonText("กำลังตรวจ..."_th);
                 preflightBtn_.setActive(true);
             } else {
-                preflightBtn_.setButtonText("เช็กก่อนร้อง");
+                preflightBtn_.setButtonText("เช็กก่อนร้อง"_th);
                 preflightBtn_.setActive(false);
             }
         } else {
             // Host timer updates
             if (musicPlayer_.isPlaying()) {
-                playPauseBtn_.setButtonText("หยุดชั่วคราว");
+                playPauseBtn_.setButtonText("หยุดชั่วคราว"_th);
             } else {
-                playPauseBtn_.setButtonText("เล่น");
+                playPauseBtn_.setButtonText("เล่น"_th);
             }
 
             if (roomHost_.isRecording()) {
-                recordRoomBtn_.setButtonText("● อัดเสียง (" + juce::String(roomHost_.recordedSeconds(), 1) + "s)");
+                recordRoomBtn_.setButtonText("● อัดเสียง ("_th + juce::String(roomHost_.recordedSeconds(), 1) + "s)");
             } else {
-                recordRoomBtn_.setButtonText("อัดเสียงห้อง WAV");
+                recordRoomBtn_.setButtonText("อัดเสียงห้อง WAV"_th);
             }
 
             for (int i = 0; i < 8; ++i) {
@@ -722,25 +722,37 @@ public:
             }
         }
 
+        const auto st = headerStatus();
+        if (st.text != chipText_) {   // the chip is as wide as its text
+            chipText_ = st.text;
+            statusChip_.set(st.text, st.dot);
+            resized();
+        }
+        statusChip_.set(st.text, st.dot);
+
+        // the bodies' heights follow what is shown (live badges, check results)
+        const auto pf = preflight_.result();
+        const auto key = juce::String(int(appMode_)) + "|" + juce::String(int(joinClient_.state() == ConnectionState::Live))
+                       + "|" + juce::String(int(pf.leakStatus)) + "|" + pf.advice;
+        if (key != layoutKey_) {
+            layoutKey_ = key;
+            layoutBodies();
+        }
+
         updateDeviceInfo();
         repaint();
     }
 
     void updateDeviceInfo() {
-        const auto info = AudioSettings::getLatencyInfo(deviceManager_);
-        if (info.sampleRate > 0) {
-            deviceInfo_ = info.driverType + ": " + info.deviceName +
-                          " (" + juce::String(info.sampleRate / 1000) + " kHz, " +
-                          juce::String(info.bufferSize) + " smp, latency ~" +
-                          juce::String(info.totalMs, 1) + " ms)";
-            joinClient_.setLocalLatencyMs(info.totalMs);
-        } else {
-            deviceInfo_ = "ไม่มีอุปกรณ์เสียง (No audio device)";
+        latency_ = AudioSettings::getLatencyInfo(deviceManager_);
+        if (latency_.sampleRate > 0) {
+            joinClient_.setLocalLatencyMs(latency_.totalMs);
         }
     }
 
     void changeListenerCallback(juce::ChangeBroadcaster*) override {
-        updateBanner_.setPalette(pal());
+        backdrop_.invalidate();
+        resized();
         repaint();
     }
 
@@ -748,326 +760,441 @@ public:
         return settings_->isDark() ? theme::dark() : theme::light();
     }
 
-    void paint(juce::Graphics& g) override {
-        const auto& p = pal();
-        g.fillAll(p.paper);
-
-        // Header
-        auto bounds = getLocalBounds().toFloat();
-        const auto headerArea = bounds.removeFromTop(60.0f);
-
-        // Wordmark & Badge
-        drawWordmark(g, headerArea.reduced(24.0f, 14.0f).removeFromLeft(130.0f), "", 22.0f, p.ink);
-        drawBadge(g, juce::Rectangle<float>(160.0f, 18.0f, 72.0f, 22.0f), "KARAOKE", BadgeStyle::Solid, p);
-
-        // Header Status
-        Dot dot = Dot::None;
-        juce::String statusText = "พร้อมใช้งาน";
-
-        if (appMode_ == AppMode::Singer) {
-            const auto cState = joinClient_.state();
-            const auto room = joinClient_.roomInfo();
-
-            if (cState == ConnectionState::Live) {
-                dot = Dot::Ok;
-                statusText = room.name.isNotEmpty() ? ("ในห้อง: " + room.name) : "ในห้อง (Live)";
-                if (room.delayMs >= 0.0f) {
-                    statusText += " (~" + juce::String(juce::roundToInt(room.delayMs)) + " ms)";
-                }
-            } else if (cState == ConnectionState::Connecting || cState == ConnectionState::Resolving || cState == ConnectionState::Handshaking) {
-                dot = Dot::Warn;
-                statusText = "กำลังต่อเข้าห้อง...";
-            } else if (cState == ConnectionState::Reconnecting) {
-                dot = Dot::Warn;
-                statusText = "กำลังเชื่อมต่อใหม่...";
-            } else {
-                statusText = "พร้อมเข้าห้อง";
-            }
-        } else {
-            if (roomHost_.isRoomRunning()) {
-                dot = Dot::Ok;
-                statusText = "เปิดห้องแล้ว (พอร์ต " + juce::String(roomHost_.serverPort()) + ")";
-            } else {
-                dot = Dot::None;
-                statusText = "ห้องยังไม่เปิด";
-            }
-        }
-
-        drawStatusDot(g, juce::Point<float>(510.0f, 29.0f), dot, p, 7.0f);
-        g.setColour(p.graphite);
-        g.setFont(uiFont(13.0f, Weight::Medium));
-        g.drawText(statusText, juce::Rectangle<float>(522.0f, 17.0f, 160.0f, 24.0f), juce::Justification::centredLeft);
-
-        // Divider
-        g.setColour(p.hairline1);
-        g.drawHorizontalLine(60, 0.0f, float(getWidth()));
-
-        const float margin = 24.0f;
-        const float contentW = float(getWidth()) - (margin * 2.0f);
-
-        if (appMode_ == AppMode::Singer) {
-            paintSingerView(g, p, margin, contentW);
-        } else {
-            paintHostView(g, p, margin, contentW);
-        }
-    }
-
-    void paintSingerView(juce::Graphics& g, const theme::Palette& p, float margin, float contentW) {
-        const float bannerOffset = updateBanner_.isVisible() ? 34.0f : 0.0f;
-
-        // Card 1: Join Box (Inset)
-        const auto joinCard = juce::Rectangle<float>(margin, 74.0f + bannerOffset, contentW, 118.0f);
-        drawInset(g, joinCard, 14.0f, p);
-
-        // Badges in Join Card if Live
-        const auto cState = joinClient_.state();
-        const auto room = joinClient_.roomInfo();
-        if (cState == ConnectionState::Live) {
-            const float badgeY = joinCard.getY() + 14.0f;
-            const float badgeR = joinCard.getRight() - 18.0f;
-            const juce::String protoLabel = room.isUdp ? "UDP" : "WS";
-            const juce::String codecLabel = room.codec.isNotEmpty() ? room.codec.toUpperCase() : "OPUS";
-            drawBadge(g, juce::Rectangle<float>(badgeR - 98.0f, badgeY, 42.0f, 20.0f), protoLabel,
-                      room.isUdp ? BadgeStyle::Ok : BadgeStyle::Chip, p);
-            drawBadge(g, juce::Rectangle<float>(badgeR - 52.0f, badgeY, 52.0f, 20.0f), codecLabel,
-                      BadgeStyle::Chip, p);
-        }
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText("เข้าร่วมห้องร้องเพลง (Join Room)", joinCard.reduced(18.0f, 14.0f).removeFromTop(22.0f), juce::Justification::topLeft);
-
-        g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f, Weight::Regular));
-        g.drawText("วางลิงก์ส่งเสียงที่ได้รับจากเพื่อนเพื่อเริ่มร้องเพลงร่วมกัน (รองรับทั้ง /s/ และ has://join)",
-                   juce::Rectangle<float>(joinCard.getX() + 18.0f, joinCard.getY() + 36.0f, contentW - 36.0f, 20.0f), juce::Justification::topLeft);
-
-        // Card 2: Audio & Microphone Inset
-        const auto audioCard = juce::Rectangle<float>(margin, 204.0f + bannerOffset, contentW, 148.0f);
-        drawInset(g, audioCard, 14.0f, p);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText("ไมโครโฟนและอุปกรณ์เสียง", audioCard.reduced(18.0f, 12.0f).removeFromTop(22.0f), juce::Justification::topLeft);
-
-        g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f, Weight::Regular));
-        g.drawText(deviceInfo_, juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 34.0f, contentW - 150.0f, 20.0f), juce::Justification::topLeft);
-
-        g.setColour(p.muted);
-        g.setFont(uiFont(11.0f, Weight::Regular));
-        g.drawText("ไมค์:", juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 66.0f, 32.0f, 20.0f), juce::Justification::centredLeft);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(12.0f, Weight::Medium));
-        g.drawText("โหมดลำโพง (ตัดเสียงสะท้อน AEC)",
-                   juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 92.0f, 180.0f, 22.0f), juce::Justification::centredLeft);
-
-        const auto pf = preflight_.result();
-        if (pf.leakStatus != LeakStatus::Untested) {
-            Dot pfDot = pf.isReady ? Dot::Ok : Dot::Warn;
-            drawStatusDot(g, juce::Point<float>(audioCard.getX() + 260.0f, audioCard.getY() + 103.0f), pfDot, p, 6.0f);
-            g.setColour(pf.isReady ? p.ok : p.ink);
-            g.setFont(uiFont(12.0f, Weight::SemiBold));
-            g.drawText(pf.summary, juce::Rectangle<float>(audioCard.getX() + 272.0f, audioCard.getY() + 92.0f, 140.0f, 22.0f), juce::Justification::centredLeft);
-
-            g.setColour(p.graphite);
-            g.setFont(uiFont(11.5f, Weight::Regular));
-            g.drawText(pf.advice, juce::Rectangle<float>(audioCard.getX() + 18.0f, audioCard.getY() + 118.0f, contentW - 36.0f, 20.0f), juce::Justification::centredLeft);
-        } else {
-            g.setColour(p.muted);
-            g.setFont(uiFont(11.5f, Weight::Regular));
-            g.drawText("กด 'เช็กก่อนร้อง' เพื่อตรวจไมค์ เสียงลำโพงสะท้อน และสัญญาณเน็ต",
-                       juce::Rectangle<float>(audioCard.getX() + 260.0f, audioCard.getY() + 92.0f, contentW - 278.0f, 22.0f), juce::Justification::centredLeft);
-        }
-
-        // Card 3: Headphone Monitor Balance Inset
-        const auto monitorCard = juce::Rectangle<float>(margin, 364.0f + bannerOffset, contentW, 178.0f);
-        drawInset(g, monitorCard, 14.0f, p);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(15.0f, Weight::SemiBold));
-        g.drawText("ระดับเสียงและเอฟเฟกต์ (Vocal & Ambience)", monitorCard.reduced(18.0f, 14.0f).removeFromTop(22.0f), juce::Justification::topLeft);
-
-        g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f, Weight::Regular));
-        g.drawText("เสียงฉัน (Voice)", juce::Rectangle<float>(monitorCard.getX() + 18.0f, monitorCard.getY() + 38.0f, 110.0f, 22.0f), juce::Justification::centredLeft);
-        g.drawText("เสียงเพลง (Music)", juce::Rectangle<float>(monitorCard.getX() + 18.0f, monitorCard.getY() + 66.0f, 110.0f, 22.0f), juce::Justification::centredLeft);
-        g.drawText("รีเวิร์บ (Reverb)", juce::Rectangle<float>(monitorCard.getX() + 18.0f, monitorCard.getY() + 94.0f, 110.0f, 22.0f), juce::Justification::centredLeft);
-        g.drawText("เอคโค่ (Echo)", juce::Rectangle<float>(monitorCard.getX() + 18.0f, monitorCard.getY() + 122.0f, 110.0f, 22.0f), juce::Justification::centredLeft);
-        g.drawText("ส่งเสียง Wet ไปให้ห้อง", juce::Rectangle<float>(monitorCard.getX() + 18.0f, monitorCard.getY() + 148.0f, 160.0f, 20.0f), juce::Justification::centredLeft);
-    }
-
-    void paintHostView(juce::Graphics& g, const theme::Palette& p, float margin, float contentW) {
-        const float bannerOffset = updateBanner_.isVisible() ? 34.0f : 0.0f;
-
-        // Card 1: Music Player
-        const auto musicCard = juce::Rectangle<float>(margin, 70.0f + bannerOffset, contentW, 102.0f);
-        drawInset(g, musicCard, 14.0f, p);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(14.0f, Weight::SemiBold));
-        g.drawText("แหล่งเพลง (Music Player / App Audio)", musicCard.reduced(16.0f, 10.0f).removeFromTop(20.0f), juce::Justification::topLeft);
-
-        // Song title and duration
-        juce::String trackTitle = "ยังไม่ได้เลือกเพลง (เล่นไฟล์ WAV/MP3 หรือดึงจากเบราว์เซอร์)";
-        if (musicPlayer_.sourceMode() == MusicSourceMode::AudioFile) {
-            const int idx = musicPlayer_.currentTrackIndex();
-            if (idx >= 0 && idx < musicPlayer_.trackCount()) {
-                const auto trk = musicPlayer_.trackAt(idx);
-                const int curM = int(musicPlayer_.currentPositionSec()) / 60;
-                const int curS = int(musicPlayer_.currentPositionSec()) % 60;
-                const int lenM = int(trk.durationSec) / 60;
-                const int lenS = int(trk.durationSec) % 60;
-                trackTitle = trk.title + " (" + juce::String::formatted("%02d:%02d / %02d:%02d", curM, curS, lenM, lenS) + ")";
-            }
-        } else if (musicPlayer_.sourceMode() == MusicSourceMode::AppCapture) {
-            trackTitle = "ดึงเสียงจากแอป: " + musicPlayer_.capturedAppName();
-        }
-
-        g.setColour(p.graphite);
-        g.setFont(uiFont(12.0f, Weight::Medium));
-        g.drawText(trackTitle, juce::Rectangle<float>(musicCard.getX() + 16.0f, musicCard.getY() + 72.0f, contentW - 200.0f, 22.0f), juce::Justification::centredLeft);
-
-        // Card 2: Host Room & OBS Broadcast
-        const auto hostCard = juce::Rectangle<float>(margin, 180.0f + bannerOffset, contentW, 82.0f);
-        drawInset(g, hostCard, 14.0f, p);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(14.0f, Weight::SemiBold));
-        g.drawText("ห้องร้องเพลงและส่งสัญญาณ (Room Host & OBS)", hostCard.reduced(16.0f, 10.0f).removeFromTop(20.0f), juce::Justification::topLeft);
-
-        // OBS Status badge
-        if (roomHost_.isRoomRunning()) {
-            drawBadge(g, juce::Rectangle<float>(musicCard.getX() + contentW - 130.0f, hostCard.getY() + 10.0f, 114.0f, 20.0f),
-                      roomHost_.hasDawCollision() ? "OBS: Bus Karaoke" : "OBS: Bus Main",
-                      BadgeStyle::Chip, p);
-        }
-
-        // Card 3: Friends Room (8 Slots)
-        const auto friendCard = juce::Rectangle<float>(margin, 270.0f + bannerOffset, contentW, 166.0f);
-        drawInset(g, friendCard, 14.0f, p);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(14.0f, Weight::SemiBold));
-        g.drawText("เพื่อนในห้องร้องเพลง (8 ช่อง)", friendCard.reduced(16.0f, 10.0f).removeFromTop(20.0f), juce::Justification::topLeft);
-
-        // Draw slots names and status
-        const float colW = (contentW - 40.0f) * 0.5f;
-        for (int i = 0; i < 8; ++i) {
-            const int col = i / 4;
-            const int row = i % 4;
-            const float sx = friendCard.getX() + 16.0f + float(col) * (colW + 16.0f);
-            const float sy = friendCard.getY() + 34.0f + float(row) * 31.0f;
-
-            auto info = roomHost_.slotInfo(i);
-            drawStatusDot(g, juce::Point<float>(sx + 6.0f, sy + 11.0f), info.isLive ? Dot::Ok : Dot::None, p, 5.0f);
-
-            g.setColour(info.isLive ? p.ink : p.muted);
-            g.setFont(uiFont(11.5f, Weight::Medium));
-            g.drawText(info.name, juce::Rectangle<float>(sx + 16.0f, sy, 70.0f, 22.0f), juce::Justification::centredLeft);
-
-            if (info.isLive && info.delayMs >= 0.0f) {
-                drawBadge(g, juce::Rectangle<float>(sx + 88.0f, sy + 2.0f, 44.0f, 18.0f),
-                          juce::String(juce::roundToInt(info.delayMs)) + "ms", BadgeStyle::Chip, p);
-            }
-        }
-
-        // Card 4: Host Microphone & Monitor Balance
-        const auto monitorCard = juce::Rectangle<float>(margin, 444.0f + bannerOffset, contentW, 126.0f);
-        drawInset(g, monitorCard, 14.0f, p);
-
-        g.setColour(p.ink);
-        g.setFont(uiFont(14.0f, Weight::SemiBold));
-        g.drawText("ไมค์เจ้าของห้องและเอฟเฟกต์ (Host Vocal & Effects)", monitorCard.reduced(16.0f, 8.0f).removeFromTop(20.0f), juce::Justification::topLeft);
-
-        g.setColour(p.graphite);
-        g.setFont(uiFont(11.5f, Weight::Regular));
-        g.drawText("เสียงฉัน (Voice)", juce::Rectangle<float>(monitorCard.getX() + 16.0f, monitorCard.getY() + 34.0f, 90.0f, 20.0f), juce::Justification::centredLeft);
-        g.drawText("เสียงเพลง (Music)", juce::Rectangle<float>(monitorCard.getX() + 16.0f, monitorCard.getY() + 58.0f, 90.0f, 20.0f), juce::Justification::centredLeft);
-        g.drawText("รีเวิร์บ (Reverb)", juce::Rectangle<float>(monitorCard.getX() + 16.0f, monitorCard.getY() + 82.0f, 90.0f, 20.0f), juce::Justification::centredLeft);
-        g.drawText("เอคโค่ (Echo)", juce::Rectangle<float>(monitorCard.getX() + 16.0f, monitorCard.getY() + 104.0f, 90.0f, 20.0f), juce::Justification::centredLeft);
-    }
+    // ---- layout ---------------------------------------------------------------------------------
+    static constexpr float kPad = 16.0f, kGap = 12.0f, kHeaderH = 58.0f;
 
     void resized() override {
         overlay_.setBounds(getLocalBounds());
+        const auto b = getLocalBounds().toFloat();
+        auto r = b.reduced(kPad);
 
-        const int w = getWidth();
-        themeToggleBtn_.setBounds(w - 76, 12, 34, 34);
-        settingsBtn_.setBounds(w - 38, 12, 34, 34);
-
-        // Mode switch tabs in header
-        modeSwitch_.setBounds(240, 14, 250, 32);
-
-        const int margin = 24;
-        const int contentW = w - (margin * 2);
-
-        const int bannerOffset = updateBanner_.isVisible() ? 34 : 0;
+        header_ = r.removeFromTop(kHeaderH);
+        r.removeFromTop(kGap);
         if (updateBanner_.isVisible()) {
-            updateBanner_.setBounds(margin, 64, contentW, 28);
+            updateBanner_.setBounds(r.removeFromTop(42.0f).toNearestInt());
+            r.removeFromTop(kGap);
         }
+        const float rightW = juce::jlimit(280.0f, 340.0f, r.getWidth() * 0.4f);
+        rightCard_ = r.removeFromRight(rightW);
+        r.removeFromRight(kGap);
+        leftCard_ = r;
 
+        backdrop_.setBlobs({ { { -80.0f, -120.0f, 520.0f, 300.0f }, true },
+                             { { b.getWidth() - 300.0f, b.getHeight() - 280.0f, 420.0f, 340.0f }, false } });
+        backdrop_.setCards({ { header_, theme::radius::header }, { leftCard_, theme::radius::card }, { rightCard_, theme::radius::card } });
+
+        // header: wordmark, mode tabs, status | theme, settings
+        auto h = header_.withTrimmedLeft(20.0f).withTrimmedRight(11.0f);
+        settingsBtn_.setBounds(h.removeFromRight(36.0f).withSizeKeepingCentre(36.0f, 36.0f).toNearestInt());
+        h.removeFromRight(6.0f);
+        themeToggleBtn_.setBounds(h.removeFromRight(36.0f).withSizeKeepingCentre(36.0f, 36.0f).toNearestInt());
+        h.removeFromRight(12.0f);
+        wordmark_ = h.removeFromLeft(130.0f).withSizeKeepingCentre(130.0f, 30.0f);
+        h.removeFromLeft(14.0f);
+        const float segW = float(modeSwitch_.idealWidth());
+        modeSwitch_.setBounds(h.removeFromLeft(segW).withSizeKeepingCentre(segW, 36.0f).toNearestInt());
+        h.removeFromLeft(10.0f);
+        const float chipW = juce::jmin(h.getWidth(), float(statusChip_.idealWidth()) + 4.0f);
+        statusChip_.setBounds(h.removeFromRight(chipW).withSizeKeepingCentre(chipW, 34.0f).toNearestInt());
+        statusChip_.setVisible(chipW >= 90.0f);
+
+        // cards: title + caption painted, the rest scrolls
+        auto lc = leftCard_.reduced(20.0f, 18.0f);
+        leftTitle_ = lc.removeFromTop(20.0f + 3.0f + 17.0f);
+        lc.removeFromTop(14.0f);
+        leftScroll_.setBounds(lc.withTrimmedRight(-14.0f).toNearestInt());
+        auto rc = rightCard_.reduced(20.0f, 18.0f);
+        rightTitle_ = rc.removeFromTop(20.0f + 3.0f + 17.0f);
+        rc.removeFromTop(14.0f);
+        rightScroll_.setBounds(rc.withTrimmedRight(-14.0f).toNearestInt());
+        const auto fade = pal().paper.overlaidWith(pal().glass);
+        leftScroll_.setFadeColour(fade);
+        rightScroll_.setFadeColour(fade);
+
+        layoutBodies();
+    }
+
+    void layoutBodies() {
+        const int lw = leftScroll_.contentWidth(), rw = rightScroll_.contentWidth();
+        if (lw <= 0 || rw <= 0) return;
         if (appMode_ == AppMode::Singer) {
-            // Card 1: Join Row
-            linkInput_.setBounds(margin + 18, 130 + bannerOffset, contentW - 146, 38);
-            joinBtn_.setBounds(w - margin - 118, 130 + bannerOffset, 100, 38);
-
-            // Card 2: Audio & Mic
-            preflightBtn_.setBounds(w - margin - 128, 226 + bannerOffset, 110, 32);
-            micMeter_.setBounds(margin + 54, 272 + bannerOffset, contentW - 190, 8);
-            muteBtn_.setBounds(w - margin - 118, 258 + bannerOffset, 100, 34);
-            speakerModeSwitch_.setBounds(margin + 204, 298 + bannerOffset, 44, 22);
-
-            // Card 3: Sliders
-            const int sliderX = margin + 140;
-            const int sliderW = contentW - 160;
-            vocalSlider_.setBounds(sliderX, 402 + bannerOffset, sliderW, 22);
-            musicSlider_.setBounds(sliderX, 430 + bannerOffset, sliderW, 22);
-            reverbSlider_.setBounds(sliderX, 458 + bannerOffset, sliderW, 22);
-            echoSlider_.setBounds(sliderX, 486 + bannerOffset, sliderW, 22);
-            sendWetSwitch_.setBounds(margin + 170, 512 + bannerOffset, 44, 22);
+            leftBody_.setSize(lw, layoutSingerLeft(lw));
+            rightBody_.setSize(rw, layoutSingerRight(rw));
         } else {
-            // Host Mode Layout
-            // Card 1: Music Player
-            openFileBtn_.setBounds(margin + 16, 100 + bannerOffset, 110, 28);
-            captureAppBtn_.setBounds(margin + 134, 100 + bannerOffset, 180, 28);
-            prevBtn_.setBounds(margin + 322, 100 + bannerOffset, 28, 28);
-            playPauseBtn_.setBounds(margin + 356, 100 + bannerOffset, 84, 28);
-            stopBtn_.setBounds(margin + 446, 100 + bannerOffset, 56, 28);
-            nextBtn_.setBounds(margin + 508, 100 + bannerOffset, 28, 28);
-
-            // Card 2: Room Host & OBS
-            startStopRoomBtn_.setBounds(margin + 16, 218 + bannerOffset, 130, 32);
-            copyFriendLinkBtn_.setBounds(margin + 154, 218 + bannerOffset, 126, 32);
-            copyListenLinkBtn_.setBounds(margin + 288, 218 + bannerOffset, 126, 32);
-            recordRoomBtn_.setBounds(margin + 422, 218 + bannerOffset, 150, 32);
-
-            // Card 3: Friends Room (8 Slots)
-            const int colW = (contentW - 40) / 2;
-            for (int i = 0; i < 8; ++i) {
-                const int col = i / 4;
-                const int row = i % 4;
-                const int sx = margin + 16 + col * (colW + 16);
-                const int sy = 304 + bannerOffset + row * 31;
-
-                auto& c = friendSlotControls_[i];
-                c.meter->setBounds(sx + 136, sy + 7, colW - 270, 6);
-                c.muteBtn->setBounds(sx + colW - 124, sy, 52, 22);
-                c.kickBtn->setBounds(sx + colW - 68, sy, 36, 22);
-                c.copyBtn->setBounds(sx + colW - 28, sy, 22, 22);
-            }
-
-            // Card 4: Host Microphone & Monitor Balance
-            micMeter_.setBounds(margin + 48, 546 + bannerOffset, 100, 6);
-            muteBtn_.setBounds(w - margin - 100, 472 + bannerOffset, 84, 28);
-
-            const int sliderX = margin + 110;
-            const int sliderW = contentW - 230;
-            vocalSlider_.setBounds(sliderX, 476 + bannerOffset, sliderW, 20);
-            musicSlider_.setBounds(sliderX, 500 + bannerOffset, sliderW, 20);
-            reverbSlider_.setBounds(sliderX, 524 + bannerOffset, sliderW, 20);
-            echoSlider_.setBounds(sliderX, 548 + bannerOffset, sliderW, 20);
+            leftBody_.setSize(lw, layoutHostLeft(lw));
+            rightBody_.setSize(rw, layoutHostRight(rw));
         }
+    }
+
+    // Join: link + Join, live badges, your voice (hear rows, voice / music), effects
+    int layoutSingerLeft(int width) {
+        const float w = float(width);
+        float y = 2.0f;
+        const int joinW = 128;
+        linkInput_.setBounds(0, int(y), width - joinW - 8, 40);
+        joinBtn_.setBounds(width - joinW, int(y), joinW, 40);
+        y += 40.0f;
+        liveRow_ = {};
+        if (joinClient_.state() == ConnectionState::Live) {
+            y += 10.0f;
+            liveRow_ = { 0.0f, y, w, 22.0f };
+            y += 22.0f;
+        }
+        y += 20.0f;
+        divider1_ = { 0.0f, y, w, 1.0f };
+        y += 18.0f;
+        voiceTitle_ = { 0.0f, y, w, 20.0f };
+        y += 30.0f;
+        y = placeVoice(width, y);
+        y += 8.0f;
+        divider2_ = { 0.0f, y, w, 1.0f };
+        y += 18.0f;
+        fxTitle_ = { 0.0f, y, w, 20.0f };
+        y += 30.0f;
+        reverbField_.setBounds(0, int(y), width, reverbField_.idealHeight(width));
+        y += float(reverbField_.getHeight()) + 12.0f;
+        echoField_.setBounds(0, int(y), width, echoField_.idealHeight(width));
+        y += float(echoField_.getHeight()) + 16.0f;
+        sendWetRow_.setBounds(0, int(y), width, int(theme::layout::rowH));
+        y += theme::layout::rowH + 4.0f;
+        return juce::roundToInt(y);
+    }
+
+    // the two hear rows and the voice / music levels, from y; returns the new y
+    float placeVoice(int width, float y) {
+        hearSelfRow_.setBounds(0, int(y), width, int(theme::layout::rowH));
+        y += theme::layout::rowH + theme::space::rowGap;
+        othersHearRow_.setBounds(0, int(y), width, int(theme::layout::rowH));
+        y += theme::layout::rowH + 18.0f;
+        vocalField_.setBounds(0, int(y), width, vocalField_.idealHeight(width));
+        y += float(vocalField_.getHeight()) + 12.0f;
+        musicField_.setBounds(0, int(y), width, musicField_.idealHeight(width));
+        y += float(musicField_.getHeight()) + 10.0f;
+        return y;
+    }
+
+    // Ready: mic + Mute, meter, speaker mode, device, check, results, connection when live
+    int layoutSingerRight(int width) {
+        const float w = float(width);
+        float y = 2.0f;
+        placeMicRow(width, y);
+        y += 32.0f + 10.0f;
+        micMeter_.setBounds(0, int(y), width, 6);
+        y += 6.0f + 18.0f;
+        speakerRow_.setBounds(0, int(y), width, int(theme::layout::rowH));
+        y += theme::layout::rowH + 14.0f;
+        deviceBox_ = { 0.0f, y, w, 92.0f };
+        y += 92.0f + 14.0f;
+        preflightBtn_.setBounds(0, int(y), width, 44);
+        y += 44.0f + 14.0f;
+        const auto pf = preflight_.result();
+        const auto cap = uiFont(12.0f);
+        if (pf.leakStatus == LeakStatus::Untested) {
+            resultBox_ = { 0.0f, y, w, wrappedHeight(cap, checkHint(), w, 4.0f) };
+        } else {
+            resultBox_ = { 0.0f, y, w, 20.0f + 4.0f + wrappedHeight(cap, pf.advice, w, 4.0f) };
+        }
+        y += resultBox_.getHeight() + 16.0f;
+        connBox_ = {};
+        if (joinClient_.state() == ConnectionState::Live) {
+            connBox_ = { 0.0f, y, w, 12.0f + 18.0f + 4.0f * 22.0f + 10.0f };
+            y += connBox_.getHeight() + 8.0f;
+        }
+        return juce::roundToInt(y);
+    }
+
+    void placeMicRow(int width, float y) {
+        const int muteW = juce::jmax(muteBtn_.idealWidth(), 116);
+        micLabel_ = { 0.0f, y, float(width - muteW - 8), 32.0f };
+        muteBtn_.setBounds(width - muteW, int(y), muteW, 32);
+    }
+
+    // Room: open / record, copy links, 8 friend rows
+    int layoutHostLeft(int width) {
+        const float w = float(width);
+        float y = 2.0f;
+        const int half = (width - 8) / 2;
+        startStopRoomBtn_.setBounds(0, int(y), half, 40);
+        recordRoomBtn_.setBounds(half + 8, int(y), width - half - 8, 40);
+        y += 48.0f;
+        copyFriendLinkBtn_.setBounds(0, int(y), half, 36);
+        copyListenLinkBtn_.setBounds(half + 8, int(y), width - half - 8, 36);
+        y += 36.0f + 20.0f;
+        divider1_ = { 0.0f, y, w, 1.0f };
+        y += 18.0f;
+        friendsTitle_ = { 0.0f, y, w, 20.0f };
+        y += 30.0f;
+        for (int i = 0; i < 8; ++i) {
+            const auto row = juce::Rectangle<float>(0.0f, y, w, 50.0f);
+            friendRows_[size_t(i)] = row;
+            auto& c = friendSlotControls_[i];
+            auto r = row.reduced(10.0f, 0.0f).toNearestInt();
+            c.copyBtn->setBounds(r.removeFromRight(32).withSizeKeepingCentre(32, 32));
+            r.removeFromRight(6);
+            const int kw = c.kickBtn->idealWidth();
+            c.kickBtn->setBounds(r.removeFromRight(kw).withSizeKeepingCentre(kw, 30));
+            r.removeFromRight(6);
+            const int mw = juce::jmax(c.muteBtn->idealWidth(), 72);
+            c.muteBtn->setBounds(r.removeFromRight(mw).withSizeKeepingCentre(mw, 30));
+            r.removeFromRight(14);
+            r.removeFromLeft(150);
+            c.meter->setBounds(r.withSizeKeepingCentre(r.getWidth(), 4));
+            c.meter->setVisible(r.getWidth() >= 30 && appMode_ == AppMode::Host);
+            y += 50.0f + 6.0f;
+        }
+        return juce::roundToInt(y);
+    }
+
+    // Music + your voice: now playing, file / app, transport, mic + Mute, meter, hear rows, levels
+    int layoutHostRight(int width) {
+        const float w = float(width);
+        float y = 2.0f;
+        songLine_ = { 0.0f, y, w, 22.0f };
+        y += 30.0f;
+        openFileBtn_.setBounds(0, int(y), width, 34);
+        y += 34.0f + 8.0f;
+        captureAppBtn_.setBounds(0, int(y), width, 34);
+        y += 34.0f + 8.0f;
+        prevBtn_.setBounds(0, int(y), 34, 34);
+        nextBtn_.setBounds(width - 34, int(y), 34, 34);
+        const int stopW = 72;
+        stopBtn_.setBounds(width - 34 - 6 - stopW, int(y), stopW, 34);
+        playPauseBtn_.setBounds(40, int(y), width - 34 - 6 - stopW - 6 - 40, 34);
+        y += 34.0f + 20.0f;
+        divider2_ = { 0.0f, y, w, 1.0f };
+        y += 18.0f;
+        placeMicRow(width, y);
+        y += 32.0f + 10.0f;
+        micMeter_.setBounds(0, int(y), width, 6);
+        y += 6.0f + 18.0f;
+        y = placeVoice(width, y);
+        reverbField_.setBounds(0, int(y), width, reverbField_.idealHeight(width));
+        y += float(reverbField_.getHeight()) + 12.0f;
+        echoField_.setBounds(0, int(y), width, echoField_.idealHeight(width));
+        y += float(echoField_.getHeight()) + 6.0f;
+        return juce::roundToInt(y);
+    }
+
+    // ---- painting -------------------------------------------------------------------------------
+    struct Status { juce::String text; Dot dot; };
+
+    Status headerStatus() const {
+        if (appMode_ == AppMode::Singer) {
+            const auto cState = joinClient_.state();
+            const auto room = joinClient_.roomInfo();
+            if (cState == ConnectionState::Live) {
+                juce::String t = room.name.isNotEmpty() ? ("ในห้อง: "_th + room.name) : "ในห้อง (Live)"_th;
+                if (room.delayMs >= 0.0f) t += " (~" + juce::String(juce::roundToInt(room.delayMs)) + " ms)";
+                return { t, Dot::Ok };
+            }
+            if (cState == ConnectionState::Connecting || cState == ConnectionState::Resolving || cState == ConnectionState::Handshaking)
+                return { "กำลังต่อเข้าห้อง..."_th, Dot::Warn };
+            if (cState == ConnectionState::Reconnecting)
+                return { "กำลังเชื่อมต่อใหม่..."_th, Dot::Warn };
+            return { "พร้อมเข้าห้อง"_th, Dot::Muted };
+        }
+        if (roomHost_.isRoomRunning())
+            return { "เปิดห้องแล้ว (พอร์ต "_th + juce::String(roomHost_.serverPort()) + ")", Dot::Ok };
+        return { "ห้องยังไม่เปิด"_th, Dot::Muted };
+    }
+
+    static juce::String checkHint() { return "กด 'เช็กก่อนร้อง' เพื่อตรวจไมค์ เสียงลำโพงสะท้อน และสัญญาณเน็ต"_th; }
+
+    void paintCardTitle(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, const juce::String& caption) {
+        const auto& p = pal();
+        g.setColour(p.ink);
+        g.setFont(uiFont(theme::type::h2, Weight::SemiBold));
+        g.drawText(title, r.removeFromTop(20.0f), juce::Justification::centredLeft, true);
+        r.removeFromTop(3.0f);
+        g.setColour(p.graphite);
+        g.setFont(uiFont(12.5f));
+        g.drawText(ellipsize(uiFont(12.5f), caption, r.getWidth()), r, juce::Justification::centredLeft, false);
+    }
+
+    void paintSection(juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, const juce::String& right = {}) {
+        const auto& p = pal();
+        if (right.isNotEmpty()) {
+            g.setColour(p.graphite);
+            g.setFont(uiFont(12.0f, Weight::Medium));
+            g.drawText(right, r, juce::Justification::centredRight, false);
+        }
+        g.setColour(p.ink);
+        g.setFont(uiFont(14.0f, Weight::SemiBold));
+        g.drawText(title, r, juce::Justification::centredLeft, true);
+    }
+
+    void paint(juce::Graphics& g) override {
+        const auto& p = pal();
+        backdrop_.paint(g, getLocalBounds(), p, settings_->glassAlpha(), settings_->isDark());
+        drawWordmark(g, wordmark_, "KARAOKE", 14.0f, p.ink);
+        if (appMode_ == AppMode::Singer) {
+            paintCardTitle(g, leftTitle_, tr(Str::KaraokeJoinTitle), tr(Str::KaraokeJoinCap));
+            paintCardTitle(g, rightTitle_, tr(Str::KaraokeCheckTitle), tr(Str::KaraokeCheckCap));
+        } else {
+            paintCardTitle(g, leftTitle_, tr(Str::KaraokeYourRoom), tr(Str::KaraokeRoomCap));
+            paintCardTitle(g, rightTitle_, tr(Str::KaraokeHostMixTitle), tr(Str::KaraokeHostMixCap));
+        }
+    }
+
+    void paintLeftBody(juce::Graphics& g) {
+        const auto& p = pal();
+        g.setColour(p.hairline2);
+        g.fillRect(divider1_);
+        if (appMode_ == AppMode::Singer) {
+            if (!liveRow_.isEmpty()) {
+                const auto room = joinClient_.roomInfo();
+                float x = liveRow_.getX();
+                auto badge = [&](const juce::String& t, BadgeStyle s) {
+                    const float bw = badgeWidth(t, s);
+                    drawBadge(g, { x, liveRow_.getY(), bw, liveRow_.getHeight() }, t, s, p);
+                    x += bw + 6.0f;
+                };
+                badge(room.isUdp ? "UDP" : "WS", room.isUdp ? BadgeStyle::Ok : BadgeStyle::Chip);
+                badge(room.codec.isNotEmpty() ? room.codec.toUpperCase() : "OPUS", BadgeStyle::Chip);
+                if (room.delayMs >= 0.0f) badge(juce::String(juce::roundToInt(room.delayMs)) + " ms", BadgeStyle::Chip);
+            }
+            g.setColour(p.hairline2);
+            g.fillRect(divider2_);
+            paintSection(g, voiceTitle_, tr(Str::KaraokeYourVoice));
+            paintSection(g, fxTitle_, tr(Str::KaraokeEffects));
+            return;
+        }
+        int live = 0;
+        for (int i = 0; i < 8; ++i) live += roomHost_.slotInfo(i).isLive ? 1 : 0;
+        paintSection(g, friendsTitle_, tr(Str::KaraokeFriends), juce::String(live) + " / 8");
+        for (int i = 0; i < 8; ++i) {
+            const auto row = friendRows_[size_t(i)];
+            const auto info = roomHost_.slotInfo(i);
+            drawInset(g, row, theme::radius::row, p, info.isLive);
+            drawStatusDot(g, { row.getX() + 18.0f, row.getCentreY() }, info.isLive ? Dot::Ok : Dot::Muted, p);
+            const auto nameArea = juce::Rectangle<float>(row.getX() + 30.0f, row.getY(), 116.0f, row.getHeight());
+            g.setColour(info.isLive ? p.ink : p.muted);
+            g.setFont(uiFont(13.0f, info.isLive ? Weight::SemiBold : Weight::Medium));
+            const juce::String name = info.name.isNotEmpty() ? info.name : tr(Str::KaraokeSlot) + " " + juce::String(i + 1);
+            if (info.isLive && info.delayMs >= 0.0f) {
+                const juce::String d = juce::String(juce::roundToInt(info.delayMs)) + " ms";
+                const float bw = badgeWidth(d);
+                g.drawText(ellipsize(uiFont(13.0f, Weight::SemiBold), name, nameArea.getWidth() - bw - 8.0f), nameArea, juce::Justification::centredLeft, false);
+                const float nw = juce::jmin(textWidth(uiFont(13.0f, Weight::SemiBold), name), nameArea.getWidth() - bw - 8.0f);
+                drawBadge(g, { nameArea.getX() + nw + 6.0f, row.getCentreY() - 10.0f, bw, 20.0f }, d, BadgeStyle::Chip, p);
+            } else {
+                g.drawText(ellipsize(uiFont(13.0f, Weight::Medium), name, nameArea.getWidth()), nameArea, juce::Justification::centredLeft, false);
+            }
+        }
+    }
+
+    void paintRightBody(juce::Graphics& g) {
+        const auto& p = pal();
+        g.setColour(p.ink);
+        g.setFont(uiFont(13.0f, Weight::Medium));
+        g.drawText(appMode_ == AppMode::Singer ? tr(Str::KaraokeMic) : tr(Str::KaraokeYourVoice), micLabel_, juce::Justification::centredLeft, true);
+
+        if (appMode_ == AppMode::Host) {
+            juce::String song = "ยังไม่ได้เลือกเพลง (เล่นไฟล์ WAV/MP3 หรือดึงจากเบราว์เซอร์)"_th;
+            if (musicPlayer_.sourceMode() == MusicSourceMode::AudioFile) {
+                const int idx = musicPlayer_.currentTrackIndex();
+                if (idx >= 0 && idx < musicPlayer_.trackCount()) {
+                    const auto trk = musicPlayer_.trackAt(idx);
+                    const int curM = int(musicPlayer_.currentPositionSec()) / 60;
+                    const int curS = int(musicPlayer_.currentPositionSec()) % 60;
+                    const int lenM = int(trk.durationSec) / 60;
+                    const int lenS = int(trk.durationSec) % 60;
+                    song = trk.title + "  " + juce::String::formatted("%02d:%02d / %02d:%02d", curM, curS, lenM, lenS);
+                }
+            } else if (musicPlayer_.sourceMode() == MusicSourceMode::AppCapture) {
+                song = "ดึงเสียงจากแอป: "_th + musicPlayer_.capturedAppName();
+            }
+            const auto f = uiFont(13.0f, Weight::SemiBold);
+            g.setColour(musicPlayer_.isPlaying() ? p.ink : p.ink2);
+            g.setFont(f);
+            g.drawText(ellipsize(f, song, songLine_.getWidth()), songLine_, juce::Justification::centredLeft, false);
+            g.setColour(p.hairline2);
+            g.fillRect(divider2_);
+            return;
+        }
+
+        // audio device
+        drawInset(g, deviceBox_, 12.0f, p);
+        {
+            auto r = deviceBox_.reduced(14.0f, 12.0f);
+            g.setColour(p.muted);
+            g.setFont(uiFont(11.5f, Weight::Medium));
+            g.drawText(tr(Str::KaraokeDevice), r.removeFromTop(16.0f), juce::Justification::centredLeft, true);
+            r.removeFromTop(2.0f);
+            const auto nf = uiFont(13.0f, Weight::SemiBold);
+            g.setColour(p.ink);
+            g.setFont(nf);
+            const juce::String name = latency_.sampleRate > 0 ? latency_.deviceName : "ไม่มีอุปกรณ์เสียง (No audio device)"_th;
+            g.drawText(ellipsize(nf, name, r.getWidth()), r.removeFromTop(20.0f), juce::Justification::centredLeft, false);
+            if (latency_.sampleRate > 0) {
+                g.setColour(p.graphite);
+                g.setFont(uiFont(12.0f));
+                g.drawText(latency_.driverType + juce::String(juce::CharPointer_UTF8(" \xc2\xb7 ")) + juce::String(latency_.sampleRate / 1000) + " kHz"
+                           + juce::String(juce::CharPointer_UTF8(" \xc2\xb7 ")) + juce::String(latency_.bufferSize) + " smp",
+                           r.removeFromTop(18.0f), juce::Justification::centredLeft, true);
+                auto lat = r.removeFromTop(18.0f);
+                drawStatusDot(g, { lat.getX() + 4.0f, lat.getCentreY() }, latency_.totalMs <= 30.0 ? Dot::Ok : Dot::Warn, p, 6.0f);
+                g.setColour(p.ink2);
+                g.setFont(uiFont(12.0f, Weight::Medium));
+                g.drawText(tr(Str::KaraokeDelayHere) + " " + juce::String(latency_.totalMs, 1) + " ms", lat.withTrimmedLeft(14.0f), juce::Justification::centredLeft, true);
+            }
+        }
+
+        // check result
+        const auto pf = preflight_.result();
+        if (pf.leakStatus == LeakStatus::Untested) {
+            drawWrapped(g, checkHint(), uiFont(12.0f), p.graphite, resultBox_, 4.0f);
+        } else {
+            auto r = resultBox_;
+            auto top = r.removeFromTop(20.0f);
+            drawStatusDot(g, { top.getX() + 4.0f, top.getCentreY() }, pf.isReady ? Dot::Ok : Dot::Warn, p, 7.0f);
+            g.setColour(pf.isReady ? p.ok : p.ink);
+            g.setFont(uiFont(13.5f, Weight::SemiBold));
+            g.drawText(pf.summary, top.withTrimmedLeft(16.0f), juce::Justification::centredLeft, true);
+            r.removeFromTop(4.0f);
+            drawWrapped(g, pf.advice, uiFont(12.0f), p.graphite, r, 4.0f);
+        }
+
+        // connection while live
+        if (!connBox_.isEmpty()) {
+            const auto room = joinClient_.roomInfo();
+            g.setColour(p.hairline2);
+            g.drawRoundedRectangle(connBox_.reduced(0.5f), 12.0f, 1.0f);
+            auto r = connBox_.reduced(14.0f, 12.0f);
+            g.setColour(p.muted);
+            g.setFont(uiFont(11.5f, Weight::Medium));
+            g.drawText(tr(Str::KaraokeConnection) + "  " + room.transport, r.removeFromTop(18.0f), juce::Justification::centredLeft, true);
+            auto line = [&](const juce::String& k, const juce::String& v) {
+                auto l = r.removeFromTop(22.0f);
+                g.setColour(p.graphite);
+                g.setFont(uiFont(12.0f));
+                g.drawText(k, l, juce::Justification::centredLeft, false);
+                g.setColour(p.ink);
+                g.setFont(uiFont(12.0f, Weight::Medium));
+                g.drawText(v, l, juce::Justification::centredRight, false);
+            };
+            auto ms = [](float v) { return v >= 0.0f ? juce::String(juce::roundToInt(v)) + " ms" : juce::String("-"); };
+            line("Delay", ms(room.delayMs));
+            line("RTT", ms(room.rttMs));
+            line("Jitter p95", ms(room.jitterP95Ms));
+            line("Buffer", ms(room.bufferMs));
+        }
+    }
+
+    void setMicMuted(bool m) {
+        muteBtn_.setButtonText(tr(m ? Str::KaraokeMicIsOff : Str::KaraokeMicOff));
+        muteBtn_.setStyle(m ? GhostButton::Style::DangerSolid : GhostButton::Style::Ghost);
+    }
+
+    void updateValueTexts() {
+        auto db = [](double v) {
+            return v <= -30.0 + 1.0e-6 ? juce::String(juce::CharPointer_UTF8("\xe2\x88\x92\xe2\x88\x9e dB"))
+                                      : juce::String(v, 1).replace("-", juce::String(juce::CharPointer_UTF8("\xe2\x88\x92"))) + " dB";
+        };
+        vocalValue_.setText(db(vocalSlider_.getValue()));
+        musicValue_.setText(db(musicSlider_.getValue()));
+        reverbValue_.setText(juce::String(juce::roundToInt(reverbSlider_.getValue())) + " %");
+        echoValue_.setText(juce::String(juce::roundToInt(echoSlider_.getValue())) + " %");
     }
 
 private:
@@ -1077,30 +1204,33 @@ private:
     Overlay overlay_;
     UpdateChecker updateChecker_;
     UpdateBanner updateBanner_;
+    Backdrop backdrop_;
 
     SegmentedControl modeSwitch_;
     AppMode appMode_ = AppMode::Singer;
+    StatusChip statusChip_ { 34.0f };
 
     // Singer components
     TextField linkInput_;
     PrimaryButton joinBtn_;
     IconButton themeToggleBtn_;
     IconButton settingsBtn_;
-    MuteButton muteBtn_;
+    GhostButton muteBtn_ { tr(Str::KaraokeMicOff) };
+    MeterBar micMeter_;
     PrimaryButton preflightBtn_;
-    Switch speakerModeSwitch_;
+    ToggleRow speakerRow_ { icons::Icon::SpeakerOn };
 
     // Host components
-    GhostButton openFileBtn_{ "เลือกไฟล์เพลง" };
-    GhostButton captureAppBtn_{ "ดึงเสียงแอป (YouTube/Spotify)" };
+    GhostButton openFileBtn_{ "เลือกไฟล์เพลง"_th };
+    GhostButton captureAppBtn_{ "ดึงเสียงแอป (YouTube/Spotify)"_th };
     IconButton prevBtn_;
-    GhostButton playPauseBtn_{ "เล่น" };
-    GhostButton stopBtn_{ "หยุด" };
+    GhostButton playPauseBtn_{ "เล่น"_th };
+    GhostButton stopBtn_{ "หยุด"_th };
     IconButton nextBtn_;
     PrimaryButton startStopRoomBtn_;
-    GhostButton copyFriendLinkBtn_{ "คัดลอกลิงก์เพื่อน" };
-    GhostButton copyListenLinkBtn_{ "คัดลอกลิงก์คนฟัง" };
-    GhostButton recordRoomBtn_{ "อัดเสียงห้อง WAV" };
+    GhostButton copyFriendLinkBtn_{ "คัดลอกลิงก์เพื่อน"_th };
+    GhostButton copyListenLinkBtn_{ "คัดลอกลิงก์คนฟัง"_th };
+    GhostButton recordRoomBtn_{ "อัดเสียงห้อง WAV"_th };
     std::unique_ptr<juce::FileChooser> fileChooser_;
 
     struct SlotRowControls {
@@ -1111,12 +1241,28 @@ private:
     };
     std::array<SlotRowControls, 8> friendSlotControls_;
 
-    MeterBar micMeter_;
+    // Your voice (left card when joining, right card when hosting)
+    ToggleRow hearSelfRow_ { icons::Icon::Headphones };   // like "You hear" in the Track plug-in
+    ToggleRow othersHearRow_ { icons::Icon::Broadcast };  // like "Viewers hear"
+    ToggleRow sendWetRow_ { icons::Icon::Waveform };
     LevelSlider vocalSlider_;
     LevelSlider musicSlider_;
     LevelSlider reverbSlider_;
     LevelSlider echoSlider_;
-    Switch sendWetSwitch_;
+    TextLine vocalValue_ { 12.5f, Weight::Medium, TextLine::Tone::Ink2 };
+    TextLine musicValue_ { 12.5f, Weight::Medium, TextLine::Tone::Ink2 };
+    TextLine reverbValue_ { 12.5f, Weight::Medium, TextLine::Tone::Ink2 };
+    TextLine echoValue_ { 12.5f, Weight::Medium, TextLine::Tone::Ink2 };
+    Field vocalField_ { {}, &vocalSlider_, 20, &vocalValue_, 80 };
+    Field musicField_ { {}, &musicSlider_, 20, &musicValue_, 80 };
+    Field reverbField_ { {}, &reverbSlider_, 20, &reverbValue_, 80 };
+    Field echoField_ { {}, &echoSlider_, 20, &echoValue_, 80 };
+    std::atomic<bool> hearSelf_{ true };
+    std::atomic<bool> othersHear_{ true };
+
+    // cards
+    ScrollArea leftScroll_, rightScroll_;
+    PaintBody leftBody_, rightBody_;
 
     VocalChain vocalChain_;
     JoinClient joinClient_;
@@ -1139,7 +1285,14 @@ private:
 
     std::atomic<float> micPeak_{ 0.0f };
     float smoothedPeak_ = 0.0f;
-    juce::String deviceInfo_;
+    LatencyInfo latency_;
+    juce::String layoutKey_, chipText_;
+
+    // painted geometry (content / body coordinates)
+    juce::Rectangle<float> header_, wordmark_, leftCard_, rightCard_, leftTitle_, rightTitle_;
+    juce::Rectangle<float> liveRow_, divider1_, divider2_, voiceTitle_, fxTitle_, micLabel_, deviceBox_, resultBox_, connBox_;
+    juce::Rectangle<float> friendsTitle_, songLine_;
+    std::array<juce::Rectangle<float>, 8> friendRows_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KaraokeContent)
 };
@@ -1149,6 +1302,7 @@ MainWindow::MainWindow()
                      theme::dark().paper,
                      DocumentWindow::allButtons) {
     setLookAndFeel(&lnf_);
+    juce::LookAndFeel::setDefaultLookAndFeel(&lnf_);   // the Audio Settings window gets the same frame
     lnf_.setDark(settings_->isDark());
     setBackgroundColour(lnf_.pal().paper);
     settings_->addChangeListener(this);
@@ -1160,14 +1314,15 @@ MainWindow::MainWindow()
     setContentNonOwned(content_.get(), false);
 
     setUsingNativeTitleBar(false);
+    setTitleBarHeight(KaraokeLookAndFeel::kTitleBarH);
     setResizable(true, true);
-    setResizeLimits(680, 580, 1920, 1080);
+    setResizeLimits(760, 560, 1920, 1080);
 
     const auto saved = settings_->windowSize("karaoke");
-    if (saved.x >= 680 && saved.y >= 580) {
+    if (saved.x >= 760 && saved.y >= 560) {
         setSize(saved.x, saved.y);
     } else {
-        setSize(780, 600);
+        setSize(860, 640);
     }
 
     centreWithSize(getWidth(), getHeight());
@@ -1179,6 +1334,7 @@ MainWindow::~MainWindow() {
     settings_->removeChangeListener(this);
     clearContentComponent();
     content_.reset();
+    juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
     setLookAndFeel(nullptr);
 }
 

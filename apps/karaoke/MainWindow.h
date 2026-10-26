@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Components.h"
+#include "KaraokeLookAndFeel.h"
 #include "Controls.h"
 #include "LookAndFeel.h"
 #include "Overlay.h"
@@ -34,7 +35,7 @@ private:
     void applyTheme(bool dark);
 
     SharedSettings settings_;
-    hearaside::LookAndFeel lnf_;
+    KaraokeLookAndFeel lnf_;
     juce::AudioDeviceManager deviceManager_;
     std::unique_ptr<KaraokeContent> content_;
 

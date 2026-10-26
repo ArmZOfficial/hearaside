@@ -437,6 +437,12 @@ TEST_CASE("karaoke: RoomHost bus initialization, friend slot management, streamA
     CHECK(hpL[0] > 0.25f);
     CHECK(hpR[0] > 0.25f);
 
+    // "Hear yourself" off: music only in the headphones; "Others hear you" off leaves the headphones alone
+    host.processAudio(vocL.data(), vocR.data(), musL.data(), musR.data(), hpL.data(), hpR.data(), 256, false, true);
+    CHECK(std::abs(hpL[0] - 0.1f) < 1e-6f);
+    host.processAudio(vocL.data(), vocR.data(), musL.data(), musR.data(), hpL.data(), hpR.data(), 256, true, false);
+    CHECK(std::abs(hpL[0] - 0.3f) < 1e-6f);
+
     // Master WAV Recording
     const juce::File tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
     const juce::File recFile = tempDir.getNonexistentChildFile("test_host_rec", ".wav");

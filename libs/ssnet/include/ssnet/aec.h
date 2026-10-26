@@ -56,7 +56,13 @@ public:
 
     // Flag indicating whether acoustic leak was detected
     bool leakDetected() const noexcept { return leakDetected_; }
-    void setLeakDetected(bool detected) noexcept { leakDetected_ = detected; }
+    // Called by the Hub at 20 Hz. Auto switches on after kLeakLatchTicks leak readings in a row and stays on until
+    // init()/reset(): the detector hears the mic after cancelling, so a working canceller would switch itself off again.
+    void setLeakDetected(bool detected) noexcept {
+        leakRun_ = detected ? leakRun_ + 1 : 0;
+        if (leakRun_ >= kLeakLatchTicks) leakDetected_ = true;
+    }
+    static constexpr int kLeakLatchTicks = 40;   // 2 s
 
     int sampleRate() const noexcept { return sampleRate_; }
     int frameSize() const noexcept { return frameSize_; }
@@ -69,6 +75,7 @@ private:
     int filterLength_ { 9600 };
     AecMode mode_ { AecMode::Auto };
     bool leakDetected_ { false };
+    int leakRun_ { 0 };
     float erleDb_ { 0.0f };
 
     SpeexEchoState_* echoState_ { nullptr };

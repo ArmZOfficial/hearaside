@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "Utf8.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -24,9 +25,9 @@ public:
     void mouseUp(const juce::MouseEvent& e) override {
         if (e.mods.isPopupMenu()) {
             juce::PopupMenu m;
-            m.addItem(1, "เปิด HAS Karaoke");
+            m.addItem(1, "เปิด HAS Karaoke"_th);
             m.addSeparator();
-            m.addItem(2, "ออกจากโปรแกรม");
+            m.addItem(2, "ออกจากโปรแกรม"_th);
             m.showMenuAsync(juce::PopupMenu::Options(), [this](int r) {
                 if (r == 1 && onToggle_) onToggle_();
                 else if (r == 2 && onQuit_) onQuit_();

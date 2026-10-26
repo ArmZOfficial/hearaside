@@ -476,6 +476,7 @@ TEST_CASE("karaoke: UpdateChecker semver comparison") {
 
     // Newer remote versions
     CHECK(UpdateChecker::compareVersions("1.0.6", "1.0.5") == 1);
+    CHECK(UpdateChecker::compareVersions("1.0.10", "1.0.9") == 1);   // numbers, not text
     CHECK(UpdateChecker::compareVersions("1.1.0", "1.0.5") == 1);
     CHECK(UpdateChecker::compareVersions("2.0.0", "1.99.99") == 1);
     CHECK(UpdateChecker::compareVersions("1.0.5.1", "1.0.5") == 1);

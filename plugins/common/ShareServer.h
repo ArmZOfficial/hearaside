@@ -35,6 +35,7 @@ public:
     bool running() const noexcept { return running_.load(); }
     int port() const noexcept { return port_; }
     juce::String lanBase() const;                       // http://192.168.1.5:47810
+    juce::String radminBase() const;                    // http://26.x.x.x:47810 while Radmin VPN is up, else ""
     juce::String publicBase() const;                    // https://xxxx.trycloudflare.com, "" = none
     juce::String listenUrl() const;                     // best link: public if ready, else LAN ("" while the tunnel starts)
     // Cloudflare first: while the tunnel is starting the links are "" (a LAN link copied then never
@@ -71,6 +72,7 @@ public:
     void setListenToken(const juce::String& token);
     bool listenEnabled() const noexcept { return listenEnabled_.load(); }
     juce::String friendUrl(const juce::String& token) const;     // best link: public if ready, else LAN
+    juce::String radminFriendUrl(const juce::String& token) const;   // over Radmin VPN (HAS Karaoke: browsers need https for the mic)
     int friendsConnected() const noexcept { return friendsLive_.load(); }
 
     // What the line to one friend does (0.2): round trip from the page's pong (median of the last few), the

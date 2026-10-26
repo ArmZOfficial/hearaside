@@ -3,7 +3,7 @@
 #include <juce_events/juce_events.h>
 
 #ifndef HEARASIDE_VERSION
-#define HEARASIDE_VERSION "1.0.9"
+#define HEARASIDE_VERSION "1.0.10"
 #endif
 
 namespace hearaside::karaoke {

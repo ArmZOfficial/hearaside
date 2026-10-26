@@ -72,7 +72,7 @@ enum class Str {
     FineSettingsEllipsis, RenamedToast, RenameRevertToast, ViewersDelayBadge, RecordingBadge, ProgramCaption,
     ChooseProgramAria, CaptureProgram, PrintToFile, StopRecording, RecordWithDaw, OpenRecordings,
     WholeComputerShort, AppOffShort, FriendsTitle, FriendsCount, FriendsCaption, FriendsCaptionNoLineUp,
-    FriendsEmptyCaption, FriendLive, FriendSinging, FriendWaiting, FriendNotOpened, FriendOffline, CopyFriendLink,
+    FriendsEmptyCaption, FriendLive, FriendSinging, FriendWaiting, FriendNotOpened, FriendOffline, CopyFriendLink, CopyRadminLink, CopiedRadminLink,
     CopiedFriendLink, MeasureAgain, MeasureDelayAgain, MeasuredToast, RecordInDaw, AddFriend, RemoveFriend,
     SpreadOut, OnlyViewersLabel, SilentLufs, TabTracks, TabLevels, TabSummary, SlidersSet, ProgramsCount,
     FriendsCountShort, CompactSummary, CompactSummaryMuted, MoreMenuAria, ObsShort, ObsAriaCompact, SharePageTitle,

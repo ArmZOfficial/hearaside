@@ -1,11 +1,16 @@
 {
-    "version":  "1.0.9",
+    "version":  "1.0.10",
     "date":  "26 Oct 2026",
-    "installer":  "/downloads/HEARASIDE-Setup-1.0.9.exe",
+    "installer":  "/downloads/HEARASIDE-Setup-1.0.10.exe",
     "sizeMb":  "24.4",
-    "sha256":  "b1df5e676e368d71ff69efbf59a82231174ce423bb0324cf4e8f85882095f2bc",
+    "sha256":  "b4dc228313189348acb47d4a17a8d31d2b6ed295c4af946464d06cf83a7ebd59",
     "obsMin":  "32",
     "notes":  [
+                  {
+                      "version":  "1.0.10",
+                      "en":  "Radmin VPN: the Hub's friend menu can copy a Radmin VPN link for HAS Karaoke, so friends in the same Radmin network connect straight to the Hub without the internet tunnel. The installer allows the Hub's ports in Windows Firewall for the local network and Radmin VPN only, and the Hub's WebRTC now uses a fixed UDP port range.",
+                      "th":  "Radmin VPN: เมนูเพื่อนใน Hub คัดลอกลิงก์ Radmin VPN สำหรับ HAS Karaoke ได้ เพื่อนที่อยู่วง Radmin เดียวกันจะต่อตรงเข้า Hub โดยไม่ผ่าน tunnel อินเทอร์เน็ต ตัวติดตั้งเปิดพอร์ตของ Hub ใน Windows Firewall ให้เฉพาะเครือข่ายในบ้านและ Radmin VPN และ WebRTC ของ Hub ใช้ช่วงพอร์ต UDP ตายตัวแล้ว"
+                  },
                   {
                       "version":  "1.0.9",
                       "en":  "Streamlabs Desktop: one HEARASIDE source for OBS and Streamlabs that adapts to Streamlabs' audio engine (an unknown Streamlabs version gets no source instead of a crash), and an optional hidden check that puts HEARASIDE back after Streamlabs updates. Fixes a 1.0.8 issue that could put an older Streamlabs file back after a Streamlabs update.",
@@ -58,7 +63,7 @@
                   }
               ],
     "vst2":  true,
-    "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.9.exe",
+    "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.10.exe",
     "karaokeSizeMb":  "8.2",
-    "karaokeSha256":  "32ea61922fe69eb62384d573ad5eb960f4193e54d042dbd225595af8ef4400b3"
+    "karaokeSha256":  "5788c2fe2f37b4f30fab2d5974e14e4ee43b8978386cf7a5822b1dcd1d41e1b6"
 }

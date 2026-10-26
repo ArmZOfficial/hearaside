@@ -593,6 +593,11 @@ juce::String HubProcessor::friendLink(uint32_t id) const {
     return share_.running() ? share_.friendUrl(t) : juce::String();
 }
 
+juce::String HubProcessor::friendRadminLink(uint32_t id) const {
+    const auto t = friendRoom_.token(id);
+    return t.isEmpty() || !share_.running() ? juce::String() : share_.radminFriendUrl(t);
+}
+
 juce::String HubProcessor::newFriendLink(uint32_t id) {
     const auto slot = friendRoom_.slotOf(id);
     const auto t = friendRoom_.newLink(id);

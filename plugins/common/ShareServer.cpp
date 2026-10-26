@@ -488,6 +488,13 @@ juce::String ShareServer::lanBase() const {
     return "http://" + best + ":" + juce::String(port_);
 }
 
+// Radmin VPN gives every machine in its networks an address in 26.0.0.0/8
+juce::String ShareServer::radminBase() const {
+    for (const auto& a : juce::IPAddress::getAllAddresses(false))
+        if (a.address[0] == 26) return "http://" + a.toString() + ":" + juce::String(port_);
+    return {};
+}
+
 juce::String ShareServer::publicBase() const {
     const std::lock_guard<std::mutex> lock(urlMutex_);
     return publicBase_;
@@ -527,6 +534,11 @@ juce::String ShareServer::sendUrl() const {
 juce::String ShareServer::friendUrl(const juce::String& token) const {
     const auto b = linkBase();
     return b.isEmpty() ? juce::String() : b + "/s/" + token;
+}
+
+juce::String ShareServer::radminFriendUrl(const juce::String& token) const {
+    const auto b = radminBase();
+    return b.isEmpty() || port_ == 0 ? juce::String() : b + "/s/" + token;
 }
 
 void ShareServer::setFriendLinks(std::vector<FriendLink> links) {
@@ -714,6 +726,8 @@ void ShareServer::streamTo(Conn& c) {
     int idle = 0;
 
     ssnet::RtcPeerConfig rtcConfig;
+    rtcConfig.portRangeBegin = ssnet::kHubUdpFirst;
+    rtcConfig.portRangeEnd = ssnet::kHubUdpLast;
     rtcConfig.iceServers.push_back({ "stun:stun.cloudflare.com:3478", "", "" });
     rtcConfig.iceServers.push_back({ "stun:stun.l.google.com:19302", "", "" });
     auto rtcPeer = std::make_shared<ssnet::RtcPeer>(rtcConfig);
@@ -1010,6 +1024,8 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
     bool lastSeqValid = false;
 
     ssnet::RtcPeerConfig rtcConfig;
+    rtcConfig.portRangeBegin = ssnet::kHubUdpFirst;
+    rtcConfig.portRangeEnd = ssnet::kHubUdpLast;
     rtcConfig.iceServers.push_back({ "stun:stun.cloudflare.com:3478", "", "" });
     rtcConfig.iceServers.push_back({ "stun:stun.l.google.com:19302", "", "" });
     out.rtcPeer = std::make_shared<ssnet::RtcPeer>(rtcConfig);

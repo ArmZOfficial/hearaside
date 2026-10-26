@@ -3,7 +3,7 @@
 ; AppId never changes, so a newer installer upgrades the old one in place.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.9"
+  #define AppVersion "1.0.10"
 #endif
 #ifndef BuildDir
   #error BuildDir is required (use build-installer.ps1)
@@ -244,10 +244,34 @@ begin
 #endif
 end;
 
+// Windows Firewall: the Hub's TCP ports (pages, WebSocket) and its WebRTC UDP ports (libs/ssnet rtc.h
+// kHubUdpFirst..kHubUdpLast), only from the local network and Radmin VPN (26.0.0.0/8)
+procedure SetHubFirewall(Wanted: Boolean);
+var
+  Netsh: string;
+  Code: Integer;
+begin
+  Netsh := ExpandConstant('{sys}\netsh.exe');
+  Exec(Netsh, 'advfirewall firewall delete rule name="HEARASIDE Hub (TCP)"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(Netsh, 'advfirewall firewall delete rule name="HEARASIDE Hub (UDP)"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if not Wanted then exit;
+  Exec(Netsh, 'advfirewall firewall add rule name="HEARASIDE Hub (TCP)" dir=in action=allow protocol=TCP localport=47810-47829 remoteip=localsubnet,26.0.0.0/8 profile=any',
+       '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(Netsh, 'advfirewall firewall add rule name="HEARASIDE Hub (UDP)" dir=in action=allow protocol=UDP localport=47830-47999 remoteip=localsubnet,26.0.0.0/8 profile=any',
+       '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
 begin
+  // friends on the same network or in Radmin VPN connect straight to the Hub
+  if CurStep = ssPostInstall then
+#ifdef WithVst2
+    SetHubFirewall(WizardIsComponentSelected('vst3') or WizardIsComponentSelected('vst2'));
+#else
+    SetHubFirewall(WizardIsComponentSelected('vst3'));
+#endif
 #ifdef WithStreamlabs
   if (CurStep = ssPostInstall) and WizardIsComponentSelected('streamlabs') then
     if not Exec(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe'),
@@ -346,6 +370,7 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
+    SetHubFirewall(False);
     // put Streamlabs back before its tool is removed, and stop the task that would patch it again
     Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "\HEARASIDE\Streamlabs repair" /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
     if FileExists(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe')) then

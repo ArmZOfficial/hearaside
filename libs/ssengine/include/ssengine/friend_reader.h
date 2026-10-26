@@ -22,15 +22,14 @@ public:
     // message thread: allocates (resamplers for the friend's 48 / 44.1 kHz or our own rate)
     void prepare(double sampleRate, int maxBlock);
     // audio thread: forget the position (a new friend, or after a gap): the next pull starts safe
-    void reset() noexcept { primed_ = false; key_ = 0; muted_ = false; played_ = false; underruns_ = reprimes_ = 0; concealedMs_ = 0; p95Ms_ = -1.0; }
+    void reset() noexcept { primed_ = false; key_ = 0; muted_ = false; played_ = false; underruns_ = reprimes_ = 0; concealedMs_ = 0; p95Ms_ = -1.0; skipWaitSec_ = 0; }
 
     // audio thread. Fills out[0..1] with n frames. false = nothing to play (the friend is not sending, or
     // not enough audio has arrived yet): out is silence. `rate` is the friend's sample rate.
     bool pull(const ssbus::ChannelRing& ring, const std::atomic<uint64_t>& writePos, uint32_t rate, float* const* out, int n) noexcept;
 
     double bufferMs() const noexcept { return bufferMs_; }   // the jitter buffer in use right now
-    bool   primed() const noexcept { return primed_; }
-    // 0.1 metrics (audio thread, no allocation): short gaps concealed, silence played after the first sound,
+    bool   primed() const noexcept { return primed_; }    // 0.1 metrics (audio thread, no allocation): short gaps concealed, silence played after the first sound,
     // and the p95 of how late data arrives against a steady flow over the last ~5 s (ms, -1 = not enough data yet)
     uint32_t underruns() const noexcept { return underruns_; }
     uint32_t reprimes() const noexcept { return reprimes_; }   // long gaps and overruns while playing: restarts with a new position
@@ -46,10 +45,12 @@ private:
     void observe(uint64_t w, double fr, double dt) noexcept;
     double idealTarget(double fr) const noexcept;
     double halfPacket(double fr) const noexcept;
+    static uint64_t quietRun(const ssbus::ChannelRing& ring, uint64_t from, uint64_t maxFrames) noexcept;
     uint64_t cursor_ = 0, lastWrite_ = 0, starvedAt_ = 0, base_ = 0;
     uint32_t key_ = 0;
     bool primed_ = false, muted_ = false, played_ = false;
     double target_ = 0, blockFr_ = 0, fillAvg_ = 0, sinceWrite_ = 0, minMargin_ = 1.0e9, windowSec_ = 0, holdSec_ = 0, bufferMs_ = 0;
+    double skipWaitSec_ = 0;   // how long the buffer has been over its target without a silent stretch to drop
     // a short gap: cursor_ stays put, the output is silence (faded in / out) until a whole block is there again
     double mutedOut_ = 0, missing_ = 0;   // silent output frames so far / input frames missing when it began
     int fadeLeft_ = 0;

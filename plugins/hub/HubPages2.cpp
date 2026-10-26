@@ -593,7 +593,10 @@ public:
         presetDropdown_.setBounds(head.removeFromRight(pw).withSizeKeepingCentre(pw, 32.0f).toNearestInt());
         head.removeFromRight(8.0f);
         add_.setBounds(head.removeFromRight(float(add_.idealWidth())).toNearestInt());
-        if (head.getWidth() > 220.0f) {
+        // the painted title + count badge keep their room; the spread button only takes what is left
+        const float titleW = textWidth(uiFont(20.0f, Weight::SemiBold), tr(Str::FriendsTitle)) + 2.0f + 12.0f
+                             + textWidth(uiFont(12.0f, Weight::Medium), trf(Str::FriendsCount, { juce::String(8) })) + 20.0f;
+        if (head.getWidth() >= titleW + 8.0f + float(spread_.idealWidth())) {
             head.removeFromRight(8.0f);
             spread_.setBounds(head.removeFromRight(float(spread_.idealWidth())).toNearestInt());
             spread_.setVisible(true);
@@ -661,7 +664,8 @@ public:
             h.removeFromLeft(12.0f);
             const auto count = trf(Str::FriendsCount, { juce::String(proc.friendCount()) });
             const float cw = textWidth(uiFont(12.0f, Weight::Medium), count) + 20.0f;
-            drawBadge(g, h.removeFromLeft(cw).withSizeKeepingCentre(cw, 24.0f), count, BadgeStyle::Chip, p);
+            if (h.getWidth() >= cw)   // a very narrow window: the title alone
+                drawBadge(g, h.removeFromLeft(cw).withSizeKeepingCentre(cw, 24.0f), count, BadgeStyle::Chip, p);
 
             // Line up
             drawInset(g, lineBox_, 16.0f, p);

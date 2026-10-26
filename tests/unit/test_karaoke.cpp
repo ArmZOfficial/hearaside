@@ -7,6 +7,7 @@
 #include "MusicPlayer.h"
 #include "RoomHost.h"
 #include "UpdateChecker.h"
+#include "HasAsio.h"
 #include "ShareServer.h"
 #include "ssbus/bus.h"
 #include "ssnet/wire.h"
@@ -492,3 +493,25 @@ TEST_CASE("karaoke: UpdateChecker semver comparison") {
     CHECK(UpdateChecker::compareVersions("1.0.0", "") == 1);
 }
 
+TEST_CASE("karaoke: ASIO host sample formats round-trip through float") {
+    const float in[6] = { 0.0f, 0.5f, -0.5f, 0.999f, -1.0f, 1.5f };   // 1.5 must clip, not wrap
+    for (long type : { 16L, 17L, 18L, 19L, 20L, 24L, 25L, 26L, 27L }) {
+        const int bytes = asio::bytesPerSample(type);
+        CHECK(bytes > 0);
+        std::vector<unsigned char> raw(size_t(bytes) * 6);
+        float back[6] = {};
+        CHECK(asio::fromFloat(type, in, raw.data(), 6));
+        CHECK(asio::toFloat(type, raw.data(), back, 6));
+        const float tol = asio::bitDepth(type) <= 16 ? 1.0e-4f : 1.0e-5f;
+        for (int i = 0; i < 5; ++i) CHECK(std::abs(back[i] - in[i]) < tol);
+        CHECK(back[5] > 0.99f && back[5] <= 1.0f);
+    }
+    // 24-bit packed: a negative sample keeps its sign
+    const unsigned char neg[3] = { 0x00, 0x00, 0x80 };   // -2^23 = -1.0
+    float v = 0.0f;
+    CHECK(asio::toFloat(17, neg, &v, 1));
+    CHECK(std::abs(v + 1.0f) < 1.0e-6f);
+    CHECK(asio::bytesPerSample(3) == 0);   // big-endian / unknown types are refused
+    float dummy = 0.0f;
+    CHECK(!asio::toFloat(3, neg, &dummy, 1));
+}

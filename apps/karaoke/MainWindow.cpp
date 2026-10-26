@@ -2,6 +2,7 @@
 #include "Utf8.h"
 #include "AudioSettings.h"
 #include "Backdrop.h"
+#include "HasAsio.h"
 #include "JoinClient.h"
 #include "MusicPlayer.h"
 #include "PreflightChecker.h"
@@ -569,6 +570,26 @@ public:
             const double rate = dev->getCurrentSampleRate();
             const int buf = dev->getCurrentBufferSizeSamples();
             sampleRate_ = rate > 0 ? rate : 48000.0;
+            // the mic goes out as 48 kHz Opus without resampling: move a 44.1 kHz interface (often ASIO) to
+            // 48 kHz, once per device so a driver that refuses can't loop. shortcut: no mic resampler, add one
+            // (ssdsp::VarResampler, device rate -> 48k in pushUpstream) if an interface without 48 kHz turns up
+            if (rate > 0 && rate != 48000.0) {
+                const bool has48 = dev->getAvailableSampleRates().contains(48000.0);
+                const auto name = dev->getName();
+                juce::Component::SafePointer<KaraokeContent> sp(this);
+                juce::MessageManager::callAsync([sp, has48, name] {
+                    if (sp == nullptr) return;
+                    if (has48 && sp->tried48For_ != name) {
+                        sp->tried48For_ = name;
+                        auto setup = sp->deviceManager_.getAudioDeviceSetup();
+                        setup.sampleRate = 48000.0;
+                        sp->deviceManager_.setAudioDeviceSetup(setup, true);
+                        sp->overlay_.toast("ตั้ง "_th + name + " เป็น 48 kHz ให้แล้ว"_th, 2500);
+                    } else {
+                        sp->overlay_.toast(name + " ไม่ได้ใช้ 48 kHz เพื่อนจะได้ยินเสียงเพี้ยน ตั้ง 48 kHz ในตั้งค่าเสียง"_th, 4000);
+                    }
+                });
+            }
 
             vocalChain_.prepare(sampleRate_, buf);
             joinClient_.prepare(sampleRate_, buf);
@@ -1271,6 +1292,7 @@ private:
     RoomHost roomHost_;
 
     double sampleRate_ = 48000.0;
+    juce::String tried48For_;   // the device already asked for 48 kHz
     float vocalGainLinear_ = 1.0f;
     float musicGainLinear_ = 1.0f;
     uint64_t timelineCounter_ = 0;
@@ -1306,6 +1328,10 @@ MainWindow::MainWindow()
     lnf_.setDark(settings_->isDark());
     setBackgroundColour(lnf_.pal().paper);
     settings_->addChangeListener(this);
+
+    // JUCE's own device types first (adding one before that would skip them), then our ASIO host
+    deviceManager_.getAvailableDeviceTypes();
+    if (auto asioType = asio::createDeviceType()) deviceManager_.addAudioDeviceType(std::move(asioType));
 
     // Initialise audio device manager from saved settings or defaults
     AudioSettings::loadState(deviceManager_, settings_);

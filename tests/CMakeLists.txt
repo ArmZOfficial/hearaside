@@ -45,6 +45,7 @@ if(HEARASIDE_BUILD_KARAOKE)
         ${CMAKE_SOURCE_DIR}/apps/karaoke/MusicPlayer.cpp
         ${CMAKE_SOURCE_DIR}/apps/karaoke/RoomHost.cpp
         ${CMAKE_SOURCE_DIR}/apps/karaoke/UpdateChecker.cpp
+        ${CMAKE_SOURCE_DIR}/apps/karaoke/HasAsio.cpp
         ${CMAKE_SOURCE_DIR}/plugins/app/AppCapture.cpp
     )
     target_include_directories(hearaside_karaoke_test PRIVATE

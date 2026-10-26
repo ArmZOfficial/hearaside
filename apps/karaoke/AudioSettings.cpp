@@ -74,7 +74,7 @@ public:
                        juce::Justification::centredLeft);
         } else {
             drawStatusDot(g, juce::Point<float>(bannerArea.getX() + 14.0f, bannerArea.getCentreY()), Dot::Warn, pal_);
-            g.drawText(latText + " (แนะนำ Exclusive หรือ buffer เล็ก)"_th,
+            g.drawText(latText + " (แนะนำ HAS Direct, Exclusive หรือ buffer เล็ก)"_th,
                        juce::Rectangle<float>(bannerArea.getX() + 26.0f, bannerArea.getY(), bannerArea.getWidth() - 30.0f, bannerArea.getHeight()),
                        juce::Justification::centredLeft);
         }

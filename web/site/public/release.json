@@ -3,13 +3,13 @@
     "date":  "26 Oct 2026",
     "installer":  "/downloads/HEARASIDE-Setup-1.0.10.exe",
     "sizeMb":  "24.4",
-    "sha256":  "b4dc228313189348acb47d4a17a8d31d2b6ed295c4af946464d06cf83a7ebd59",
+    "sha256":  "c1372a1107ad21f89b8120cefb7e6ebda3d89b3a24b4ebadf321fa9eb05d7fbe",
     "obsMin":  "32",
     "notes":  [
                   {
                       "version":  "1.0.10",
-                      "en":  "Radmin VPN: the Hub's friend menu can copy a Radmin VPN link for HAS Karaoke, so friends in the same Radmin network connect straight to the Hub without the internet tunnel. The installer allows the Hub's ports in Windows Firewall for the local network and Radmin VPN only, and the Hub's WebRTC now uses a fixed UDP port range.",
-                      "th":  "Radmin VPN: เมนูเพื่อนใน Hub คัดลอกลิงก์ Radmin VPN สำหรับ HAS Karaoke ได้ เพื่อนที่อยู่วง Radmin เดียวกันจะต่อตรงเข้า Hub โดยไม่ผ่าน tunnel อินเทอร์เน็ต ตัวติดตั้งเปิดพอร์ตของ Hub ใน Windows Firewall ให้เฉพาะเครือข่ายในบ้านและ Radmin VPN และ WebRTC ของ Hub ใช้ช่วงพอร์ต UDP ตายตัวแล้ว"
+                      "en":  "Radmin VPN: the Hub can copy a Radmin VPN link for HAS Karaoke (the friend's menu, or the Radmin button on the Share page), so friends in the same Radmin network connect straight to the Hub without the internet tunnel. The installer allows the Hub's ports in Windows Firewall for the local network and Radmin VPN only, and the Hub's WebRTC now uses a fixed UDP port range. HAS Karaoke: new HAS Direct audio type that uses an audio interface's own low-latency driver, and a 44.1 kHz device is switched to 48 kHz so friends hear the right pitch. Share page: the friends header no longer overlaps.",
+                      "th":  "Radmin VPN: Hub คัดลอกลิงก์ Radmin VPN สำหรับ HAS Karaoke ได้ (เมนูของเพื่อน หรือปุ่ม Radmin ในหน้าแชร์) เพื่อนที่อยู่วง Radmin เดียวกันจะต่อตรงเข้า Hub โดยไม่ผ่าน tunnel อินเทอร์เน็ต ตัวติดตั้งเปิดพอร์ตของ Hub ใน Windows Firewall ให้เฉพาะเครือข่ายในบ้านและ Radmin VPN และ WebRTC ของ Hub ใช้ช่วงพอร์ต UDP ตายตัวแล้ว HAS Karaoke: เพิ่มชนิดเสียง HAS Direct ใช้ไดรเวอร์ latency ต่ำของ audio interface ได้โดยตรง และอุปกรณ์ที่ตั้ง 44.1 kHz จะถูกเปลี่ยนเป็น 48 kHz ให้เอง เพื่อนจะได้ยินเสียงไม่เพี้ยน หน้าแชร์: หัวข้อเพื่อนไม่ซ้อนกันแล้ว"
                   },
                   {
                       "version":  "1.0.9",
@@ -65,5 +65,5 @@
     "vst2":  true,
     "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.10.exe",
     "karaokeSizeMb":  "8.2",
-    "karaokeSha256":  "5788c2fe2f37b4f30fab2d5974e14e4ee43b8978386cf7a5822b1dcd1d41e1b6"
+    "karaokeSha256":  "a114ec28c13fb993470f467a8fa0ae460776abf3216699806ad0dc5374f8fbb9"
 }

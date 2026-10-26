@@ -67,9 +67,11 @@ public:
     static constexpr int kHeight = 112;
 
     FriendCard(HubEditor& e, uint32_t id) : ed_(e), id_(id) {
-        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &rec_, &mixInDaw_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &name_, &mic_, &copy_, &radmin_, &rec_, &mixInDaw_, &remove_, &vol_, &volValue_, &pan_, &panValue_ })
             addAndMakeVisible(c);
         copy_.setSmall(true);
+        radmin_.setSmall(true);
+        radmin_.setVisible(false);
         rec_.setSmall(true);
         rec_.setIcon(icons::Icon::Record);
         mixInDaw_.setSmall(true);
@@ -84,6 +86,12 @@ public:
             juce::Component::SafePointer<FriendCard> sp(this);
             juce::Timer::callAfterDelay(1400, [sp] { if (sp) sp->copy_.setButtonText(tr(Str::CopyLink)); });
             ed_.toast(trf(Str::CopiedFriendLink, { v_.name }));
+        };
+        radmin_.onClick = [this] {
+            const auto link = ed_.proc().friendRadminLink(id_);
+            if (link.isEmpty()) return;
+            juce::SystemClipboard::copyTextToClipboard(link);
+            ed_.toast(trf(Str::CopiedRadminLink, { v_.name }));
         };
         rec_.onClick = [this] {
             const bool recording = ed_.proc().isFriendRecording(id_);
@@ -108,6 +116,8 @@ public:
     void startRename() { name_.startEditing(); }
     void refreshTexts() {
         copy_.setButtonText(tr(Str::CopyLink));
+        radmin_.setButtonText("Radmin");
+        radmin_.setTooltip(tr(Str::CopyRadminLink));
         mixInDaw_.setButtonText(tr(Str::MixInDawAction));
         name_.setTooltip(tr(Str::DoubleClickToRename));
         const bool rec = ed_.proc().isFriendRecording(id_);
@@ -136,6 +146,13 @@ public:
         rec_.setButtonText(rec ? clock(sec) : juce::String());
         rec_.setTooltip(rec ? tr(Str::StopRecording) : tr(Str::PrintToFile));
         mixInDaw_.setVisible(!v.inDaw && v.live());
+        bool radminChanged = false;
+        if (const auto now = juce::Time::getMillisecondCounter(); now - radminCheckMs_ > 2000) {   // reads the network adapters
+            radminCheckMs_ = now;
+            const bool show = ed_.proc().friendRadminLink(id_).isNotEmpty();
+            radminChanged = show != radminWanted_;
+            radminWanted_ = show;
+        }
         const juce::ScopedValueSetter<bool> svs(updating_, true);
         if (touch_.idle() && !vol_.isMouseButtonDown()) {
             vol_.setValue(LevelSlider::dbToSlider(v.volumeDb), juce::dontSendNotification);
@@ -147,7 +164,7 @@ public:
         vol_.setDim(dim);
         for (juce::Component* c : std::initializer_list<juce::Component*> { &vol_, &volValue_, &pan_, &panValue_ }) c->setEnabled(!dim);
         if (nameChanged) refreshTexts();
-        if (dawChanged || wasRec != rec) resized();
+        if (dawChanged || wasRec != rec || radminChanged) resized();
         repaint();
     }
 
@@ -217,8 +234,16 @@ public:
         remove_.setBounds(top.removeFromRight(32.0f).withSizeKeepingCentre(32.0f, 32.0f).toNearestInt());
         top.removeFromRight(6.0f);
         copy_.setBounds(top.removeFromRight(juce::jmax(84.0f, float(copy_.idealWidth()))).withSizeKeepingCentre(juce::jmax(84.0f, float(copy_.idealWidth())), 30.0f).toNearestInt());
-        top.removeFromRight(6.0f);
         const float recW = rec_.getButtonText().isEmpty() ? 32.0f : juce::jmax(64.0f, float(rec_.idealWidth()));
+        const float rw = juce::jmax(70.0f, float(radmin_.idealWidth()));
+        const float mixW = mixInDaw_.isVisible() ? juce::jmax(110.0f, float(mixInDaw_.idealWidth())) + 6.0f : 0.0f;
+        constexpr float kDelayW = 96.0f, kNameW = 80.0f;   // "delay 180 ms" whole, and room for a short name (+ avatar)
+        radmin_.setVisible(radminWanted_ && top.getWidth() >= rw + 6.0f + 6.0f + recW + mixW + 10.0f + kDelayW + 10.0f + 42.0f + kNameW);   // narrow: the friend's menu still has it
+        if (radmin_.isVisible()) {
+            top.removeFromRight(6.0f);
+            radmin_.setBounds(top.removeFromRight(rw).withSizeKeepingCentre(rw, 30.0f).toNearestInt());
+        }
+        top.removeFromRight(6.0f);
         rec_.setBounds(top.removeFromRight(recW).withSizeKeepingCentre(recW, 30.0f).toNearestInt());
         if (mixInDaw_.isVisible()) {
             top.removeFromRight(6.0f);
@@ -226,7 +251,7 @@ public:
             mixInDaw_.setBounds(top.removeFromRight(mw).withSizeKeepingCentre(mw, 30.0f).toNearestInt());
         }
         top.removeFromRight(10.0f);
-        auto meterCol = top.removeFromRight(juce::jmin(110.0f, top.getWidth() * 0.35f));
+        auto meterCol = top.removeFromRight(juce::jmin(110.0f, juce::jmax(top.getWidth() * 0.35f, radmin_.isVisible() ? kDelayW : 0.0f)));
         delay_ = meterCol.removeFromTop(20.0f);
         meterCol.removeFromTop(4.0f);
         mic_.setBounds(meterCol.removeFromTop(6.0f).toNearestInt());
@@ -270,6 +295,9 @@ private:
     InlineName name_ { 14.5f, Weight::SemiBold };
     MeterBar mic_ { 6.0f, true };
     GhostButton copy_ { {}, GhostButton::Style::Ghost };
+    GhostButton radmin_ { {}, GhostButton::Style::Ghost };   // only while this PC is in Radmin VPN
+    juce::uint32 radminCheckMs_ = 0;
+    bool radminWanted_ = false;
     GhostButton rec_ { {}, GhostButton::Style::Ghost };
     GhostButton mixInDaw_ { {}, GhostButton::Style::Ghost };
     IconButton remove_ { icons::Icon::Close };
@@ -565,7 +593,10 @@ public:
         presetDropdown_.setBounds(head.removeFromRight(pw).withSizeKeepingCentre(pw, 32.0f).toNearestInt());
         head.removeFromRight(8.0f);
         add_.setBounds(head.removeFromRight(float(add_.idealWidth())).toNearestInt());
-        if (head.getWidth() > 220.0f) {
+        // the painted title + count badge keep their room; the spread button only takes what is left
+        const float titleW = textWidth(uiFont(20.0f, Weight::SemiBold), tr(Str::FriendsTitle)) + 2.0f + 12.0f
+                             + textWidth(uiFont(12.0f, Weight::Medium), trf(Str::FriendsCount, { juce::String(8) })) + 20.0f;
+        if (head.getWidth() >= titleW + 8.0f + float(spread_.idealWidth())) {
             head.removeFromRight(8.0f);
             spread_.setBounds(head.removeFromRight(float(spread_.idealWidth())).toNearestInt());
             spread_.setVisible(true);
@@ -633,7 +664,8 @@ public:
             h.removeFromLeft(12.0f);
             const auto count = trf(Str::FriendsCount, { juce::String(proc.friendCount()) });
             const float cw = textWidth(uiFont(12.0f, Weight::Medium), count) + 20.0f;
-            drawBadge(g, h.removeFromLeft(cw).withSizeKeepingCentre(cw, 24.0f), count, BadgeStyle::Chip, p);
+            if (h.getWidth() >= cw)   // a very narrow window: the title alone
+                drawBadge(g, h.removeFromLeft(cw).withSizeKeepingCentre(cw, 24.0f), count, BadgeStyle::Chip, p);
 
             // Line up
             drawInset(g, lineBox_, 16.0f, p);

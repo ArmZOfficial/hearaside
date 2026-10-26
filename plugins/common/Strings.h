@@ -157,6 +157,7 @@ enum class Str {
     MixFriendStep4,
     RunProbeSweep,
     ProbeRunning,
+    VirtualMic, VirtualMicCap, VirtualMicOff, VirtualMicNoCable, VirtualMicSending, VirtualMicWaiting, VirtualMicFailed,
     Count
 };
 

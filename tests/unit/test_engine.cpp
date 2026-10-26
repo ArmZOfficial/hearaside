@@ -476,6 +476,28 @@ TEST_CASE("e2e: hub -> consumer (OBS side) at 44.1k -> 48k with drift, no underr
     CHECK_LT(maxStep, 0.5 * 2 * 3.14159265 * 441.0 / 48000.0 * 1.2);   // no clicks
 }
 
+TEST_CASE("consumer: the Hub's virtual mic does not count as OBS") {
+    const std::string bus = uniqueBus("vmic");
+    HubEngine hub;
+    hub.connect(bus);
+    hub.prepare(48000, 256);
+    hub.maintain();
+    std::vector<float> l(240), r(240);
+    float* o[2] = { l.data(), r.data() };
+
+    ssdsp::StreamConsumer mic;
+    mic.setReportToHub(false);
+    mic.configure(bus, 0, 30.0, 48000);
+    for (int i = 0; i < 300; ++i) mic.pull(o, 240, 0.005);   // 1.5 s: past the 1 s reconnect timer
+    CHECK(mic.status().connected);
+    CHECK(hub.bus()->header.consumerHeartbeatNs.load() == 0);
+
+    ssdsp::StreamConsumer obs;   // default: reports itself like the OBS source
+    obs.configure(bus, 0, 30.0, 48000);
+    for (int i = 0; i < 300; ++i) obs.pull(o, 240, 0.005);
+    CHECK(hub.bus()->header.consumerHeartbeatNs.load() != 0);
+}
+
 TEST_CASE("e2e: adaptive buffer settles low (5 ms ticks, 256-frame DAW blocks) without underruns") {
     const std::string bus = uniqueBus("auto");
     HubEngine hub;

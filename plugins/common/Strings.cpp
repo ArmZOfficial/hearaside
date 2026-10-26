@@ -478,6 +478,15 @@ Table build() {
     s(Str::LineUpLimitCap, "เพื่อนที่ช้ากว่านี้จะไม่ถูกรอ", "Friends slower than this aren’t waited for");
     s(Str::ObsRowCap, "เปิด OBS แล้วเพิ่ม Source ชื่อ HEARASIDE จะเชื่อมเอง", "Open OBS and add a source called HEARASIDE; it connects by itself");
     s(Str::NotConnected, "ยังไม่เชื่อม", "Not connected");
+    s(Str::VirtualMic, "ไมค์เสมือน (TikTok)", "Virtual mic (TikTok)");
+    s(Str::VirtualMicCap, "ส่งเสียงที่คนดูได้ยินเข้าสายเสมือน แล้วเลือก “CABLE Output” เป็นไมค์ใน TikTok LIVE Studio",
+      "Sends what viewers hear into a virtual cable. In TikTok LIVE Studio, pick “CABLE Output” as the microphone");
+    s(Str::VirtualMicOff, "ปิด", "Off");
+    s(Str::VirtualMicNoCable, "ติดตั้ง VB-Cable (ฟรี) จาก vb-audio.com แล้วรีสตาร์ตเครื่อง จากนั้นเลือก “CABLE Input” ที่นี่",
+      "Install VB-Cable (free) from vb-audio.com and restart, then pick “CABLE Input” here");
+    s(Str::VirtualMicSending, "กำลังส่งเข้า %s · หน่วง %s ms", "Sending to %s · %s ms delay");
+    s(Str::VirtualMicWaiting, "รอ Hub ส่งเสียง (DAW กำลังเล่นอยู่ไหม)", "Waiting for the Hub’s sound (is the DAW playing?)");
+    s(Str::VirtualMicFailed, "เปิดอุปกรณ์ไม่ได้: %s", "Can’t open the device: %s");
     s(Str::ConnectedWord, "เชื่อมแล้ว", "Connected");
     s(Str::BusNameCap, "แยกหลายโปรเจกต์หรือหลาย DAW ในเครื่องเดียวกัน ส่วนใหญ่ไม่ต้องเปลี่ยน", "Keeps several projects or DAWs on one computer apart. Most people never change it");
     s(Str::DelayToObsCap, "วัดเอง: บัฟเฟอร์ DAW + ปลั๊กอินแทร็ก + ปลั๊กอิน Master", "Measured automatically: DAW buffer + track plug-ins + master plug-ins");

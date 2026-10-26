@@ -55,8 +55,8 @@ if ($hasKaraoke -and $env:HEARASIDE_SIGNTOOL) {
     Invoke-Expression $signCmd
 }
 
-# --- Streamlabs Desktop: its own build of the OBS source + the tool that patches Streamlabs (optional) -------
-$slobsDll = Join-Path $BuildDir 'obs\hearaside-obs\streamlabs\hearaside-obs.dll'
+# --- Streamlabs Desktop: the OBS source (it adapts to Streamlabs' libobs) + the tool that patches Streamlabs ---
+$slobsDll = $obsDll
 $slobsTool = Join-Path $BuildDir 'obs\streamlabs-setup\hearaside-streamlabs_artefacts\Release\hearaside-streamlabs.exe'
 $hasStreamlabs = (Test-Path $slobsDll) -and (Test-Path $slobsTool)
 if ($hasStreamlabs -and $env:HEARASIDE_SIGNTOOL) {

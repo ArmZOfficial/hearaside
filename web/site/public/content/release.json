@@ -1,11 +1,16 @@
 {
-    "version":  "1.0.8",
+    "version":  "1.0.9",
     "date":  "26 Oct 2026",
-    "installer":  "/downloads/HEARASIDE-Setup-1.0.8.exe",
+    "installer":  "/downloads/HEARASIDE-Setup-1.0.9.exe",
     "sizeMb":  "24.4",
-    "sha256":  "5336a09642148e3a0ed7a43d9c9b7fab89b8e52ef591180f1c2b2aecd7c0e1f8",
+    "sha256":  "b1df5e676e368d71ff69efbf59a82231174ce423bb0324cf4e8f85882095f2bc",
     "obsMin":  "32",
     "notes":  [
+                  {
+                      "version":  "1.0.9",
+                      "en":  "Streamlabs Desktop: one HEARASIDE source for OBS and Streamlabs that adapts to Streamlabs' audio engine (an unknown Streamlabs version gets no source instead of a crash), and an optional hidden check that puts HEARASIDE back after Streamlabs updates. Fixes a 1.0.8 issue that could put an older Streamlabs file back after a Streamlabs update.",
+                      "th":  "Streamlabs Desktop: ปลั๊กอิน HEARASIDE ตัวเดียวใช้ได้ทั้ง OBS และ Streamlabs ปรับตามเครื่องเสียงของ Streamlabs เอง (Streamlabs เวอร์ชันที่ไม่รู้จักจะไม่มี source แทนที่จะ crash) และมีตัวเลือกให้ใส่ HEARASIDE กลับเองหลัง Streamlabs อัปเดต แก้ปัญหาของ 1.0.8 ที่อาจเอาไฟล์ Streamlabs รุ่นเก่ากลับมาใส่หลังอัปเดต"
+                  },
                   {
                       "version":  "1.0.8",
                       "en":  "Friends singing fix (drops late packets, FEC recovery, latched AEC Auto on mic leak), redesigned HAS Karaoke (proper Thai UTF-8 text, \"Hear yourself\" / \"Others hear you\" switches, startup howl fix, Discord-style UI), and Streamlabs Desktop source support.",
@@ -53,7 +58,7 @@
                   }
               ],
     "vst2":  true,
-    "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.8.exe",
+    "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.9.exe",
     "karaokeSizeMb":  "8.2",
-    "karaokeSha256":  "2bc7f36a9f0b0c2b43c63dc20f9648192a585353579f38c5aa1a4522c51281af"
+    "karaokeSha256":  "32ea61922fe69eb62384d573ad5eb960f4193e54d042dbd225595af8ef4400b3"
 }

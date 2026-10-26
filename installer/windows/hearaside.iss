@@ -3,7 +3,7 @@
 ; AppId never changes, so a newer installer upgrades the old one in place.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.8"
+  #define AppVersion "1.0.9"
 #endif
 #ifndef BuildDir
   #error BuildDir is required (use build-installer.ps1)
@@ -69,6 +69,7 @@ english.RemoveSettings=Also remove my HEARASIDE settings (your recordings are ne
 english.CompStreamlabs=HEARASIDE for Streamlabs Desktop (changes Streamlabs; a Streamlabs update removes it)
 english.CloseStreamlabs=Close Streamlabs Desktop, then click Back and Next to go on.
 english.StreamlabsFailed=HEARASIDE could not be added to Streamlabs Desktop:
+english.TaskStreamlabsRepair=Put HEARASIDE back into Streamlabs Desktop after Streamlabs updates (a hidden check every 15 minutes)
 english.StreamlabsUninstallFailed=Streamlabs Desktop could not be restored (close it, then uninstall HEARASIDE again):
 thai.CompVst3=HEARASIDE VST3 (Hub, Track, App Audio)
 thai.CompVst2=HEARASIDE VST2 (Hub, Track, App Audio)
@@ -94,6 +95,7 @@ thai.RemoveSettings=ลบการตั้งค่า HEARASIDE ของฉ�
 thai.CompStreamlabs=HEARASIDE สำหรับ Streamlabs Desktop (แก้ไข Streamlabs และจะหายไปเมื่อ Streamlabs อัปเดต)
 thai.CloseStreamlabs=ปิด Streamlabs Desktop ก่อน แล้วกด ย้อนกลับ และ ถัดไป เพื่อติดตั้งต่อ
 thai.StreamlabsFailed=เพิ่ม HEARASIDE เข้า Streamlabs Desktop ไม่สำเร็จ:
+thai.TaskStreamlabsRepair=ใส่ HEARASIDE กลับเข้า Streamlabs Desktop เองหลัง Streamlabs อัปเดต (เช็กเงียบๆ ทุก 15 นาที)
 thai.StreamlabsUninstallFailed=คืนค่า Streamlabs Desktop ไม่สำเร็จ (ปิด Streamlabs แล้วถอนการติดตั้ง HEARASIDE อีกครั้ง):
 
 [Types]
@@ -116,6 +118,9 @@ Name: "streamlabs"; Description: "{cm:CompStreamlabs}"; Check: StreamlabsSupport
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+#ifdef WithStreamlabs
+Name: "streamlabsrepair"; Description: "{cm:TaskStreamlabsRepair}"; Components: streamlabs
+#endif
 
 [Dirs]
 Name: "{commoncf64}\VST3\HEARASIDE"; Components: vst3
@@ -140,7 +145,7 @@ Source: "{#Cloudflared}"; DestDir: "{app}\cloudflared"; DestName: "cloudflared.e
 Source: "{#CloudflaredLicense}"; DestDir: "{app}\cloudflared"; DestName: "LICENSE.txt"; Flags: ignoreversion; Components: cloudflared
 Source: "{#RootDir}\installer\windows\licenses.txt"; DestDir: "{app}"; DestName: "licenses.txt"; Flags: ignoreversion
 #ifdef WithStreamlabs
-; Streamlabs Desktop: its own build of the OBS source (libobs fork) and the tool that patches Streamlabs
+; Streamlabs Desktop: the OBS source (it fills Streamlabs' libobs layout itself) and the tool that patches Streamlabs
 Source: "{#StreamlabsTool}"; DestDir: "{app}\streamlabs"; Flags: ignoreversion; Components: streamlabs
 Source: "{#StreamlabsDll}"; DestDir: "{app}\streamlabs"; Flags: ignoreversion; Components: streamlabs
 ; also extracted to {tmp} at start-up to check the installed Streamlabs
@@ -204,6 +209,32 @@ begin
   Result := (StreamlabsCheckCode = 0) or (StreamlabsCheckCode = 2);
 end;
 
+const
+  RepairTask = '\HEARASIDE\Streamlabs repair';
+
+// the scheduled task that runs "hearaside-streamlabs repair" at start-up and every 15 minutes, hidden, as SYSTEM
+procedure SetStreamlabsRepairTask(Wanted: Boolean);
+var
+  Script, Exe, Dll: string;
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "' + RepairTask + '" /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if not Wanted then exit;
+  Exe := ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe');
+  Dll := ExpandConstant('{app}\streamlabs\hearaside-obs.dll');
+  Script := ExpandConstant('{tmp}\streamlabs-repair-task.ps1');
+  SaveStringToFile(Script,
+    '$a = New-ScheduledTaskAction -Execute ''' + Exe + ''' -Argument ''repair "' + StreamlabsDir + '" "' + Dll + '"''' + #13#10 +
+    '$t = @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 15)))' + #13#10 +
+    '$p = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest' + #13#10 +
+    '$s = New-ScheduledTaskSettingsSet -Hidden -Priority 7 -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -StartWhenAvailable ' +
+        '-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew' + #13#10 +
+    'Register-ScheduledTask -TaskPath ''\HEARASIDE\'' -TaskName ''Streamlabs repair'' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null' + #13#10,
+    False);
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '"',
+       '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
@@ -223,6 +254,8 @@ begin
                 'install "' + StreamlabsDir + '" "' + ExpandConstant('{app}\streamlabs\hearaside-obs.dll') + '"',
                 '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       SuppressibleMsgBox(CustomMessage('StreamlabsFailed') + ' ' + IntToStr(Code), mbError, MB_OK, IDOK);
+  if CurStep = ssPostInstall then
+    SetStreamlabsRepairTask(WizardIsComponentSelected('streamlabs') and WizardIsTaskSelected('streamlabsrepair'));
 #endif
 end;
 
@@ -313,7 +346,8 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    // put Streamlabs back before its tool is removed
+    // put Streamlabs back before its tool is removed, and stop the task that would patch it again
+    Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "\HEARASIDE\Streamlabs repair" /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
     if FileExists(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe')) then
       if not Exec(ExpandConstant('{app}\streamlabs\hearaside-streamlabs.exe'), 'uninstall "' + StreamlabsDir + '"',
                   '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then

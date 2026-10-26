@@ -1,11 +1,13 @@
 // hearaside-streamlabs.exe: puts the HEARASIDE source into Streamlabs Desktop, or takes it out again.
-//   hearaside-streamlabs check     <Streamlabs folder>                 0 = this build fits it (2 = fits, but it is running)
-//   hearaside-streamlabs install   <Streamlabs folder> <hearaside-obs.dll built for Streamlabs>
+//   hearaside-streamlabs check     <Streamlabs folder>                 0 = can be added (2 = yes, but it is running)
+//   hearaside-streamlabs install   <Streamlabs folder> <hearaside-obs.dll>
+//   hearaside-streamlabs repair    <Streamlabs folder> <hearaside-obs.dll>   install again after a Streamlabs update
 //   hearaside-streamlabs uninstall <Streamlabs folder>
-// Streamlabs only offers and keeps built-in source types, so besides the plug-in its renderer bundle in
-// resources\app.asar gets seven small additions (the original is kept as app.asar.before-hearaside), and
-// <folder>\force-local-bundles makes Streamlabs run that bundle instead of the one it downloads at start-up
-// (that one is checked against an MD5). A Streamlabs update replaces all of it: run install again.
+// Streamlabs only offers and keeps built-in source types, so besides the plug-in (the OBS one: it fills
+// Streamlabs' libobs layout itself) the renderer bundle in resources\app.asar gets seven small additions; the
+// original is kept as app.asar.before-hearaside, and <folder>\force-local-bundles makes Streamlabs run that
+// bundle instead of the one it downloads at start-up (checked against an MD5). A Streamlabs update replaces all
+// of it: "repair" (the installer's scheduled task) puts it back, from the new original, once Streamlabs is closed.
 // Exit codes: 0 ok, 1 usage, 2 Streamlabs is running, 3 Streamlabs version not supported, 4 not found, 5 failed.
 #include <juce_core/juce_core.h>
 #include <juce_cryptography/juce_cryptography.h>
@@ -13,7 +15,6 @@
 #include <windows.h>
 #include <tlhelp32.h>
 
-#include <cctype>
 #include <cstring>
 #include <iostream>
 
@@ -47,13 +48,13 @@ const std::pair<const char*, const char*> kEdits[] = {
 };
 
 struct Paths {
-    File root, resources, asar, backup, temp, obsDll, pluginDir, plugin, forceLocal;
+    File root, resources, asar, backup, temp, obsDll, pluginDir, plugin, forceLocal, state;
     explicit Paths(const File& r)
         : root(r), resources(r.getChildFile("resources")), asar(resources.getChildFile("app.asar")),
           backup(resources.getChildFile("app.asar.before-hearaside")), temp(resources.getChildFile("app.asar.hearaside-tmp")),
           obsDll(resources.getChildFile("app.asar.unpacked/node_modules/obs-studio-node/obs.dll")),
           pluginDir(obsDll.getSiblingFile("obs-plugins").getChildFile("64bit")), plugin(pluginDir.getChildFile("hearaside-obs.dll")),
-          forceLocal(r.getChildFile("force-local-bundles")) {}
+          forceLocal(r.getChildFile("force-local-bundles")), state(resources.getChildFile("app.asar.hearaside-state")) {}
 };
 
 struct Failure { int code; String message; };
@@ -67,20 +68,6 @@ bool streamlabsRunning() {
         found = _wcsicmp(e.szExeFile, L"Streamlabs OBS.exe") == 0;
     CloseHandle(snap);
     return found;
-}
-
-// The plug-in is built for one libobs fork tag; obs.dll carries its tag as a string
-bool tagMatches(const File& obsDll) {
-    juce::MemoryBlock data;
-    if (!obsDll.loadFileAsData(data)) return false;
-    const String tag(HEARASIDE_STREAMLABS_TAG);
-    const auto* bytes = static_cast<const char*>(data.getData());
-    const auto n = data.getSize(), m = size_t(tag.length());
-    for (size_t i = 0; i + m + 1 < n; ++i)
-        if (bytes[i] == tag[0] && std::memcmp(bytes + i, tag.toRawUTF8(), m) == 0 && !std::isalnum((unsigned char) bytes[i + m])
-            && (i == 0 || !std::isalnum((unsigned char) bytes[i - 1])))   // "31.1.2sl19b5", not "31.1.2sl19b55"
-            return true;
-    return false;
 }
 
 juce::var integrity(const juce::MemoryBlock& data) {
@@ -109,41 +96,66 @@ void collectFiles(const juce::var& node, const String& prefix, juce::Array<std::
     }
 }
 
-// src (the original app.asar) -> dst with the renderer bundle patched; every other file byte for byte
-void patchAsar(const File& src, const File& dst) {
-    juce::FileInputStream in(src);
-    if (!in.openedOk()) throw Failure { 5, "cannot read " + src.getFullPathName() };
-    uint32_t head[4];
-    if (in.read(head, 16) != 16) throw Failure { 5, "app.asar is too short" };
-    juce::MemoryBlock headerJson;
-    in.readIntoMemoryBlock(headerJson, int64_t(head[3]));
-    const auto header = juce::JSON::parse(headerJson.toString());
-    const int64_t base = 8 + int64_t(head[1]);
-
+// An app.asar's header and its renderer bundle (Streamlabs' UI code)
+struct Asar {
+    juce::var header;
+    int64_t base = 0, off = 0, size = 0;
     juce::Array<std::pair<String, juce::DynamicObject*>> files;
-    collectFiles(header, {}, files);
     juce::DynamicObject* bundle = nullptr;
-    for (auto& f : files)
-        if (f.first.startsWith("bundles/renderer.") && f.first.endsWith(".js")) {
-            if (bundle != nullptr) throw Failure { 3, "more than one renderer bundle in app.asar" };
-            bundle = f.second;
-        }
-    if (bundle == nullptr) throw Failure { 3, "no renderer bundle in app.asar" };
+    String text;
 
-    const int64_t off = bundle->getProperty("offset").toString().getLargeIntValue();
-    const int64_t size = int64_t(bundle->getProperty("size"));
-    juce::MemoryBlock original;
-    in.setPosition(base + off);
-    in.readIntoMemoryBlock(original, size);
-    String text = String::fromUTF8(static_cast<const char*>(original.getData()), int(original.getSize()));
-    if (text.contains(kSourceId)) throw Failure { 3, "this app.asar is already patched; keep the original as app.asar.before-hearaside" };
+    explicit Asar(juce::FileInputStream& in) {
+        uint32_t head[4];
+        if (in.read(head, 16) != 16) throw Failure { 5, "app.asar is too short" };
+        juce::MemoryBlock headerJson;
+        in.readIntoMemoryBlock(headerJson, int64_t(head[3]));
+        header = juce::JSON::parse(headerJson.toString());
+        base = 8 + int64_t(head[1]);
+        collectFiles(header, {}, files);
+        for (auto& f : files)
+            if (f.first.startsWith("bundles/renderer.") && f.first.endsWith(".js")) {
+                if (bundle != nullptr) throw Failure { 3, "more than one renderer bundle in app.asar" };
+                bundle = f.second;
+            }
+        if (bundle == nullptr) throw Failure { 3, "no renderer bundle in app.asar" };
+        off = bundle->getProperty("offset").toString().getLargeIntValue();
+        size = int64_t(bundle->getProperty("size"));
+        juce::MemoryBlock original;
+        in.setPosition(base + off);
+        in.readIntoMemoryBlock(original, size);
+        text = String::fromUTF8(static_cast<const char*>(original.getData()), int(original.getSize()));
+    }
+    bool patched() const { return text.contains(kSourceId); }
+};
+
+bool isPatched(const File& asar) {
+    juce::FileInputStream in(asar);
+    if (!in.openedOk()) throw Failure { 5, "cannot read " + asar.getFullPathName() };
+    return Asar(in).patched();
+}
+
+String patchedText(String text) {
     for (const auto& [anchor, replacement] : kEdits) {
         const String a = String::fromUTF8(anchor);
         const int first = text.indexOf(a);
         if (first < 0 || text.indexOf(first + 1, a) >= 0)
-            throw Failure { 3, "this Streamlabs version is not supported (renderer changed)" };
+            throw Failure { 3, "this Streamlabs version is not supported (its UI code changed)" };
         text = text.replace(a, String::fromUTF8(replacement));
     }
+    return text;
+}
+
+// src (an original app.asar) -> dst with the renderer bundle patched; every other file byte for byte
+void patchAsar(const File& src, const File& dst) {
+    juce::FileInputStream in(src);
+    if (!in.openedOk()) throw Failure { 5, "cannot read " + src.getFullPathName() };
+    Asar asar(in);
+    if (asar.patched()) throw Failure { 5, src.getFullPathName() + " is not an original app.asar" };
+    auto& header = asar.header;
+    auto* bundle = asar.bundle;
+    auto& files = asar.files;
+    const int64_t base = asar.base, off = asar.off, size = asar.size;
+    const String text = patchedText(asar.text);
     const juce::MemoryBlock patched(text.toRawUTF8(), text.getNumBytesAsUTF8());
     const int64_t delta = int64_t(patched.getSize()) - size;
 
@@ -182,31 +194,68 @@ void patchAsar(const File& src, const File& dst) {
     if (out.getStatus().failed()) throw Failure { 5, "writing failed: " + out.getStatus().getErrorMessage() };
 }
 
+// app.asar as we left it (size + time): a Streamlabs update or repair changes it
+String asarStamp(const File& asar) { return String(asar.getSize()) + " " + String(asar.getLastModificationTime().toMilliseconds()); }
+
+bool sameFile(const File& a, const File& b) {
+    juce::FileInputStream x(a), y(b);
+    return a.getSize() == b.getSize() && juce::SHA256(x).toHexString() == juce::SHA256(y).toHexString();
+}
+
 void install(const Paths& p, const File& dll) {
     if (!dll.existsAsFile()) throw Failure { 4, "plug-in not found: " + dll.getFullPathName() };
-    const File source = p.backup.existsAsFile() ? p.backup : p.asar;   // always from the original: reruns apply the latest patch
-    patchAsar(source, p.temp);
-    if (!p.backup.existsAsFile() && !p.asar.copyFileTo(p.backup)) throw Failure { 5, "cannot keep the original app.asar" };
+    // An unpatched app.asar is the newest original (first install, or Streamlabs updated): it becomes the
+    // backup. A patched one was made from the backup we kept. Never put an older original into a newer Streamlabs.
+    if (!isPatched(p.asar)) {
+        patchAsar(p.asar, p.temp);
+        if (!p.asar.copyFileTo(p.backup)) throw Failure { 5, "cannot keep the original app.asar" };
+    } else {
+        if (!p.backup.existsAsFile()) throw Failure { 5, "app.asar is patched but its original is missing" };
+        patchAsar(p.backup, p.temp);
+    }
     if (!MoveFileExW(p.temp.getFullPathName().toWideCharPointer(), p.asar.getFullPathName().toWideCharPointer(),
                      MOVEFILE_REPLACE_EXISTING))
         throw Failure { 5, "cannot replace app.asar" };
     if (!dll.copyFileTo(p.plugin)) throw Failure { 5, "cannot copy the plug-in to " + p.plugin.getFullPathName() };
     if (!p.forceLocal.create()) throw Failure { 5, "cannot create " + p.forceLocal.getFullPathName() };
+    p.state.replaceWithText(asarStamp(p.asar));
     std::cout << "HEARASIDE source installed in Streamlabs Desktop" << std::endl;
+}
+
+// Quick when nothing changed (the scheduled task runs it every few minutes)
+bool installed(const Paths& p, const File& dll) {
+    return p.state.existsAsFile() && p.state.loadFileAsString() == asarStamp(p.asar) && p.forceLocal.existsAsFile()
+        && p.plugin.existsAsFile() && sameFile(p.plugin, dll);
 }
 
 void uninstall(const Paths& p) {
     p.plugin.deleteFile();
-    if (p.backup.existsAsFile() && !p.backup.moveFileTo(p.asar)) throw Failure { 5, "cannot restore the original app.asar" };
+    if (p.backup.existsAsFile()) {
+        if (isPatched(p.asar)) {   // our patch of that backup: put it back
+            if (!p.backup.moveFileTo(p.asar)) throw Failure { 5, "cannot restore the original app.asar" };
+        } else {
+            p.backup.deleteFile();   // Streamlabs was updated since: the backup is older than what is there now
+        }
+    }
     p.forceLocal.deleteFile();
+    p.state.deleteFile();
     std::cout << "Streamlabs Desktop restored" << std::endl;
+}
+
+// 0 = HEARASIDE can be added (or is): the renderer is patched, or every anchor matches once
+int check(const Paths& p) {
+    juce::FileInputStream in(p.asar);
+    if (!in.openedOk()) throw Failure { 5, "cannot read " + p.asar.getFullPathName() };
+    const Asar asar(in);
+    if (!asar.patched()) patchedText(asar.text);   // throws 3 when an anchor is missing
+    return streamlabsRunning() ? 2 : 0;
 }
 
 } // namespace
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cerr << "usage: hearaside-streamlabs check|install|uninstall <Streamlabs folder> [hearaside-obs.dll]" << std::endl;
+        std::cerr << "usage: hearaside-streamlabs check|install|repair|uninstall <Streamlabs folder> [hearaside-obs.dll]" << std::endl;
         return 1;
     }
     const String cmd(argv[1]);
@@ -214,11 +263,12 @@ int main(int argc, char* argv[]) {
     try {
         if (!p.asar.existsAsFile() || !p.obsDll.existsAsFile()) throw Failure { 4, "Streamlabs Desktop not found in " + p.root.getFullPathName() };
         if (cmd == "uninstall") { if (streamlabsRunning()) throw Failure { 2, "close Streamlabs Desktop first" }; uninstall(p); return 0; }
-        if (!tagMatches(p.obsDll)) throw Failure { 3, "this Streamlabs Desktop runs another libobs than " HEARASIDE_STREAMLABS_TAG };
-        if (cmd == "check") return streamlabsRunning() ? 2 : 0;
-        if (cmd == "install" && argc >= 4) {
+        if (cmd == "check") return check(p);
+        if ((cmd == "install" || cmd == "repair") && argc >= 4) {
+            const File dll(String::fromUTF8(argv[3]));
             if (streamlabsRunning()) throw Failure { 2, "close Streamlabs Desktop first" };
-            install(p, File(String::fromUTF8(argv[3])));
+            if (cmd == "repair" && installed(p, dll)) return 0;
+            install(p, dll);
             return 0;
         }
         std::cerr << "unknown command" << std::endl;

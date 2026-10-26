@@ -13,12 +13,6 @@ try {
         git -c advice.detachedHead=false clone --depth 1 --branch 32.2.2 --filter=blob:none --sparse https://github.com/obsproject/obs-studio.git obs-studio
         git -C obs-studio sparse-checkout set libobs cmake/windows
     }
-    if (-not (Test-Path obs-studio-streamlabs)) {
-        # Streamlabs Desktop's libobs fork: its obs_source_info differs from OBS, the Streamlabs plug-in needs these
-        # headers. The tag is the one in Streamlabs' obs.dll (and HEARASIDE_STREAMLABS_TAG in obs/hearaside-obs).
-        git -c advice.detachedHead=false clone --depth 1 --branch 31.1.2sl19b5 --filter=blob:none --sparse https://github.com/stream-labs/obs-studio.git obs-studio-streamlabs
-        git -C obs-studio-streamlabs sparse-checkout set libobs
-    }
     if (-not (Test-Path speexdsp)) {
         git clone --depth 1 https://github.com/xiph/speexdsp.git speexdsp
     }

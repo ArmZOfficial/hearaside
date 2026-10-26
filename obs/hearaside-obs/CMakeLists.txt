@@ -1,14 +1,10 @@
 # HEARASIDE OBS Source (GPLv2-compatible: links libobs). Reads the Stream Mix / stems from the
 # HEARASIDE bus, compensates clock drift and converts the sample rate (ssdsp::StreamConsumer).
-# Built twice on Windows: for OBS Studio, and for Streamlabs Desktop, whose libobs is a fork with a different
-# obs_source_info layout (extra callbacks mid-struct), so a plug-in built for one crashes the other.
+# The same module also runs in Streamlabs Desktop, whose libobs fork lays out two structs differently:
+# src/plugin.cpp detects it at load and fills the fork's layout (hearaside-streamlabs.exe installs it there).
 
 set(HEARASIDE_OBS_DIR "C:/Program Files/obs-studio" CACHE PATH
     "OBS Studio install folder (Windows: obs.dll is turned into an import library at configure time)")
-set(HEARASIDE_STREAMLABS_DIR "C:/Program Files/Streamlabs OBS" CACHE PATH
-    "Streamlabs Desktop install folder (its obs.dll); the Streamlabs flavour is skipped when it is missing")
-set(HEARASIDE_STREAMLABS_TAG "31.1.2sl19b5" CACHE STRING
-    "stream-labs/obs-studio tag of that obs.dll and of external/obs-studio-streamlabs (scripts/fetch-deps.ps1)")
 
 # libobs' obs-config.h includes the build-generated obsconfig.h; plug-ins only need the defaults
 set(obsconfig_dir "${CMAKE_CURRENT_BINARY_DIR}/obsconfig")
@@ -69,22 +65,3 @@ if(EXISTS "${obs_dll}")
 else()
     message(WARNING "HEARASIDE: ${obs_dll} not found - skipping the OBS plug-in (set HEARASIDE_OBS_DIR)")
 endif()
-
-# Streamlabs flavour: only when the installed Streamlabs runs the fork tag the headers were fetched for
-set(slobs_dll "${HEARASIDE_STREAMLABS_DIR}/resources/app.asar.unpacked/node_modules/obs-studio-node/obs.dll")
-set(slobs_include "${SS_EXTERNAL}/obs-studio-streamlabs/libobs")
-if(NOT EXISTS "${slobs_dll}" OR NOT EXISTS "${slobs_include}/obs-source.h")
-    message(STATUS "HEARASIDE: Streamlabs Desktop or external/obs-studio-streamlabs missing - no Streamlabs plug-in")
-    return()
-endif()
-file(STRINGS "${slobs_dll}" slobs_tags REGEX "^[0-9]+\\.[0-9]+\\.[0-9]+sl[0-9a-z]+$")
-if(NOT HEARASIDE_STREAMLABS_TAG IN_LIST slobs_tags)
-    message(WARNING "HEARASIDE: Streamlabs runs libobs ${slobs_tags}, the headers are ${HEARASIDE_STREAMLABS_TAG} - "
-                    "no Streamlabs plug-in (update the tag in scripts/fetch-deps.ps1 and HEARASIDE_STREAMLABS_TAG)")
-    return()
-endif()
-hearaside_import_libobs(hearaside_libobs_streamlabs "${slobs_dll}")
-hearaside_obs_plugin(hearaside-obs-streamlabs hearaside_libobs_streamlabs "${slobs_include}")
-set_target_properties(hearaside-obs-streamlabs PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/streamlabs")
-set(HEARASIDE_STREAMLABS_PLUGIN ON PARENT_SCOPE)
-message(STATUS "HEARASIDE: building the Streamlabs plug-in for libobs ${HEARASIDE_STREAMLABS_TAG}")

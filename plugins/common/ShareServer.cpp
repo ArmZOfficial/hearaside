@@ -1008,7 +1008,7 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
     limitSendBuffer(s);
 
     if (!friendEcho_[idx]) friendEcho_[idx] = std::make_unique<ssnet::FriendEcho>();
-    friendEcho_[idx]->init(48000, 480, 200);
+    friendEcho_[idx]->init(48000, 240, 200);   // 5 ms steps: the size of HAS Karaoke's packets
 
     std::vector<uint8_t> msg;
     std::vector<float> l, r;
@@ -1101,13 +1101,14 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                     const int delaySamples = int(dMs * 48.0f);
                     if (friendEcho_[idx]) {
                         int rem = decFrames, off = 0;
-                        while (rem >= 480) {
-                            friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
+                        const int step = friendEcho_[idx]->frameSize();   // 5 ms: HAS Karaoke's packets; a browser's 10 ms ones are two steps
+                        while (rem >= step) {
+                            friendEcho_[idx]->process(l.data() + off, l.data() + off, size_t(step), delaySamples);
                             if (h3.chans == 2) {
-                                std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
+                                std::memcpy(r.data() + off, l.data() + off, size_t(step) * sizeof(float));
                             }
-                            off += 480;
-                            rem -= 480;
+                            off += step;
+                            rem -= step;
                         }
                     }
                     const auto t = juce::Time::getMillisecondCounter();
@@ -1175,13 +1176,14 @@ void ShareServer::friendSession(Conn& c, int slot, uint32_t id, const juce::Stri
                 const int delaySamples = int(dMs * (float(rate) / 1000.0f));
                 if (friendEcho_[idx]) {
                     int rem = int(frames), off = 0;
-                    while (rem >= 480) {
-                        friendEcho_[idx]->process(l.data() + off, l.data() + off, 480, delaySamples);
+                    const int step = friendEcho_[idx]->frameSize();   // 5 ms: HAS Karaoke's packets; a browser's 10 ms ones are two steps
+                    while (rem >= step) {
+                        friendEcho_[idx]->process(l.data() + off, l.data() + off, size_t(step), delaySamples);
                         if (chans == 2) {
-                            std::memcpy(r.data() + off, l.data() + off, 480 * sizeof(float));
+                            std::memcpy(r.data() + off, l.data() + off, size_t(step) * sizeof(float));
                         }
-                        off += 480;
-                        rem -= 480;
+                        off += step;
+                        rem -= step;
                     }
                 }
                 float pk = 0.0f;
@@ -1402,9 +1404,11 @@ void ShareServer::friendSend(juce::StreamingSocket& s, int slot, uint32_t gen, F
             }
         }
 
-        while (!blocked && mw - mixCursor >= hubRate / 100 && running_.load()) {
+        // Opus in 5 ms packets: half the packet wait and half the receiver's packet step of 10 ms ones
+        const uint32_t opusFrames = hubRate / 200;
+        while (!blocked && mw - mixCursor >= opusFrames && running_.load()) {
             const bool useOpus = (curCodec == ssnet::CodecOpus && opusReady);
-            const uint32_t n = useOpus ? (hubRate / 100) : uint32_t(std::min<uint64_t>(mw - mixCursor, ml.size()));
+            const uint32_t n = useOpus ? opusFrames : uint32_t(std::min<uint64_t>(mw - mixCursor, ml.size()));
             float* dst[2] = { ml.data(), mr.data() };
             if (ssbus::ringReadAt(bus_->friendMixAudio, bus_->friendMixWrite, mixCursor, dst, n) == ssbus::ReadResult::Overrun) { mixCursor = mw - hubRate / 10; break; }
             for (int k = 0; k < ssbus::kMaxFriends / 2; ++k) {

@@ -133,8 +133,10 @@ void StreamConsumer::pull(float* const* out, uint32_t frames, double dtSec) {
 
     auto& L = shm_->layout();
     const uint64_t nowNs = ssbus::nowNs();
-    L.header.consumerHeartbeatNs.store(nowNs, std::memory_order_relaxed);
-    L.header.consumerBufferMs.store(uint32_t(std::lround(auto_ ? autoMs_ : bufferMs_)), std::memory_order_relaxed);
+    if (reportToHub_) {
+        L.header.consumerHeartbeatNs.store(nowNs, std::memory_order_relaxed);
+        L.header.consumerBufferMs.store(uint32_t(std::lround(auto_ ? autoMs_ : bufferMs_)), std::memory_order_relaxed);
+    }
 
     const bool hubOk = ssbus::hubAlive(L, 500000000ull)
                     && L.streamHeader.active.load(std::memory_order_acquire) != 0;

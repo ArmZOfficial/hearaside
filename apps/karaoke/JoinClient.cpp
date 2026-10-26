@@ -105,7 +105,7 @@ void JoinClient::prepare(double sampleRate, int maxBlockSize) {
     // Initialise AEC (48 kHz, 10 ms frame, 200 ms room tail)
     {
         std::lock_guard<std::mutex> lk(aecMutex_);
-        aec_.init(48000, 480, 200);
+        aec_.init(48000, 240, 200);   // 5 ms steps, the Opus packet size
         aec_.setMode(speakerMode_.load(std::memory_order_relaxed) ? ssnet::AecMode::On : ssnet::AecMode::Off);
     }
 }
@@ -525,11 +525,13 @@ void JoinClient::run(juce::String inputUrl) {
 
             while (!quit_.load() && wsHandle_.load() == rawWs) {
                 const uint64_t upW = upWritePos_.load(std::memory_order_relaxed);
-                if (upW >= upReadPos_ + 480) {
-                    for (int i = 0; i < 480; ++i) {
+                // Opus goes out in 5 ms packets (half the wait of 10 ms ones); PCM keeps 10 ms for old Hubs
+                const int frames = isOpus_.load(std::memory_order_relaxed) ? 240 : 480;
+                if (upW >= upReadPos_ + uint64_t(frames)) {
+                    for (int i = 0; i < frames; ++i) {
                         floatBuf[size_t(i)] = upRing_->ch[0][(upReadPos_ + i) & (ssbus::kRingMask)];
                     }
-                    upReadPos_ += 480;
+                    upReadPos_ += uint64_t(frames);
 
                     const float* toSend = floatBuf.data();
 
@@ -537,16 +539,17 @@ void JoinClient::run(juce::String inputUrl) {
                     if (speakerMode_.load(std::memory_order_relaxed)) {
                         const int d = localDelaySamples_.load(std::memory_order_relaxed);
                         std::lock_guard<std::mutex> lk(aecMutex_);
-                        aec_.process(floatBuf.data(), aecCleanBuf.data(), 480, d);
+                        for (int off = 0; off < frames; off += aec_.frameSize())
+                            aec_.process(floatBuf.data() + off, aecCleanBuf.data() + off, size_t(aec_.frameSize()), d);
                         toSend = aecCleanBuf.data();
                     }
 
                     const uint64_t pos = lastEchoPos_.load(std::memory_order_relaxed);
 
-                    if (isOpus_.load(std::memory_order_relaxed)) {
+                    if (frames == 240) {   // the codec chosen above, not a newer answer from the Hub
                         // K2.2 Opus HRA3 transmission
                         const float* const encCh[1] = { toSend };
-                        const int encBytes = opusEnc_.encode(encCh, 480, opusPayload.data(), int(opusPayload.size()));
+                        const int encBytes = opusEnc_.encode(encCh, frames, opusPayload.data(), int(opusPayload.size()));
 
                         if (encBytes > 0) {
                             ssnet::Hra3Header h3{};
@@ -556,7 +559,7 @@ void JoinClient::run(juce::String inputUrl) {
                             h3.flags = ssnet::FlagFec;
                             h3.seq = upSeq_++;
                             h3.pos = pos;
-                            h3.frames = 480;
+                            h3.frames = uint16_t(frames);
 
                             txPacket.resize(sizeof(ssnet::Hra3Header) + size_t(encBytes));
                             ssnet::writeHra3(txPacket.data(), h3, opusPayload.data(), size_t(encBytes));
@@ -601,7 +604,7 @@ void JoinClient::run(juce::String inputUrl) {
                         }
                     }
                 } else {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(4));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));   // a 4 ms nap was most of a 5 ms packet
                 }
             }
         });

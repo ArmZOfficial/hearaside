@@ -1,15 +1,15 @@
 {
     "version":  "1.0.10",
-    "date":  "26 Oct 2026",
+    "date":  "27 Oct 2026",
     "installer":  "/downloads/HEARASIDE-Setup-1.0.10.exe",
     "sizeMb":  "24.4",
-    "sha256":  "6f240a18e22ba39d7c166ab2e4c11a28131cc0febdb509924f29065359c1d6a1",
+    "sha256":  "420d09e7be3e7dbb8393a2b2761cd5db98cbfe46fd5af93aa8aa062717f95580",
     "obsMin":  "32",
     "notes":  [
                   {
                       "version":  "1.0.10",
-                      "en":  "Radmin VPN: the Hub can copy a Radmin VPN link for HAS Karaoke (the friend's menu, or the Radmin button on the Share page), so friends in the same Radmin network connect straight to the Hub without the internet tunnel. The installer allows the Hub's ports in Windows Firewall for the local network and Radmin VPN only, and the Hub's WebRTC now uses a fixed UDP port range. HAS Karaoke: new HAS Direct audio type that uses an audio interface's own low-latency driver, and a 44.1 kHz device is switched to 48 kHz so friends hear the right pitch. Share page: the friends header no longer overlaps. After a network hiccup the friend's buffer comes back down within seconds (it used to stay high for half a minute).",
-                      "th":  "Radmin VPN: Hub คัดลอกลิงก์ Radmin VPN สำหรับ HAS Karaoke ได้ (เมนูของเพื่อน หรือปุ่ม Radmin ในหน้าแชร์) เพื่อนที่อยู่วง Radmin เดียวกันจะต่อตรงเข้า Hub โดยไม่ผ่าน tunnel อินเทอร์เน็ต ตัวติดตั้งเปิดพอร์ตของ Hub ใน Windows Firewall ให้เฉพาะเครือข่ายในบ้านและ Radmin VPN และ WebRTC ของ Hub ใช้ช่วงพอร์ต UDP ตายตัวแล้ว HAS Karaoke: เพิ่มชนิดเสียง HAS Direct ใช้ไดรเวอร์ latency ต่ำของ audio interface ได้โดยตรง และอุปกรณ์ที่ตั้ง 44.1 kHz จะถูกเปลี่ยนเป็น 48 kHz ให้เอง เพื่อนจะได้ยินเสียงไม่เพี้ยน หน้าแชร์: หัวข้อเพื่อนไม่ซ้อนกันแล้ว หลังเน็ตสะดุด buffer ของเพื่อนจะลดกลับภายในไม่กี่วินาที (เดิมค้างสูงอยู่ครึ่งนาที)"
+                      "en":  "Radmin VPN: the Hub can copy a Radmin VPN link for HAS Karaoke (the friend's menu, or the Radmin button on the Share page), so friends in the same Radmin network connect straight to the Hub without the internet tunnel. The installer allows the Hub's ports in Windows Firewall for the local network and Radmin VPN only, and the Hub's WebRTC now uses a fixed UDP port range. HAS Karaoke: new HAS Direct audio type that uses an audio interface's own low-latency driver, and a 44.1 kHz device is switched to 48 kHz so friends hear the right pitch. Share page: the friends header no longer overlaps. After a network hiccup the friend's buffer comes back down within seconds (it used to stay high for half a minute). Opus now travels in 5 ms packets between the Hub and HAS Karaoke (about 10 ms less round trip). TikTok LIVE Studio: the Hub's virtual mic is back (Settings > Connection, send to VB-Cable).",
+                      "th":  "Radmin VPN: Hub คัดลอกลิงก์ Radmin VPN สำหรับ HAS Karaoke ได้ (เมนูของเพื่อน หรือปุ่ม Radmin ในหน้าแชร์) เพื่อนที่อยู่วง Radmin เดียวกันจะต่อตรงเข้า Hub โดยไม่ผ่าน tunnel อินเทอร์เน็ต ตัวติดตั้งเปิดพอร์ตของ Hub ใน Windows Firewall ให้เฉพาะเครือข่ายในบ้านและ Radmin VPN และ WebRTC ของ Hub ใช้ช่วงพอร์ต UDP ตายตัวแล้ว HAS Karaoke: เพิ่มชนิดเสียง HAS Direct ใช้ไดรเวอร์ latency ต่ำของ audio interface ได้โดยตรง และอุปกรณ์ที่ตั้ง 44.1 kHz จะถูกเปลี่ยนเป็น 48 kHz ให้เอง เพื่อนจะได้ยินเสียงไม่เพี้ยน หน้าแชร์: หัวข้อเพื่อนไม่ซ้อนกันแล้ว หลังเน็ตสะดุด buffer ของเพื่อนจะลดกลับภายในไม่กี่วินาที (เดิมค้างสูงอยู่ครึ่งนาที) เสียงระหว่าง Hub กับ HAS Karaoke ส่งเป็นแพ็กเก็ตละ 5 ms แล้ว (ไปกลับเร็วขึ้นประมาณ 10 ms) TikTok LIVE Studio: ไมค์เสมือนของ Hub กลับมาแล้ว (ตั้งค่า > การเชื่อมต่อ ส่งเข้า VB-Cable)"
                   },
                   {
                       "version":  "1.0.9",
@@ -65,5 +65,5 @@
     "vst2":  true,
     "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.10.exe",
     "karaokeSizeMb":  "8.2",
-    "karaokeSha256":  "aaf2cca7ce7e629277be7319bfccb51e96fc252f724da3d55ed03a1e4a3c8a1b"
+    "karaokeSha256":  "b432711e8fef6a42a4c311d573d8cbed4fe36337af5ec99e8023b1777a7c92fa"
 }

@@ -85,7 +85,7 @@ sock.on('data', d => {
         const frames = p.readUInt16LE(20);
         const payloadLen = p.length - 22;
 
-        if (codec === 1 && chans === 2 && frames === 480 && payloadLen > 0) {
+        if (codec === 1 && chans === 2 && frames === 240 && payloadLen > 0) {   // 5 ms Opus packets
           opusPackets++;
           if (lastSeq !== -1 && seq !== lastSeq + 1) {
             seqOk = false;

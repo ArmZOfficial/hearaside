@@ -7,7 +7,6 @@ err.txt
 # third-party sources are fetched by scripts/fetch-deps.ps1 (see README)
 /external/JUCE/
 /external/obs-studio/
-/external/obs-studio-streamlabs/
 /external/speexdsp/
 /external/opus/
 /external/mbedtls/

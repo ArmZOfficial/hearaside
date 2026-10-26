@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -16,6 +17,12 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_AUTHOR("HEARASIDE")
@@ -27,6 +34,46 @@ bool thai() {
     return loc != nullptr && std::strncmp(loc, "th", 2) == 0;
 }
 const char* T(const char* en, const char* th) { return thai() ? th : en; }
+
+// Streamlabs Desktop runs a libobs fork (stream-labs/obs-studio, 31.x). Same functions and signatures as OBS,
+// but two structs are laid out differently: obs_source_info has audio_render_do right after audio_render and
+// message / get_messages where OBS has the icon callbacks, and obs_source_audio ends with int64_t dec_frame_pts.
+// Built for OBS, this module fills the fork's layout itself when it runs there (a mismatch crashes the host).
+bool g_streamlabs = false;
+
+struct StreamlabsAudio {
+    obs_source_audio obs;
+    int64_t dec_frame_pts = 0;
+};
+static_assert(offsetof(StreamlabsAudio, dec_frame_pts) == sizeof(obs_source_audio), "dec_frame_pts follows the OBS fields");
+
+static_assert(offsetof(obs_source_info, enum_all_sources) == offsetof(obs_source_info, audio_render) + sizeof(void*),
+              "the fork inserts one slot between audio_render and enum_all_sources");
+static_assert(offsetof(obs_source_info, get_light_icon) + sizeof(void*) == sizeof(obs_source_info)
+                  && offsetof(obs_source_info, get_dark_icon) + sizeof(void*) == offsetof(obs_source_info, get_light_icon),
+              "OBS's obs_source_info ends with the two icon callbacks (the fork has message / get_messages there)");
+
+enum class Host { Obs, Streamlabs, UnknownFork };
+
+Host host() {
+#ifdef _WIN32
+    const HMODULE obs = GetModuleHandleW(L"obs.dll");
+    if (obs == nullptr || GetProcAddress(obs, "streamlabs_set_audio_flag") == nullptr) return Host::Obs;
+    return (obs_get_version() >> 24) == 31 ? Host::Streamlabs : Host::UnknownFork;   // the layout above is the 31.x fork's
+#else
+    return Host::Obs;
+#endif
+}
+
+// OBS's obs_source_info in the fork's layout: one null slot inserted, the last two (message, get_messages) null
+std::vector<uint8_t> streamlabsSourceInfo(const obs_source_info& info) {
+    const size_t insert = offsetof(obs_source_info, enum_all_sources);
+    const size_t tail = offsetof(obs_source_info, get_dark_icon);
+    std::vector<uint8_t> out(sizeof(obs_source_info) + sizeof(void*), 0);
+    std::memcpy(out.data(), &info, insert);
+    std::memcpy(out.data() + insert + sizeof(void*), reinterpret_cast<const uint8_t*>(&info) + insert, tail - insert);
+    return out;
+}
 
 struct Config {
     std::string bus = "Main";
@@ -101,7 +148,12 @@ struct Source {
             else ts += (fresh > ts ? (fresh - ts) / 8 : 0);        // pull gently towards "fresh", never backwards
             a.timestamp = ts;
             ts += dur;
-            obs_source_output_audio(source, &a);
+            if (g_streamlabs) {
+                StreamlabsAudio sa { a };
+                obs_source_output_audio(source, &sa.obs);
+            } else {
+                obs_source_output_audio(source, &a);
+            }
 
             std::lock_guard<std::mutex> lk(statusMutex);
             status = consumer.status();
@@ -263,9 +315,24 @@ bool obs_module_load(void) {
     info.get_defaults = ss_defaults;
     info.get_properties = ss_properties;
     info.icon_type = OBS_ICON_TYPE_AUDIO_INPUT;
-    obs_register_source(&info);
 
-    blog(LOG_INFO, "[HEARASIDE] OBS source loaded (version %s)", HEARASIDE_VERSION);
+    switch (host()) {
+        case Host::Obs:
+            obs_register_source(&info);
+            break;
+        case Host::Streamlabs: {
+            g_streamlabs = true;
+            const auto fork = streamlabsSourceInfo(info);
+            obs_register_source_s(reinterpret_cast<const obs_source_info*>(fork.data()), fork.size());   // libobs copies it
+            break;
+        }
+        case Host::UnknownFork:   // a layout this build does not know: no source rather than a crash
+            blog(LOG_WARNING, "[HEARASIDE] Streamlabs libobs %s is not supported by HEARASIDE %s, the source is not registered",
+                 obs_get_version_string(), HEARASIDE_VERSION);
+            return true;
+    }
+
+    blog(LOG_INFO, "[HEARASIDE] OBS source loaded (version %s%s)", HEARASIDE_VERSION, g_streamlabs ? ", Streamlabs Desktop" : "");
     return true;
 }
 

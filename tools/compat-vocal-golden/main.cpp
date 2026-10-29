@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 #include "VocalChain.h"
+#include "rt_audit.h"
 
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 
 namespace {
@@ -175,7 +177,10 @@ void run(const juce::File& directory, bool check, bool compare) {
             float left[blockSize], right[blockSize], network[blockSize];
             float peak = 0, tailPeak = 0, stereoDifference = 0;
             for (int offset = 0; offset < frames; offset += blockSize) {
-                chain.process(input.data() + offset, left, right, network, blockSize);
+                {
+                    rt::Scope audio("VocalChain::process");
+                    chain.process(input.data() + offset, left, right, network, blockSize);
+                }
                 for (int i = 0; i < blockSize; ++i) {
                     const auto index = size_t(offset + i) * 3;
                     output[index] = left[i]; output[index + 1] = right[i]; output[index + 2] = network[i];
@@ -226,12 +231,26 @@ void run(const juce::File& directory, bool check, bool compare) {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 3 || (juce::String(argv[1]) != "--output" && juce::String(argv[1]) != "--check" && juce::String(argv[1]) != "--compare")) {
-        std::fprintf(stderr, "Usage: hs-vocal-golden --output <empty-directory> | --check <fixture-directory> | --compare <fixture-directory>\n");
+    const juce::String mode = argc == 3 ? argv[1] : "";
+    if (mode != "--output" && mode != "--check" && mode != "--compare" && mode != "--rt-audit") {
+        std::fprintf(stderr, "Usage: hs-vocal-golden --output <empty-directory> | --check <fixture-directory> | --compare <fixture-directory> | --rt-audit <fixture-directory>\n");
         return 2;
     }
     try {
-        run(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]), juce::String(argv[1]) != "--output", juce::String(argv[1]) == "--compare");
+        const bool audit = mode == "--rt-audit";
+        if (audit) {
+            std::mutex probe;
+            require(rt::selfTest(probe), "Real-time audit detectors did not fire");
+            rt::reset();
+        }
+        run(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]), mode != "--output", mode == "--compare" || audit);
+        if (audit) {
+            const auto* site = rt::site("VocalChain::process");
+            const auto allocations = site->allocations.load(), locks = site->locks.load();
+            std::printf("VocalChain::process: %llu allocations, %s\n", (unsigned long long) allocations,
+                rt::kDetectsLocks ? (juce::String((juce::int64) locks) + " blocking locks").toRawUTF8() : "locks not detected here");
+            require(allocations == 0 && locks == 0, "VocalChain::process allocated or blocked on the audio thread");
+        }
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());

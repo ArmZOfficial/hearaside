@@ -1,0 +1,52 @@
+name: Golden audio (Linux)
+
+on:
+  push:
+    paths:
+      - libs/**
+      - apps/karaoke/VocalChain.*
+      - tools/compat-golden/**
+      - tools/compat-vocal-golden/**
+      - tools/net-sim/**
+      - compat/golden/**
+      - compat/check_golden.py
+      - scripts/fetch-deps.ps1
+      - scripts/patches/**
+      - .github/workflows/compat-golden.yml
+  pull_request:
+    paths:
+      - libs/**
+      - apps/karaoke/VocalChain.*
+      - tools/compat-golden/**
+      - tools/compat-vocal-golden/**
+      - tools/net-sim/**
+      - compat/golden/**
+      - compat/check_golden.py
+      - scripts/fetch-deps.ps1
+      - scripts/patches/**
+      - .github/workflows/compat-golden.yml
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: JUCE build dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libasound2-dev
+      - name: Third-party sources (pinned in scripts/fetch-deps.ps1)
+        shell: pwsh
+        run: ./scripts/fetch-deps.ps1
+      - name: Core and net-sim generator
+        run: |
+          cmake -S . -B build/golden -G Ninja -DCMAKE_BUILD_TYPE=Release -DHEARASIDE_BUILD_PLUGINS=OFF -DHEARASIDE_BUILD_KARAOKE=OFF -DHEARASIDE_BUILD_OBS=OFF -DHEARASIDE_BUILD_TOOLS=OFF
+          cmake --build build/golden --target hs_compat_golden
+          ctest --test-dir build/golden -R compat_golden --output-on-failure
+      - name: VocalChain generator
+        run: |
+          cmake -S tools/compat-vocal-golden -B build/vocal-golden -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/vocal-golden
+          ctest --test-dir build/vocal-golden --output-on-failure
+      - run: node tools/net-sim/net-sim.test.mjs

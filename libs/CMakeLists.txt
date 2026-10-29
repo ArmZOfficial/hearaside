@@ -66,6 +66,17 @@ target_compile_definitions(ss_speex_echo
 if(MSVC)
     target_compile_options(ss_speex_echo PRIVATE /wd4244 /wd4305 /wd4267 /wd4018)
 endif()
+if(NOT WIN32)
+    # speexdsp_types.h needs the header autotools would generate outside Windows
+    set(INCLUDE_STDINT "#include <stdint.h>")
+    set(SIZE16 int16_t)
+    set(USIZE16 uint16_t)
+    set(SIZE32 int32_t)
+    set(USIZE32 uint32_t)
+    configure_file(${SS_EXTERNAL}/speexdsp/include/speex/speexdsp_config_types.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/speex_config/speexdsp_config_types.h @ONLY)
+    target_include_directories(ss_speex_echo PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/speex_config)
+endif()
 
 # ---- mbedtls: crypto & TLS backend for libdatachannel (Apache-2.0) -------------------------
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)

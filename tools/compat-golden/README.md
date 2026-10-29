@@ -13,6 +13,13 @@ cmake --build build/compat-baseline --config Release --target hs_compat_golden
 ```
 
 Linux executable path: `build/compat-baseline/tools/compat-golden/hs_compat_golden`.
+
+A leading `--netsim` selects the net-sim replay corpus for `--output`, `--check`,
+`--compare` and `--self-test` (`compat/golden/netsim`, reference Linux x86_64 GCC
+13.3.0). Its traces are embedded at configure time and written back verbatim as
+`traces/*.trace`. `--rt-audit` regenerates both corpora and fails when an
+audio-thread call allocates or takes a blocking lock beyond the recorded C++
+baseline; see `compat/golden/README.md`.
 `--output` requires a new or empty directory; it never refreshes an existing
 baseline in place. Review generated changes before replacing reference fixtures.
 
@@ -55,5 +62,5 @@ are unlinked after the generator's engine/consumer objects release them.
 These are current C++ core references, not audio rendered by the shipped plug-in
 binary. The test supplies a synthetic DAW master mix; it does not exercise the
 JUCE TrackProcessor's own parameter smoothing. VocalChain has a separate
-generator. Net-sim loss/reordering, eight-friend Hub routing/Line up/mix-minus,
+generator. Net-sim packet loss/reordering (TCP has neither), eight-friend Hub routing/Line up/mix-minus,
 all host block sizes/sample rates, and real DAWs are outside this corpus.

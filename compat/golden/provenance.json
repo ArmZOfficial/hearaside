@@ -256,6 +256,66 @@
       "path": "vocal/synthetic-music-wet-send.f32",
       "size": 393216,
       "sha256": "8402eaf9bd677aa8b82448c18c8c6ecb0c7f2e3ca8d6918a58914c668755aa0e"
+    },
+    {
+      "path": "netsim/friend/good.f32",
+      "size": 576000,
+      "sha256": "902a3b9fe6c6eb0dfcc832bd6abc7fb71e3dc340ac854880223a9acc079f5509"
+    },
+    {
+      "path": "netsim/friend/good_status.f32",
+      "size": 94488,
+      "sha256": "90c340d3c80a42f9b0008400db10b8384cdeecd30f629194191a30d766af8a93"
+    },
+    {
+      "path": "netsim/friend/home.f32",
+      "size": 576000,
+      "sha256": "dbe5810bc7b033352e6c1783d8c0e33971facfb8892aff3f7b6d29353f3f1ff4"
+    },
+    {
+      "path": "netsim/friend/home_status.f32",
+      "size": 94488,
+      "sha256": "ac4beda2683964d0dfd74ffef8d2b2f726487e660b58cb103d1d97730c7404e6"
+    },
+    {
+      "path": "netsim/friend/mobile.f32",
+      "size": 576000,
+      "sha256": "1a78ff4047e204e0b23edd07384ab837f64c2a10736cd06a43e6e8e41f9542ae"
+    },
+    {
+      "path": "netsim/friend/mobile_status.f32",
+      "size": 94488,
+      "sha256": "269531a9010d8ce6ecedcfec69c6fb1912e22cb37f0b56ecb205a4e840c49638"
+    },
+    {
+      "path": "netsim/manifest.json",
+      "size": 4221,
+      "sha256": "b2bd632829301b4e22e248c9f8269e6735f21d50553fb9292f566f1994c57be8"
+    },
+    {
+      "path": "netsim/provenance.json",
+      "size": 3118,
+      "sha256": "ddf898f2812018d573aa6147d8b3a39690ec390c45c42937326573f9552c04de"
+    },
+    {
+      "path": "netsim/traces/good.trace",
+      "size": 42928,
+      "sha256": "75f236f03c2d7991b5af0cb2002cd25018de0fe5d4a7ff0eda09678464dcc6e3"
+    },
+    {
+      "path": "netsim/traces/home.trace",
+      "size": 42960,
+      "sha256": "1562e3db611afa6ff3996d6413a0ad8f4d7a198742afb58aefbde45f8a6c26c8"
+    },
+    {
+      "path": "netsim/traces/mobile.trace",
+      "size": 42952,
+      "sha256": "1892c06687eff575cf59c75772206e15fb74cadda6cb0d73b050bb0a12c1975b"
     }
-  ]
+  ],
+  "netsim": {
+    "provenance": "netsim/provenance.json",
+    "capturePlatform": "Linux x86_64, GNU 13.3.0 Release",
+    "traceRecorder": "tools/net-sim/record-trace.mjs through tools/net-sim/net-sim.mjs, node v22.22.0"
+  }
 }

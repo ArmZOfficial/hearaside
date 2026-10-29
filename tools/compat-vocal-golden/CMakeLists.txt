@@ -11,10 +11,11 @@ add_executable(hs-vocal-golden
     ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/karaoke/VocalChain.cpp)
 target_compile_features(hs-vocal-golden PRIVATE cxx_std_20)
-target_include_directories(hs-vocal-golden PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/karaoke)
+target_include_directories(hs-vocal-golden PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/karaoke ${CMAKE_CURRENT_SOURCE_DIR}/../compat-golden)
 target_compile_definitions(hs-vocal-golden PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
-target_link_libraries(hs-vocal-golden PRIVATE juce::juce_dsp juce::juce_recommended_config_flags)
+target_link_libraries(hs-vocal-golden PRIVATE juce::juce_dsp juce::juce_recommended_config_flags ${CMAKE_DL_LIBS})
 if(MSVC)
     target_compile_options(hs-vocal-golden PRIVATE /utf-8 /permissive-)
 endif()
 add_test(NAME vocal_golden COMMAND hs-vocal-golden --compare ${CMAKE_CURRENT_SOURCE_DIR}/../../compat/golden/vocal)
+add_test(NAME vocal_golden_rt_safety COMMAND hs-vocal-golden --rt-audit ${CMAKE_CURRENT_SOURCE_DIR}/../../compat/golden/vocal)

@@ -106,6 +106,7 @@ export component TrackSpike inherits Window {
     in-out property <bool> you-hear: false;
     in-out property <bool> viewers-hear: true;
     in property <string> name: "Vocal";
+    in property <string> footer: "บัฟเฟอร์ DAW 256 sample = 5.3 ms · 48.0 kHz";
     default-font-family: "Anuphan";
     width: 380px;
     height: 640px;
@@ -174,6 +175,6 @@ export component TrackSpike inherits Window {
 
         // footer
         Rectangle { y: parent.height - 27px; height: 1px; background: Palette.hairline2; }
-        Text { x: 0; y: parent.height - 16px; text: "บัฟเฟอร์ DAW 256 sample = 5.3 ms · 48.0 kHz"; font-size: 11px; color: Palette.graphite; }
+        Text { x: 0; y: parent.height - 16px; text: root.footer; font-size: 11px; color: Palette.graphite; }
     }
 }

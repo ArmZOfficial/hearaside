@@ -2,6 +2,7 @@
 // does (VST3 or VST2 via JUCE hosting) and checks the behaviour end to end through shared memory.
 //   plugin-host-test <Track plugin> <Hub plugin> [App Audio plugin]
 //   plugin-host-test --dump-state <plugin> <empty output directory>
+//   plugin-host-test --editor-soak <plugin> [cycles, default 50]   (any VST3 / VST2; R0.3 UI spikes)
 // Exit code 0 = all checks passed.
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -12,6 +13,21 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
+#include <vector>
+#if JUCE_WINDOWS
+// editor_soak.h: kernel32's K32GetProcessMemoryInfo, declared here instead of including <windows.h> after JUCE
+struct HsProcessMemoryCounters {
+    unsigned long cb, pageFaultCount;
+    size_t peakWorkingSetSize, workingSetSize, quotaPeakPagedPoolUsage, quotaPagedPoolUsage,
+        quotaPeakNonPagedPoolUsage, quotaNonPagedPoolUsage, pagefileUsage, peakPagefileUsage;
+};
+extern "C" __declspec(dllimport) int __stdcall K32GetProcessMemoryInfo(void* process, HsProcessMemoryCounters* counters, unsigned long size);
+#elif JUCE_MAC
+#include <mach/mach.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -617,6 +633,7 @@ float streamPeak(ssbus::BusLayout& L, uint32_t frames) {
 }
 
 #include "state_dump.h"
+#include "editor_soak.h"
 
 } // namespace
 
@@ -625,6 +642,11 @@ int main(int argc, char** argv) {
         if (argc != 4) { std::fprintf(stderr, "usage: plugin-host-test --dump-state <plugin> <empty output directory>\n"); return 2; }
         juce::ScopedJuceInitialiser_GUI gui;
         return dumpStates(argv[2], argv[3]);
+    }
+    if (argc > 1 && juce::String(argv[1]) == "--editor-soak") {
+        if (argc != 3 && argc != 4) { std::fprintf(stderr, "usage: plugin-host-test --editor-soak <plugin> [cycles]\n"); return 2; }
+        juce::ScopedJuceInitialiser_GUI gui;
+        return editorSoak(argv[2], argc == 4 ? juce::jmax(1, juce::String(argv[3]).getIntValue()) : 50);
     }
     if (argc < 3) { std::printf("usage: plugin-host-test <Track plugin> <Hub plugin> [App Audio plugin]\n"); return 2; }
     juce::ScopedJuceInitialiser_GUI gui;

@@ -2,6 +2,7 @@
 /build/
 /rust/target/
 /rust/spikes/*/target/
+/rust/spikes/plugins/*/target/
 /compat/__pycache__/
 /Testing/
 out.txt

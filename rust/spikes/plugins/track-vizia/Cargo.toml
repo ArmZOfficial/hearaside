@@ -1,0 +1,20 @@
+[package]
+name = "spike-track-vizia"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# R0.3 spike: the Track page as an empty VST3/CLAP plug-in (DAW criteria). Not part of the product.
+#   cargo xtask bundle spike-track-vizia --release
+# Its own workspace: Slint and Vizia link different Skia versions.
+[workspace]
+members = [".", "xtask"]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nice-plug = "=0.1.8"
+vizia_plug = { git = "https://github.com/vizia/vizia-plug", rev = "34812c0ba14c5df39621bab956c74e660220636b" }
+png = "0.17"

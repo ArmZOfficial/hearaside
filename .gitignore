@@ -1,6 +1,7 @@
 # build output
 /build/
 /rust/target/
+/rust/spikes/*/target/
 /compat/__pycache__/
 /Testing/
 out.txt

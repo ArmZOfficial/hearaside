@@ -1,0 +1,17 @@
+[package]
+name = "spike-ui-slint"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+# R0.3 spike only: renders the Track card to PNG without a window. Not part of the product.
+[workspace]
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "renderer-software", "software-renderer-systemfonts", "software-renderer-path"] }
+png = "0.17"
+
+[build-dependencies]
+slint-build = "=1.18.1"

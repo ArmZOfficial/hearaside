@@ -96,7 +96,7 @@ void TakeRecorder::close() {
         last_ = file_;
         lastSeconds_ = double(frames) / sampleRate_;
     }
-    file_ = {};
+    file_ = juce::File();
     phase_.store(0);
 }
 

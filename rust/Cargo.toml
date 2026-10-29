@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/hs-tools"]
+exclude = ["spikes"]   # R0.3 / R0.4 throwaway spikes, each its own workspace
 resolver = "3"
 
 [workspace.package]

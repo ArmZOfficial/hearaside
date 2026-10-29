@@ -1,0 +1,179 @@
+// R0.3 spike: the Track editor main page (plugins/track/TrackEditor.cpp layout) in Slint.
+// Content units are the JUCE editor's (380 x 640); the window scale adds the UI size and the display scale.
+import "../../../../external/fonts/Anuphan-400.ttf";
+import "../../../../external/fonts/Anuphan-500.ttf";
+import "../../../../external/fonts/Anuphan-600.ttf";
+import { Palette } from "palette.slint";
+
+export { Palette }
+
+// 24-unit icons from plugins/common/ui/Icons.cpp
+component Icon inherits Path {
+    in property <color> ink;
+    width: 20px;
+    height: 20px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: ink;
+    stroke-width: 1.7px;
+    fill: transparent;
+}
+
+component Switch inherits Rectangle {
+    in-out property <bool> on;
+    width: 46px;
+    height: 26px;
+    border-radius: self.height / 2;
+    background: on ? Palette.ink : Palette.switchOff;
+    Rectangle {
+        width: 22px;
+        height: 22px;
+        y: 2px;
+        x: on ? parent.width - self.width - 2px : 2px;
+        animate x { duration: 160ms; easing: ease-out; }
+        border-radius: 11px;
+        background: on ? Palette.onInk : #ffffff;   // Switch::paintAt
+    }
+    TouchArea { clicked => { on = !on; } }
+}
+
+component ToggleRow inherits Rectangle {
+    in property <string> title;
+    in property <string> caption;
+    in property <bool> broadcast;
+    in-out property <bool> on;
+    height: 60px;
+    border-radius: 14px;
+    background: Palette.inset;
+    border-width: 1px;
+    border-color: Palette.hairline2;
+    Rectangle {
+        x: 10px;
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        background: on ? Palette.ink : Palette.offBg;
+        border-width: on ? 0 : 1px;
+        border-color: Palette.hairline2;
+        if broadcast: Icon {
+            ink: on ? Palette.onInk : Palette.graphite;
+            commands: "M15.5 8.5a5 5 0 0 1 0 7 M8.5 15.5a5 5 0 0 1 0-7 M18.4 5.6a9 9 0 0 1 0 12.8 M5.6 18.4a9 9 0 0 1 0-12.8 M14 12a2 2 0 1 1-4 0a2 2 0 1 1 4 0";
+        }
+        if !broadcast: Icon {
+            ink: on ? Palette.onInk : Palette.graphite;
+            commands: on ? "M4 17v-5a8 8 0 0 1 16 0v5 M4.8 14h1a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-1a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8z M18.3 14h1a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-1a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8z"
+                         : "M4 17v-5a8 8 0 0 1 16 0v5 M4.8 14h1a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-1a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8z M18.3 14h1a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-1a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8z M3 3L21 21";
+        }
+    }
+    VerticalLayout {
+        x: 61px;
+        width: parent.width - 61px - 70px;
+        alignment: center;
+        Text { text: title; font-size: 14.5px; font-weight: 600; color: Palette.ink; }
+        Text { text: caption; font-size: 12.5px; color: Palette.graphite; }
+    }
+    Switch { x: parent.width - self.width - 12px; on <=> root.on; }
+}
+
+component Field inherits Rectangle {
+    in property <string> label;
+    in property <string> value-text;
+    in property <float> position;   // 0..1
+    in property <bool> dim;
+    in property <string> caption;
+    height: caption == "" ? 64px : 92px;
+    Text { x: 0; y: 4px; text: label; font-size: 13.5px; font-weight: 600; color: Palette.ink; }
+    Text { y: 4px; x: parent.width - self.width - 7px; text: value-text; font-size: 12.5px; color: Palette.graphite; }
+    Rectangle {
+        y: 34px;
+        height: 18px;
+        Rectangle { x: 0; y: 7px; height: 3.5px; border-radius: 2px; background: Palette.sliderRail; }
+        Rectangle { x: 0; y: 7px; height: 3.5px; width: parent.width * position; border-radius: 2px; background: dim ? Palette.muted : Palette.ink; }
+        Rectangle {
+            width: 17px; height: 17px; border-radius: 8.5px;
+            x: (parent.width - self.width) * position;
+            background: Palette.thumb;
+            border-width: 1px; border-color: dim ? Palette.hairline2 : Palette.hairline3;
+            drop-shadow-blur: 3px; drop-shadow-offset-y: 1px; drop-shadow-color: Palette.shadow;
+            opacity: dim ? 0.75 : 1;
+        }
+    }
+    if caption != "": Text { x: 0; y: 62px; width: parent.width; text: caption; font-size: 12px; color: Palette.graphite; wrap: word-wrap; }
+}
+
+export component TrackSpike inherits Window {
+    in property <image> backdrop;
+    in-out property <bool> you-hear: false;
+    in-out property <bool> viewers-hear: true;
+    in property <string> name: "Vocal";
+    default-font-family: "Anuphan";
+    width: 380px;
+    height: 640px;
+    background: Palette.paper;
+
+    Image { source: backdrop; width: parent.width; height: parent.height; image-fit: fill; }
+
+    // header (12, 12, 356 x 54), glass drawn by the backdrop
+    Rectangle {
+        x: 12px; y: 12px; width: 356px; height: 54px;
+        VerticalLayout {
+            x: 16px; width: 120px;
+            alignment: center;
+            spacing: -1px;
+            Text { text: "HEARASIDE"; letter-spacing: 4.2px; font-size: 12.5px; font-weight: 600; color: Palette.ink; }
+            Text { text: "TRACK"; letter-spacing: 3px; font-size: 8px; font-weight: 500; color: Palette.graphite; }
+        }
+        Rectangle {
+            x: parent.width - 9px - 36px; y: 9px; width: 36px; height: 36px;
+            border-radius: 11px; background: Palette.chipBg; border-width: 1px; border-color: Palette.hairline2;
+            Icon { ink: Palette.ink; width: 18px; height: 18px; commands: "M4 7h10 M18 7h2 M4 17h4 M12 17h8 M18 7a2 2 0 1 1-4 0a2 2 0 1 1 4 0 M12 17a2 2 0 1 1-4 0a2 2 0 1 1 4 0"; }
+        }
+        Rectangle {
+            x: parent.width - 9px - 36px - 8px - self.width; y: 12px; height: 30px;
+            width: chip-row.preferred-width;
+            border-radius: 15px; background: Palette.chipBg; border-width: 1px; border-color: Palette.hairline2;
+            chip-row := HorizontalLayout {
+                padding-left: 12px; padding-right: 14px; spacing: 8px;
+                Rectangle { width: 7px; height: 7px; y: (parent.height - 7px) / 2; border-radius: 3.5px; background: Palette.ok; }
+                Text { text: "เชื่อมกับ Hub แล้ว"; font-size: 12.5px; color: Palette.ink; vertical-alignment: center; }
+            }
+        }
+    }
+
+    // card (12, 76, 356 x 552); content trimmed 18 / 16 / 12
+    Rectangle {
+        x: 30px; y: 92px; width: 320px; height: 524px;
+        // name row
+        Rectangle { x: 0; y: 8px; width: 10px; height: 10px; border-radius: 5px; background: Palette.trackShade3; }
+        Text { x: 20px; y: 0; height: 26px; text: name; font-size: 16.5px; font-weight: 600; color: Palette.ink; vertical-alignment: center; }
+        Rectangle {
+            x: parent.width - 80px; y: 11px; width: 80px; height: 4px; border-radius: 2px; background: Palette.sliderRail;
+            Rectangle { x: 0; width: parent.width * 0.85; border-radius: 2px; background: Palette.ink; }
+        }
+        Text { x: parent.width - 90px - self.width; y: 0; height: 26px; text: "สัญญาณเข้า"; font-size: 11px; color: Palette.graphite; vertical-alignment: center; }
+
+        ToggleRow { y: 38px; width: parent.width; title: "คุณได้ยินแทร็กนี้"; caption: "ในหูฟังของคุณ"; broadcast: false; on <=> root.you-hear; }
+        ToggleRow { y: 106px; width: parent.width; title: "คนดูได้ยินแทร็กนี้"; caption: "ส่งไปไลฟ์ผ่าน OBS"; broadcast: true; on <=> root.viewers-hear; }
+
+        // summary (dashed in JUCE; Slint has no dashed border, so a hairline here)
+        Rectangle {
+            y: 178px; height: 36px; border-radius: 12px; border-width: 1px; border-color: Palette.hairline3;
+            Text {
+                x: 12px; width: parent.width - 24px;
+                text: root.you-hear && root.viewers-hear ? "ทั้งคุณและคนดูได้ยินแทร็กนี้"
+                    : root.viewers-hear ? "คุณจะไม่ได้ยินแทร็กนี้ในหูฟัง แต่คนดูได้ยินตามปกติ"
+                    : "คุณได้ยินคนเดียว คนดูจะไม่ได้ยินแทร็กนี้";
+                font-size: 12.5px; color: Palette.ink2; vertical-alignment: center;
+            }
+        }
+
+        Field { y: 226px; width: parent.width; label: "ระดับในหูฟัง"; value-text: "0.0 dB"; position: 0.83; dim: !root.you-hear; }
+        Field { y: 290px; width: parent.width; label: "ระดับเสียงฝั่งคนดู"; value-text: "0.0 dB"; position: 0.83; dim: !root.viewers-hear; }
+        Field { y: 354px; width: parent.width; label: "หน่วงเวลาฝั่งคนดู"; value-text: "0 ms"; position: 0; dim: !root.viewers-hear;
+                caption: "เหมือน Sync Offset ใน OBS เฉพาะแทร็กนี้ หูฟังของคุณไม่ถูกหน่วง"; }
+
+        // footer
+        Rectangle { y: parent.height - 27px; height: 1px; background: Palette.hairline2; }
+        Text { x: 0; y: parent.height - 16px; text: "บัฟเฟอร์ DAW 256 sample = 5.3 ms · 48.0 kHz"; font-size: 11px; color: Palette.graphite; }
+    }
+}

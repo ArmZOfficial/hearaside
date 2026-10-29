@@ -1,0 +1,14 @@
+[package]
+name = "spike-ui-vizia"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+# R0.3 spike only: the Track card in Vizia, captured from a real window under Xvfb. Not part of the product.
+[workspace]
+
+[dependencies]
+vizia = { version = "=0.4.0", default-features = false, features = ["winit", "x11", "clipboard"] }
+png = "0.17"

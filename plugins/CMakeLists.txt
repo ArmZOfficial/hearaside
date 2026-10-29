@@ -118,7 +118,8 @@ if(HEARASIDE_BUILD_TOOLS)
     target_sources(hearaside_ui_snapshot PRIVATE
         ${CMAKE_SOURCE_DIR}/tools/ui-snapshot/main.cpp
         track/TrackProcessor.cpp track/TrackEditor.cpp
-        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp hub/VirtualMic.cpp app/AppCapture.cpp)
+        hub/HubProcessor.cpp hub/HubEditor.cpp hub/HubPages.cpp hub/HubPages2.cpp hub/FriendRoom.cpp hub/ShareDirectory.cpp hub/ControlServer.cpp hub/HubRestApi.cpp hub/VirtualMic.cpp app/AppCapture.cpp
+        app/TakeRecorder.cpp)   # HubProcessor records takes on every platform
     target_include_directories(hearaside_ui_snapshot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(hearaside_ui_snapshot PRIVATE
         HEARASIDE_NO_PLUGIN_ENTRY=1 JUCE_MODAL_LOOPS_PERMITTED=1)
@@ -126,7 +127,7 @@ if(HEARASIDE_BUILD_TOOLS)
         hearaside_common ssengine
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     if(WIN32)   # App Audio editor + --test-app-audio
-        target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/AppAudioEditor.cpp app/LinkReceiver.cpp app/TakeRecorder.cpp)
+        target_sources(hearaside_ui_snapshot PRIVATE app/AppAudioProcessor.cpp app/AppAudioEditor.cpp app/LinkReceiver.cpp)
         target_link_libraries(hearaside_ui_snapshot PRIVATE ssdsp)
     endif()
 endif()

@@ -240,7 +240,7 @@ ArmZ ให้ "เอาตามที่แนะนำ" ทุกข้อ �
 | ข้อ | เลือก | เงื่อนไข / ทางถอย |
 |---|---|---|
 | D1 framework | **A. nice-plug** สาย 0.1.x (ตัวเดียวกับที่ `vizia-plug` และ `nice-plug-au2` ใช้) ปักเวอร์ชัน + fork ใน org: hook state แบบ JUCE (อ่าน/เขียน 1.0.10), ล้าง silence flags, bypass ID `'byps'`, backport channel context (`IInfoListener`) จาก 0.4.2 · AU ด้วย `nice-plug-au2` | ถ้า nice-plug ขึ้น 0.4 ให้ port `vizia-plug` ตาม (ทางเลือกเดิม: 0.4 + `clap-wrapper`) · ถ้า state hook / Studio One ไม่ผ่าน → C (เขียนเองบน crate `vst3` + `clap-sys`) |
-| D2 UI | **B. Vizia** ผ่าน `vizia-plug` (เปลี่ยนจากคำแนะนำ A หลัง ArmZ ทดสอบใน Studio One 7 บน Windows 29 ต.ค. 2026: ทั้งสองตัวโหลดและแสดงไทยถูก ArmZ เลือก Vizia) · ui-snapshot ใช้ Xvfb + จับภาพ (Vizia ไม่มี offscreen renderer) | ยังต้องทดสอบเปิด/ปิด 50 รอบ, IME ไทย, DAW อื่น และ macOS ระหว่าง R5 · ต้องดัก panic ตอนสร้าง OpenGL ไม่ให้ DAW ล่ม |
+| D2 UI | **B. Vizia** ผ่าน `vizia-plug` (เปลี่ยนจากคำแนะนำ A หลัง ArmZ ทดสอบใน Studio One 7 บน Windows 29 ต.ค. 2026: ทั้งสองตัวโหลดและแสดงไทยถูก ArmZ เลือก Vizia) · ui-snapshot ใช้ Xvfb + จับภาพ (Vizia ไม่มี offscreen renderer) | ยังต้องทดสอบเปิด/ปิด 50 รอบ, IME ไทย, DAW อื่น และ macOS ระหว่าง R5 · ต้องดัก panic ตอนสร้าง OpenGL ไม่ให้ DAW ล่ม · fork baseview ให้วาดใหม่เมื่อได้ `WM_PAINT` (ย่อหน้าต่างแล้วหน้าว่าง) |
 | D3 VST2 | **B.** shim C++ บาง ๆ (Q2: ยังมีผู้ใช้) | — |
 | D4 network | `tokio` 2 worker + `axum` + `tokio-tungstenite` + `reqwest` (rustls), audio ↔ net ผ่าน `rtrb` | — |
 | D5 WebRTC | **A. `str0m`** | ถ้า `friend_page` / `friend_opus` / net-sim ไม่ผ่าน → B (`datachannel`) |

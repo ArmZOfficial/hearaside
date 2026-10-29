@@ -1,0 +1,35 @@
+name: R0.3 spike plug-ins
+
+# Builds the Slint and Vizia Track-page spikes as VST3 + CLAP for Windows and macOS, to download from
+# the run's artifacts and open in a DAW (docs/spikes/R0.3-ui.md). Not a release.
+on:
+  push:
+    paths:
+      - rust/spikes/**
+      - .github/workflows/spike-plugins.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        ui: [slint, vizia]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rust/spikes/plugins/track-${{ matrix.ui }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (rust/rust-toolchain.toml)
+        run: rustup show active-toolchain
+      - run: cargo xtask bundle spike-track-${{ matrix.ui }} --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spike-${{ matrix.ui }}-${{ matrix.os }}
+          path: rust/spikes/plugins/track-${{ matrix.ui }}/target/bundled/
+          if-no-files-found: error

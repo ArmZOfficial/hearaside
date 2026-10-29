@@ -54,3 +54,16 @@ cmake --build build/compat-host --config Release --target hearaside_plugin_host_
 ```
 
 The VST2 SDK argument is optional; omit it to build VST3 hosting only.
+
+## Editor soak (R0.3)
+
+Opens any VST3/VST2 plug-in's editor in a host window, keeps it up for 250 ms, closes it and repeats,
+then prints the open time (create + attach; first, median, max) and the process memory before, with the
+first editor open, at its peak and after the last close:
+
+```powershell
+plugin-host-test --editor-soak "C:/path/HEARASIDE Spike Slint.vst3" 50
+```
+
+`HS_SOAK_HOLD_MS` keeps the first editor open longer, for a screenshot. Used for the UI spikes in
+`docs/spikes/R0.3-ui.md`; it checks for crashes and leaks, not for host-specific behaviour.

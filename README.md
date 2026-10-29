@@ -176,7 +176,7 @@ Master:  Gullfoss ─► IMPusher ─► HEARASIDE Hub ─► (ปลั๊ก�
 - **เข้าสู่ระบบในปลั๊กอิน** (Hub › Settings › Account, Track/App Audio › Account): กด *Sign in with your browser* → ได้โค้ด 8 ตัว → อนุญาตที่ `hearaside.netlify.app/link` ไม่มีการพิมพ์รหัสผ่านในปลั๊กอิน · เข้าที่ตัวไหน ปลั๊กอินทุกตัวในเครื่องเข้าด้วย (token เก็บใน `%APPDATA%\HEARASIDE\account.dat` เข้ารหัส DPAPI ไม่อยู่ในไฟล์โปรเจกต์)
 - **ได้อะไร:** ลิงก์ถาวรโดยไม่ต้องมีเว็บของตัวเอง, ชื่อ/รูปที่เพื่อนเห็น, **Sync appearance** (ภาษา ธีม ขนาด ความทึบกระจก สีแทร็ก ลดการเคลื่อนไหว ตามไปทุกเครื่อง ค่าใหม่กว่าชนะ ไม่ซิงก์ค่าที่กระทบเสียง), รายการอุปกรณ์ + ออกจากระบบจากเว็บ
 - **deploy เว็บ** (`web/site` บน Netlify หรือ Vercel, ค่าตัวอย่างใน `web/site/.env.example`): Supabase (บัญชี, รูป), `PLUGIN_TOKEN_SECRET`, และ **`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`** สำหรับลิงก์ถาวรและ rate limit · dev ในเครื่อง: `npm run dev` ใน `web/site` (`STORE=memory` ไม่ต้องมี Supabase)
-- **เว็บ deploy จาก branch `production` เท่านั้น**: `netlify.toml` (`ignore`) และ `web/site/vercel.json` (`git.deploymentEnabled`) ข้ามการ build ของ `main`, branch อื่น และ pull request ทั้งหมด ปล่อยเว็บด้วยการ merge `main` เข้า `production` (`git push origin main:production`) และต้องตั้ง Production branch เป็น `production` ใน Netlify / Vercel
+- **เว็บ deploy จาก branch `production` เท่านั้น**: `netlify.toml` (`ignore`) และ `web/site/vercel.json` (`ignoreCommand`) ข้ามการ build ของ `main`, branch อื่น และ pull request ทั้งหมด ปล่อยเว็บด้วยการ merge `main` เข้า `production` (`git push origin main:production`) และต้องตั้ง Production branch เป็น `production` ใน Netlify / Vercel
 
 ### REST API
 

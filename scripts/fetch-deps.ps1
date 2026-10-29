@@ -14,7 +14,10 @@ try {
         git -C obs-studio sparse-checkout set libobs cmake/windows
     }
     if (-not (Test-Path speexdsp)) {
-        git clone --depth 1 https://github.com/xiph/speexdsp.git speexdsp
+        # pinned: compat/golden records the SHA-256 of this resampler source
+        git init -q speexdsp
+        git -C speexdsp fetch -q --depth 1 https://github.com/xiph/speexdsp.git 7a158783df74efe7c2d1c6ee8363c1e695c71226
+        git -C speexdsp -c advice.detachedHead=false checkout -q FETCH_HEAD
     }
     if (-not (Test-Path opus)) {
         git -c advice.detachedHead=false clone --depth 1 --branch v1.5.2 https://github.com/xiph/opus.git opus

@@ -1,0 +1,9 @@
+# Compatibility fixtures and golden audio are compared byte for byte (SHA-256).
+# Never convert their line endings on checkout; moduleinfo.json keeps the CRLF
+# bytes shipped in the 1.0.10 installer.
+/compat/fixtures/** -text
+/compat/golden/** -text
+*.f32 binary
+*.bin binary
+# JUCE's own sources are CRLF; the patches carry those bytes and must apply on any checkout
+/scripts/patches/juce-*.patch -text

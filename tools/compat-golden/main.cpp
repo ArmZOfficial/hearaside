@@ -3,14 +3,18 @@
 #include "ssengine/engine.h"
 #include "ssengine/friend_reader.h"
 #include "provenance.h"
+#include "rt_audit.h"
+#include "netsim_traces.h"
 
 #include <bit>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -69,6 +73,7 @@ struct Capture {
 };
 struct Golden {
     std::vector<Capture> captures;
+    std::map<std::string, Bytes> inputs;   // non-audio input fixtures stored verbatim
     void add(std::string name, std::string scenario, std::vector<float> data, double rate = kRate,
              uint32_t channels = 2, uint32_t seed = 0, std::string columns = "[\"left\", \"right\"]", std::string windows = "[]") {
         require(!data.empty() && data.size() % channels == 0, "invalid capture dimensions: " + name);
@@ -91,7 +96,18 @@ struct Golden {
                      << ", \"channels\": " << c.channels << ", \"seed\": " << c.seed << ", \"columns\": " << c.columns << ", \"source_frame_windows\": " << c.windows
                      << ", \"compare\": \"" << ((c.name == "inputs/noise.f32" || c.name == "inputs/impulse.f32") ? "exact" : "absolute_error_le_1e-6") << "\"}";
         }
-        manifest << "\n  ]\n}\n";
+        manifest << "\n  ]";
+        if (!inputs.empty()) {
+            manifest << ",\n  \"inputs\": [";
+            bool firstInput = true;
+            for (const auto& [name, bytes] : inputs) {
+                require(files.emplace(name, bytes).second, "duplicate input name");
+                manifest << (firstInput ? "" : ", ") << '"' << name << '"';
+                firstInput = false;
+            }
+            manifest << "]";
+        }
+        manifest << "\n}\n";
         files.emplace("manifest.json", textBytes(manifest.str()));
         const std::string provenance = std::string("{\n  \"source_commit\": \"") + kGoldenCommit
             + "\",\n  \"compiler\": \"" + kGoldenCompiler + "\",\n  \"platform\": \"" + kGoldenPlatform
@@ -130,15 +146,21 @@ void dspGoldens(Golden& gold) {
     smoother.prepare(kRate, 5.0); smoother.snap(0); smoother.setTarget(1);
     std::vector<float> ramp;
     for (int i = 0; i < 2048; ++i) {
-        if (i == 600) smoother.setTarget(0.25f);
-        if (i == 1200) smoother.setTarget(0);
-        ramp.push_back(smoother.next());
+        float value;
+        {
+            rt::Scope audio("ssdsp::Smoother");
+            if (i == 600) smoother.setTarget(0.25f);
+            if (i == 1200) smoother.setTarget(0);
+            value = smoother.next();
+        }
+        ramp.push_back(value);
     }
     require(ramp.back() == 0 && !smoother.isSmoothing(), "smoother did not settle");
     gold.add("dsp/smoother.f32", "5 ms ramps: 0 to 1 at frame 0; to 0.25 at 600; to 0 at 1200", ramp, kRate, 1, 0, "[\"gain\"]");
     std::vector<float> panned;
     for (int i = 0; i < 2049; ++i) {
-        float l, r; ssdsp::panGains(float(i) / 1024.0f - 1.0f, l, r);
+        float l, r;
+        { rt::Scope audio("ssdsp::panGains"); ssdsp::panGains(float(i) / 1024.0f - 1.0f, l, r); }
         panned.push_back(tone[size_t(i)] * l); panned.push_back(tone[size_t(i)] * r);
     }
     gold.add("dsp/pan.f32", "440 Hz sine panned linearly from -1 to +1 over 2049 frames", panned);
@@ -157,7 +179,7 @@ void dspGoldens(Golden& gold) {
             if (block == 80 && i == 0) l[0] = 3.0f;
         }
         const bool enabled = block < 160;
-        limiter.process(l.data(), r.data(), kBlock, enabled);
+        { rt::Scope audio("ssdsp::Limiter::process"); limiter.process(l.data(), r.data(), kBlock, enabled); }
         if (enabled) require(std::max(peak(l), peak(r)) <= ceiling + 1e-6f, "limiter ceiling exceeded");
         stereo(limited, l.data(), r.data(), kBlock);
     }
@@ -168,7 +190,7 @@ void dspGoldens(Golden& gold) {
     std::vector<float> levels, l(kBlock), r(kBlock);
     for (int block = 0; block < 750; ++block) {
         for (int i = 0; i < kBlock; ++i) l[size_t(i)] = r[size_t(i)] = (block < 562 ? 0.1f : 0.2f) * sine(uint64_t(block * kBlock + i), kRate, 1000);
-        meter.process(l.data(), r.data(), kBlock);
+        { rt::Scope audio("ssdsp::LoudnessMeter::process"); meter.process(l.data(), r.data(), kBlock); }
         levels.push_back(meter.momentary()); levels.push_back(meter.shortTerm());
     }
     require(meter.momentary() > -30 && meter.shortTerm() > -30, "LUFS capture never warmed up");
@@ -179,13 +201,17 @@ void dspGoldens(Golden& gold) {
     std::vector<float> resampled, consumption;
     for (int block = 0; block < 100; ++block) {
         const int ppm = block < 25 ? 0 : block < 50 ? 150 : block < 75 ? -200 : 0;
-        if (block == 75) resampler.reset();
-        resampler.setCorrectionPpm(ppm);
-        uint32_t used = resampler.inputFor(480), made = 480;
+        uint32_t used, made = 480;
+        {
+            rt::Scope audio("ssdsp::VarResampler");
+            if (block == 75) resampler.reset();
+            resampler.setCorrectionPpm(ppm);
+            used = resampler.inputFor(480);
+        }
         std::vector<float> il(used), ir(used), ol(480), orr(480);
         for (uint32_t i = 0; i < used; ++i) { il[i] = music(cursor + i, 44100); ir[i] = 0.5f * sine(cursor + i, 44100, 441); }
         const float* in[2] = { il.data(), ir.data() }; float* out[2] = { ol.data(), orr.data() };
-        resampler.process(in, used, out, made);
+        { rt::Scope audio("ssdsp::VarResampler"); resampler.process(in, used, out, made); }
         require(made == 480, "resampler failed to fill output");
         cursor += used;
         stereo(resampled, ol.data(), orr.data(), made);
@@ -200,9 +226,13 @@ void dspGoldens(Golden& gold) {
     std::vector<float> correction;
     for (int i = 0; i < 1200; ++i) {
         if (i == 400) fill += 128;
-        if (i == 600) drift.setTarget(1600);
         if (i == 800) fill -= 64;
-        const double c = drift.update(fill + double(i % 3) * 64.0, 0.01);
+        double c;
+        {
+            rt::Scope audio("ssdsp::DriftController");
+            if (i == 600) drift.setTarget(1600);
+            c = drift.update(fill + double(i % 3) * 64.0, 0.01);
+        }
         correction.insert(correction.end(), { float(c), float(drift.filteredError()), float(drift.target()) });
         fill += 480.0 * (1.0 + 200.0e-6) - 480.0 * (1.0 + c);
     }
@@ -226,7 +256,7 @@ void engineGoldens(Golden& gold) {
     uint64_t read = 0;
     int64_t timeline = 100000;
     for (int block = 0; block < 200; ++block) {
-        if (block == 40) a.mirror({ false, true, false, -3.0f, -0.4f, 0, 0, 0 });
+        if (block == 40) { rt::Scope audio("ssengine::TrackPublisher"); a.mirror({ false, true, false, -3.0f, -0.4f, 0, 0, 0 }); }
         if (block == 80) params.panic = true;
         if (block == 100) { params.panic = false; params.preview = true; }
         if (block == 120) params.preview = false;
@@ -236,8 +266,11 @@ void engineGoldens(Golden& gold) {
         const bool suspend = block >= 160 && block < 180;
         for (int i = 0; i < kBlock; ++i) { x[size_t(i)] = music(uint64_t(timeline + i), kRate); y[size_t(i)] = 0.2f * sine(uint64_t(timeline + i), kRate); }
         const float* ax[1] = { x.data() }; const float* by[1] = { y.data() };
-        if (!suspend) a.process(ax, 1, kBlock, timeline, playing, false, false);
-        b.process(by, 1, kBlock, timeline, playing, false, false);
+        {
+            rt::Scope audio("ssengine::TrackPublisher");
+            if (!suspend) a.process(ax, 1, kBlock, timeline, playing, false, false);
+            b.process(by, 1, kBlock, timeline, playing, false, false);
+        }
         float agl, agr, bgl, bgr;
         ssdsp::panGains(-0.4f, agl, agr); ssdsp::panGains(0.4f, bgl, bgr);
         for (int i = 0; i < kBlock; ++i) {
@@ -246,7 +279,7 @@ void engineGoldens(Golden& gold) {
             r[size_t(i)] = av * agr + y[size_t(i)] * bgr;
         }
         float* io[2] = { l.data(), r.data() };
-        hub.process(io, 2, kBlock, params, playing ? timeline : ssengine::kNoTime, playing, false);
+        { rt::Scope audio("ssengine::HubEngine::process"); hub.process(io, 2, kBlock, params, playing ? timeline : ssengine::kNoTime, playing, false); }
         stereo(phones, l.data(), r.data(), kBlock);
         auto& bus = *hub.bus();
         float* dest[2] = { sl.data(), sr.data() };
@@ -287,7 +320,7 @@ void consumerGolden(Golden& gold) {
             produced += kBlock; producerTime += double(kBlock) / (44100.0 * (1.0 + 150.0e-6));
         }
         float* out[2] = { ol.data(), orr.data() };
-        consumer.pull(out, 480, 0.010);
+        { rt::Scope audio("ssdsp::StreamConsumer::pull"); consumer.pull(out, 480, 0.010); }
         stereo(captured, ol.data(), orr.data(), 480);
         const auto st = consumer.status();
         require(st.connected && st.hubAlive, "consumer lost pinned live bus");
@@ -298,28 +331,26 @@ void consumerGolden(Golden& gold) {
     gold.add("dsp/consumer_status.f32", "one snapshot per consumer pull; same consumer scenario", trace, 100, 5, 0, "[\"buffer_ms\", \"target_ms\", \"drift_ppm\", \"underruns\", \"resyncs\"]");
 }
 
-void friendGolden(Golden& gold, uint32_t sourceRate, bool outage) {
+struct FriendRun {
+    std::vector<float> captured, trace;
+    uint64_t reprimes = 0;
+    bool endAudible = false;
+};
+
+// Packets of 10 ms of 400 ms singing/200 ms pause arrive at arrival(index) ms; three 0.5 s output windows are kept.
+// No lost time is relabeled contiguous audio: windows are in 48 kHz output-frame coordinates.
+FriendRun runFriend(uint32_t sourceRate, int blocks, const std::function<double(int)>& arrival,
+                    const uint64_t (&windows)[3], uint64_t audibleFrom, const char* auditLabel) {
     auto ring = std::make_unique<ssbus::ChannelRing>();
     std::atomic<uint64_t> write{0};
     ssengine::FriendReader reader;
     reader.prepare(kRate, kBlock);
     const int packetFrames = int(sourceRate / 100);
-    std::vector<float> packet(static_cast<size_t>(packetFrames)), l(kBlock), r(kBlock), captured, trace;
+    std::vector<float> packet(static_cast<size_t>(packetFrames)), l(kBlock), r(kBlock);
     const float* source[1] = { packet.data() }; float* dest[2] = { l.data(), r.data() };
-    const uint32_t packetSeed = kSeed + sourceRate;
-    uint32_t seed = packetSeed;
+    FriendRun run;
     int next = 0;
-    double cachedArrival = 0, lastArrival = 0;
-    auto arrival = [&](int index) {
-        const double due = 40.0 + index * (10.0 / (1.0 + 200.0e-6));
-        const double jitter = double(randomSample(seed)) * 5.0;
-        if (outage && due >= 10000.0 && due < 10500.0) return 10500.0;
-        if (!outage && due >= 10000.0 && due < 10120.0) return 10120.0;
-        return due + jitter;
-    };
-    cachedArrival = arrival(0);
-    const int blocks = 4875; // Exactly 26 simulated seconds.
-    bool endAudible = false;
+    double cachedArrival = arrival(0), lastArrival = 0;
     for (int block = 0; block < blocks; ++block) {
         const double now = double(block * kBlock) * 1000.0 / kRate;
         while (std::max(lastArrival, cachedArrival) <= now) {
@@ -331,37 +362,132 @@ void friendGolden(Golden& gold, uint32_t sourceRate, bool outage) {
             lastArrival = std::max(lastArrival, cachedArrival);
             cachedArrival = arrival(++next);
         }
-        reader.pull(*ring, write, sourceRate, dest, kBlock);
+        { rt::Scope audio(auditLabel); reader.pull(*ring, write, sourceRate, dest, kBlock); }
         const uint64_t start = uint64_t(block) * kBlock;
-        // Three 0.5 s windows: startup, stall/restart, and settled recovery; no lost time is relabeled contiguous audio.
         for (int i = 0; i < kBlock; ++i) {
             const uint64_t frame = start + uint64_t(i);
-            if (frame < 24000 || (frame >= 480000 && frame < 504000) || (frame >= 1200000 && frame < 1224000)) {
-                captured.push_back(l[size_t(i)]); captured.push_back(r[size_t(i)]);
-            }
-            if (frame >= 1200000 && std::abs(l[size_t(i)]) > 0.1f) endAudible = true;
+            for (uint64_t w : windows) if (frame >= w && frame < w + 24000) { run.captured.push_back(l[size_t(i)]); run.captured.push_back(r[size_t(i)]); }
+            if (frame >= audibleFrom && std::abs(l[size_t(i)]) > 0.1f) run.endAudible = true;
         }
-        trace.insert(trace.end(), { float(reader.bufferMs()), float(reader.jitterP95Ms()), float(reader.underruns()),
+        run.trace.insert(run.trace.end(), { float(reader.bufferMs()), float(reader.jitterP95Ms()), float(reader.underruns()),
             float(reader.reprimes()), float(reader.concealedMs()), reader.primed() ? 1.0f : 0.0f });
     }
-    require(reader.reprimes() >= 1, "friend scenario did not exercise reprime");
-    require(endAudible, "friend did not recover audible output");
+    run.reprimes = reader.reprimes();
+    return run;
+}
+
+std::string windowJson(const uint64_t (&windows)[3]) {
+    std::string json = "[";
+    for (int i = 0; i < 3; ++i) json += std::string(i ? "," : "") + "{\"source_start_frame\":" + std::to_string(windows[i])
+        + ",\"frames\":24000,\"destination_start_frame\":" + std::to_string(i * 24000) + "}";
+    return json + "]";
+}
+constexpr const char* kFriendColumns = "[\"buffer_ms\", \"jitter_p95_ms\", \"underruns\", \"reprimes\", \"concealed_ms\", \"primed\"]";
+
+void friendGolden(Golden& gold, uint32_t sourceRate, bool outage) {
+    const uint32_t packetSeed = kSeed + sourceRate;
+    uint32_t seed = packetSeed;
+    auto arrival = [&](int index) {
+        const double due = 40.0 + index * (10.0 / (1.0 + 200.0e-6));
+        const double jitter = double(randomSample(seed)) * 5.0;
+        if (outage && due >= 10000.0 && due < 10500.0) return 10500.0;
+        if (!outage && due >= 10000.0 && due < 10120.0) return 10120.0;
+        return due + jitter;
+    };
+    static constexpr uint64_t windows[3] = { 0, 480000, 1200000 };
+    const auto run = runFriend(sourceRate, 4875 /* exactly 26 simulated seconds */, arrival, windows, 1200000, "ssengine::FriendReader::pull");
+    require(run.reprimes >= 1, "friend scenario did not exercise reprime");
+    require(run.endAudible, "friend did not recover audible output");
     const std::string name = outage ? "outage_48000" : "stall_44100";
     const std::string scenario = "FriendReader " + std::to_string(sourceRate) + " to 48000; 10 ms mono packets +200 ppm; LCG jitter +/-5 ms in arrival order; 400 ms singing/200 ms pause; "
         + (outage ? "500 ms backlog at 10 s" : "120 ms backlog at 10 s")
         + "; 26 s simulation; audio windows [0,24000),[480000,504000),[1200000,1224000) in 48 kHz output-frame coordinates";
-    require(captured.size() == 72000 * 2, "friend audio windows incomplete");
-    gold.add("friend/" + name + ".f32", scenario, captured, kRate, 2, packetSeed, "[\"left\", \"right\"]",
-        "[{\"source_start_frame\":0,\"frames\":24000,\"destination_start_frame\":0},{\"source_start_frame\":480000,\"frames\":24000,\"destination_start_frame\":24000},{\"source_start_frame\":1200000,\"frames\":24000,\"destination_start_frame\":48000}]");
-    gold.add("friend/" + name + "_status.f32", "per-256-frame-block trace over all 26 s; " + scenario, trace, double(kRate) / kBlock, 6, packetSeed,
-        "[\"buffer_ms\", \"jitter_p95_ms\", \"underruns\", \"reprimes\", \"concealed_ms\", \"primed\"]");
+    require(run.captured.size() == 72000 * 2, "friend audio windows incomplete");
+    gold.add("friend/" + name + ".f32", scenario, run.captured, kRate, 2, packetSeed, "[\"left\", \"right\"]", windowJson(windows));
+    gold.add("friend/" + name + "_status.f32", "per-256-frame-block trace over all 26 s; " + scenario, run.trace, double(kRate) / kBlock, 6, packetSeed, kFriendColumns);
 }
 
-Files generate() {
+// Arrival times recorded through the real tools/net-sim proxy (tools/net-sim/record-trace.mjs), replayed exactly.
+std::vector<double> parseTrace(const NetsimTrace& trace) {
+    std::istringstream text(std::string(reinterpret_cast<const char*>(trace.data), trace.size));
+    std::vector<double> arrivalMs;
+    std::string line;
+    while (std::getline(text, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream fields(line);
+        long long index = -1, arrivalUs = -1, sentUs = -1;
+        require(bool(fields >> index >> arrivalUs >> sentUs) && index == (long long) arrivalMs.size() && arrivalUs >= 0,
+            std::string("invalid net-sim trace line in ") + trace.name);
+        require(arrivalMs.empty() || double(arrivalUs) / 1000.0 >= arrivalMs.back(), std::string("trace out of order: ") + trace.name);
+        arrivalMs.push_back(double(arrivalUs) / 1000.0);
+    }
+    require(arrivalMs.size() == 2000, std::string("net-sim trace must hold 20 s of 10 ms packets: ") + trace.name);
+    return arrivalMs;
+}
+
+void netsimGolden(Golden& gold, const NetsimTrace& trace) {
+    const auto arrivalMs = parseTrace(trace);
+    auto arrival = [&](int index) {
+        return size_t(index) < arrivalMs.size() ? 40.0 + arrivalMs[size_t(index)] : std::numeric_limits<double>::infinity();
+    };
+    static constexpr uint64_t windows[3] = { 0, 456000, 912000 };
+    const auto run = runFriend(kRate, 3937 /* 21 s: the 20 s trace and its drain */, arrival, windows, 912000, "ssengine::FriendReader::pull (net-sim)");
+    require(run.endAudible, std::string("friend not audible at the end of net-sim trace ") + trace.name);
+    require(run.captured.size() == 72000 * 2, "net-sim audio windows incomplete");
+    const std::string name = trace.name;
+    const std::string scenario = "FriendReader 48000 to 48000; 10 ms mono packets, 400 ms singing/200 ms pause; arrivals replayed from traces/" + name
+        + ".trace (real tools/net-sim TCP line) plus 40 ms; 21 s simulation; audio windows [0,24000),[456000,480000),[912000,936000) in 48 kHz output-frame coordinates";
+    gold.inputs.emplace("traces/" + name + ".trace", Bytes(trace.data, trace.data + trace.size));
+    gold.add("friend/" + name + ".f32", scenario, run.captured, kRate, 2, 0, "[\"left\", \"right\"]", windowJson(windows));
+    gold.add("friend/" + name + "_status.f32", "per-256-frame-block trace over all 21 s; " + scenario, run.trace, double(kRate) / kBlock, 6, 0, kFriendColumns);
+}
+
+enum class Corpus { Core, Netsim };
+
+Files generate(Corpus corpus = Corpus::Core) {
     Golden golden;
+    if (corpus == Corpus::Netsim) {
+        for (const auto& trace : kNetsimTraces) netsimGolden(golden, trace);
+        return golden.files();
+    }
     dspGoldens(golden); engineGoldens(golden); consumerGolden(golden);
     friendGolden(golden, 44100, false); friendGolden(golden, 48000, true);
     return golden.files();
+}
+
+// Allocations the unchanged C++ sources make on the audio thread, counted by --rt-audit with glibc.
+// They are baseline findings, not allowances for the Rust port: PLAN R2.4 requires zero.
+struct KnownRtException { const char* label; uint64_t maxAllocations; const char* cause; };
+constexpr KnownRtException kKnownRtExceptions[] = {
+    { "ssdsp::StreamConsumer::pull", 10, "first pull opens the shared memory (tryConnect) and resync constructs the Speex VarResampler" },
+    { "ssengine::FriendReader::pull", 1, "setCorrectionPpm: speex_resampler_set_rate_frac reallocates the filter when a correction lengthens it" },
+    { "ssengine::FriendReader::pull (net-sim)", 3, "the same Speex filter reallocation, once in each of the three replayed readers" },
+};
+
+int rtAudit() {
+    std::mutex probe;
+    require(rt::selfTest(probe), "real-time audit detectors did not fire");
+    rt::reset();
+    const auto files = generate(Corpus::Core).size() + generate(Corpus::Netsim).size();
+    bool ok = true;
+    for (int i = 0; i < rt::g_siteCount.load(); ++i) {
+        const auto& site = rt::g_sites[i];
+        const std::string label = site.label;
+        if (label == "rt-audit self-test") continue;
+        const uint64_t allocations = site.allocations.load(), locks = site.locks.load();
+        const KnownRtException* known = nullptr;
+        for (const auto& e : kKnownRtExceptions) if (label == e.label) known = &e;
+        const bool pass = locks == 0 && allocations <= (known ? known->maxAllocations : 0);
+        ok = ok && pass;
+        std::cout << (!pass ? "FAIL  " : allocations ? "KNOWN " : "ok    ") << label << ": " << allocations << " allocations, "
+                  << (rt::kDetectsLocks ? std::to_string(locks) + " blocking locks" : std::string("locks not detected here"));
+        if (known && allocations) std::cout << " (C++ baseline, limit " << known->maxAllocations << ": " << known->cause << ')';
+        std::cout << '\n';
+    }
+    require(ok, "audio-thread calls allocated or blocked beyond the recorded C++ baseline");
+    std::cout << "real-time audit: " << files << " core and net-sim golden files generated; no audio-thread allocation"
+              << (rt::kDetectsLocks ? " or blocking lock" : "") << " beyond the recorded C++ baseline\n";
+    return 0;
 }
 
 Bytes readFile(const fs::path& file) {
@@ -389,8 +515,12 @@ bool equalFloats(const Bytes& expected, const Bytes& actual) {
 
 int main(int argc, char** argv) {
     try {
+        // A leading --netsim selects the net-sim replay corpus (compat/golden/netsim) instead of core.
+        const bool netsim = argc > 1 && std::string(argv[1]) == "--netsim";
+        const Corpus corpus = netsim ? Corpus::Netsim : Corpus::Core;
+        if (netsim) { --argc; ++argv; }
         if (argc == 2 && std::string(argv[1]) == "--self-test") {
-            const auto first = generate(), second = generate();
+            const auto first = generate(corpus), second = generate(corpus);
             require(first == second, "golden generation is not repeatable in one process");
             auto mutated = first.begin()->second;
             require(!mutated.empty(), "empty capture");
@@ -404,14 +534,16 @@ int main(int argc, char** argv) {
             std::cout << "golden determinism: " << first.size() << " files identical; mutation/truncation rejected\n";
             return 0;
         }
+        if (argc == 2 && std::string(argv[1]) == "--rt-audit" && !netsim) return rtAudit();
         require(argc == 3 && (std::string(argv[1]) == "--output" || std::string(argv[1]) == "--check" || std::string(argv[1]) == "--compare"),
-            "usage: hs_compat_golden --output <new-directory> | --check <fixture-directory> | --compare <fixture-directory> | --self-test");
+            "usage: hs_compat_golden [--netsim] --output <new-directory> | --check <fixture-directory> | --compare <fixture-directory> | --self-test\n"
+            "       hs_compat_golden --rt-audit");
         const bool check = std::string(argv[1]) != "--output";
         const bool numeric = std::string(argv[1]) == "--compare";
         const fs::path directory(argv[2]);
         if (!check) require(!fs::exists(directory) || (fs::is_directory(directory) && fs::is_empty(directory)),
             "output directory must be new or empty; existing goldens are never overwritten");
-        const auto files = generate();
+        const auto files = generate(corpus);
         if (check) {
             require(fs::is_directory(directory), "fixture directory missing: " + directory.string());
             std::set<std::string> expected, actual;

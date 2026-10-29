@@ -17,7 +17,7 @@ def check_golden(root):
         data = path.read_bytes()
         if len(data) != record["size"] or hashlib.sha256(data).hexdigest() != record["sha256"]:
             raise ValueError(f"Golden file differs: {record['path']}")
-    actual = {p.relative_to(root).as_posix() for group in ("core", "vocal")
+    actual = {p.relative_to(root).as_posix() for group in ("core", "vocal", "netsim")
               for p in (root / group).rglob("*") if p.is_file()}
     if not expected or actual != expected:
         raise ValueError("Golden file inventory differs")

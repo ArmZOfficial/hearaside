@@ -234,13 +234,13 @@ hs-win ◄── hs-bus (Windows), hs-plugin-app, hs-karaoke
 
 ### ผล G0 (29 ต.ค. 2026)
 
-ArmZ ให้ "เอาตามที่แนะนำ" ทุกข้อ โดยปรับคำแนะนำตามผล R0.3 / R0.4 (`docs/spikes/R0.3-ui.md`, `docs/spikes/R0.4-framework.md`)
+ArmZ ให้ "เอาตามที่แนะนำ" ทุกข้อ ยกเว้น D2 ที่เลือก Vizia หลังทดสอบใน DAW โดยปรับคำแนะนำตามผล R0.3 / R0.4 (`docs/spikes/R0.3-ui.md`, `docs/spikes/R0.4-framework.md`)
 และคำตอบ Q1–Q8 (หัวข้อ 12) ข้อที่มีเงื่อนไขต้องยืนยันใน DAW ก่อนเริ่ม R5/R6 ถ้าไม่ผ่านให้ใช้ทางถอยที่เขียนไว้
 
 | ข้อ | เลือก | เงื่อนไข / ทางถอย |
 |---|---|---|
-| D1 framework | **A. nice-plug 0.4.x** ปักเวอร์ชัน + fork ใน org: hook state แบบ JUCE (อ่าน/เขียน 1.0.10), ล้าง silence flags, bypass ID `'byps'` · AU ด้วย `clap-wrapper` | ถ้า state hook / Studio One ไม่ผ่านใน DAW → C (เขียนเองบน crate `vst3` + `clap-sys`) |
-| D2 UI | **A. Slint** ผ่าน adapter ที่เราเขียนเองบน baseview 0.4: software renderer + softbuffer (ไม่ใช้ OpenGL จึงไม่มี GL panic) และใช้ renderer เดียวกันทำ ui-snapshot | ต้องผ่านเกณฑ์ 2, 3, 6 ใน DAW (ปลั๊กอิน spike R0.3) ถ้าไม่ผ่าน → B (Vizia ผ่าน `vizia-plug`, ซึ่งบน Linux เปิด/ปิด 30 รอบผ่าน) |
+| D1 framework | **A. nice-plug** สาย 0.1.x (ตัวเดียวกับที่ `vizia-plug` และ `nice-plug-au2` ใช้) ปักเวอร์ชัน + fork ใน org: hook state แบบ JUCE (อ่าน/เขียน 1.0.10), ล้าง silence flags, bypass ID `'byps'`, backport channel context (`IInfoListener`) จาก 0.4.2 · AU ด้วย `nice-plug-au2` | ถ้า nice-plug ขึ้น 0.4 ให้ port `vizia-plug` ตาม (ทางเลือกเดิม: 0.4 + `clap-wrapper`) · ถ้า state hook / Studio One ไม่ผ่าน → C (เขียนเองบน crate `vst3` + `clap-sys`) |
+| D2 UI | **B. Vizia** ผ่าน `vizia-plug` (เปลี่ยนจากคำแนะนำ A หลัง ArmZ ทดสอบใน Studio One 7 บน Windows 29 ต.ค. 2026: ทั้งสองตัวโหลดและแสดงไทยถูก ArmZ เลือก Vizia) · ui-snapshot ใช้ Xvfb + จับภาพ (Vizia ไม่มี offscreen renderer) | ยังต้องทดสอบเปิด/ปิด 50 รอบ, IME ไทย, DAW อื่น และ macOS ระหว่าง R5 · ต้องดัก panic ตอนสร้าง OpenGL ไม่ให้ DAW ล่ม |
 | D3 VST2 | **B.** shim C++ บาง ๆ (Q2: ยังมีผู้ใช้) | — |
 | D4 network | `tokio` 2 worker + `axum` + `tokio-tungstenite` + `reqwest` (rustls), audio ↔ net ผ่าน `rtrb` | — |
 | D5 WebRTC | **A. `str0m`** | ถ้า `friend_page` / `friend_opus` / net-sim ไม่ผ่าน → B (`datachannel`) |

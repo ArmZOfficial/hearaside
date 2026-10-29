@@ -91,6 +91,8 @@ slider .thumb {{ width: 17px; height: 17px; corner-radius: 50%; background-color
 .dim slider .range {{ background-color: var(--muted); }}
 .dim slider .thumb {{ border-color: var(--hairline2); opacity: 0.75; }}
 .spacer {{ height: 1s; }}
+textbox {{ width: 1s; height: 34px; corner-radius: 12px; background-color: var(--chip-bg); border-width: 1px; border-color: var(--hairline2);
+           color: var(--ink); font-size: 12.5px; padding-left: 12px; }}
 .footer-line {{ height: 1px; background-color: var(--hairline2); }}
 .footer {{ font-size: 11px; color: var(--graphite); }}
 "#,
@@ -250,6 +252,11 @@ pub fn page(
                 field(cx, "ระดับในหูฟัง", "0.0 dB", 0.83, mon_dim, None);
                 field(cx, "ระดับเสียงฝั่งคนดู", "0.0 dB", 0.83, str_dim, None);
                 field(cx, "หน่วงเวลาฝั่งคนดู", "0 ms", 0.0, str_dim, Some("เหมือน Sync Offset ใน OBS เฉพาะแทร็กนี้ หูฟังของคุณไม่ถูกหน่วง"));
+                // R0.3 criterion 6: type Thai through the system IME here
+                let rename = Signal::new(String::new());
+                Textbox::new(cx, rename)
+                    .placeholder("ชื่อที่แสดง (ลองพิมพ์ไทย)")
+                    .on_edit(move |_, text| rename.set(text));
                 Element::new(cx).class("spacer");
                 Element::new(cx).class("footer-line");
                 Label::new(cx, footer).class("footer");

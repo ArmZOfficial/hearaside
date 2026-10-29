@@ -106,6 +106,7 @@ export component TrackSpike inherits Window {
     in-out property <bool> you-hear: false;
     in-out property <bool> viewers-hear: true;
     in property <string> name: "Vocal";
+    in-out property <string> rename: "";
     in property <string> footer: "บัฟเฟอร์ DAW 256 sample = 5.3 ms · 48.0 kHz";
     default-font-family: "Anuphan";
     width: 380px;
@@ -172,6 +173,14 @@ export component TrackSpike inherits Window {
         Field { y: 290px; width: parent.width; label: "ระดับเสียงฝั่งคนดู"; value-text: "0.0 dB"; position: 0.83; dim: !root.viewers-hear; }
         Field { y: 354px; width: parent.width; label: "หน่วงเวลาฝั่งคนดู"; value-text: "0 ms"; position: 0; dim: !root.viewers-hear;
                 caption: "เหมือน Sync Offset ใน OBS เฉพาะแทร็กนี้ หูฟังของคุณไม่ถูกหน่วง"; }
+
+        // R0.3 criterion 6: type Thai through the system IME here
+        Rectangle {
+            y: 452px; height: 34px; border-radius: 12px; background: Palette.chipBg;
+            border-width: 1px; border-color: rename-input.has-focus ? Palette.rowOnEdge : Palette.hairline2;
+            if root.rename == "": Text { x: 12px; text: "ชื่อที่แสดง (ลองพิมพ์ไทย)"; font-size: 12.5px; color: Palette.muted; vertical-alignment: center; }
+            rename-input := TextInput { x: 12px; width: parent.width - 24px; text <=> root.rename; font-size: 12.5px; color: Palette.ink; vertical-alignment: center; }
+        }
 
         // footer
         Rectangle { y: parent.height - 27px; height: 1px; background: Palette.hairline2; }

@@ -46,8 +46,8 @@
 
 | Phase | ชื่อ | ขึ้นกับ | ขนาด | สถานะ |
 |---|---|---|---|---|
-| R0 | ลายนิ้วมือ 1.0.10 + spike | — | M | 🟨 R0.1 ครบ; golden C++ source และ toolchain ผ่านในเครื่อง; เหลือ spike/CI |
-| G0 | ArmZ เลือก D1–D8 | R0 | — | ⬜ |
+| R0 | ลายนิ้วมือ 1.0.10 + spike | — | M | 🟨 R0.1, R0.2, R0.5 ✅; R0.3 / R0.4 ทำส่วน cloud แล้ว เหลือทดสอบใน DAW (`docs/spikes/`) |
+| G0 | ArmZ เลือก D1–D8 | R0 | — | ✅ 29 ต.ค. 2026 ตามคำแนะนำ (ดูหัวข้อ 5 "ผล G0") มีเงื่อนไขยืนยันใน DAW |
 | R1 | workspace + `hs-bus` | G0 | M | ⬜ |
 | R2 | `hs-dsp` + `hs-engine` + C ABI (hybrid) | R1 | L | ⬜ |
 | G1 | รุ่นทดสอบแกน Rust: ไปต่อ / หยุดที่ hybrid | R2 | — | ⬜ |
@@ -68,6 +68,8 @@
 - **R0.2 ✅ ตรวจในเครื่อง Windows และ Linux แล้ว**: `compat/golden/core` มี 20 f32 captures (DSP/LUFS/resampler/PI/Track/Hub/StreamConsumer/FriendReader); `compat/golden/vocal` มี input 4 แบบและ VocalChain 20 กรณี; `compat/golden/netsim` มี trace เวลาถึงของ packet ที่บันทึกผ่าน net-sim proxy จริง 3 โปรไฟล์ (ดี/บ้าน/มือถือ) และ FriendReader ที่เล่นซ้ำจาก trace รวม 58 ไฟล์พร้อม manifest/provenance/hash สร้างซ้ำได้ทุกบิตบน toolchain อ้างอิงของแต่ละชุด (core/vocal: MSVC, netsim: GCC 13.3.0) Linux GCC ผ่านเกณฑ์ `1e-6` (core 19/20 ไฟล์ตรงทุกบิต, แย่สุด −138.5 dBFS ใน VocalChain) `--rt-audit` นับ alloc/lock ใน audio thread: ทุกบล็อกเป็น 0 ยกเว้น baseline C++ 2 จุด (`StreamConsumer::pull` ครั้งแรก, Speex realloc ใน `FriendReader::pull`) ที่ Rust ต้องเป็น 0 ตาม R2.4 มี CTest และ workflow Linux `compat-golden.yml` ผ่านบน GitHub แล้ว (รวม `compat-layout.yml` Windows/Linux) merge เข้า `main` แล้ว packet loss/reorder ยังไม่ทดสอบเพราะ net-sim เป็น TCP ดู `compat/golden/README.md`
 - **R0.5 ✅ ตรวจในเครื่อง Windows และ GitHub CI แล้ว**: workspace เฉพาะ `hs-tools`, Rust 1.99.0, static CRT, unwind, lockfile, fmt/clippy/test/release และ `cargo deny` ผ่าน workflow `rust.yml` ผ่านทั้ง Windows/Linux บน `main` (`98e71e3`)
 - **R0.3 🟨 ส่วน cloud เสร็จแล้ว**: ทำหน้า Track ซ้ำทั้ง Slint และ Vizia ตาม layout จริงแล้วเทียบกับ `ui-snapshot` เดิม ทั้งคู่แสดงไทยถูกทุกขนาดและหน้าตาใกล้ของเดิมมาก (เกณฑ์ 1, 4, Q8 ผ่าน) Slint เรนเดอร์ PNG ไม่ต้องมีหน้าต่าง (ข้อ 5 ผ่าน) Vizia ทำไม่ได้ เกณฑ์ 2, 3, 6 ต้องทดสอบใน DAW จริง และยังไม่มี adapter ของ nice-plug สำหรับทั้งสองตัวบน crates.io ดู `docs/spikes/R0.3-ui.md` · มีปลั๊กอินเปล่า VST3/CLAP ของทั้งสองตัวแล้ว (workflow `spike-plugins.yml` build ให้ Windows/macOS) บน Linux เปิด/ปิด editor 30 รอบ Vizia ผ่าน Slint (slint-baseview) ล่ม ต้องทดสอบใน DAW จริงต่อ
+- **R0.4 🟨 ตรวจจากโค้ดแล้ว**: nice-plug ให้ parameter ID เดิมของ 1.0.10 ได้ตรงทุกตัว, offline, playhead, latency, bus, VST3 + CLAP · ต้อง fork เพื่อ state แบบ JUCE, silence flags และ bypass ID · channel context มีใน 0.4.2 (ไม่มีใน 0.1.8) · AU มีเฉพาะสาย 0.1.x จึงใช้ `clap-wrapper` · ยังต้องเปิดโปรเจกต์ 1.0.10 ใน DAW จริง ดู `docs/spikes/R0.4-framework.md`
+- **G0 ✅** เลือก D1–D8 ตามคำแนะนำ (หัวข้อ 5 "ผล G0")
 - **Q4 ตอบแล้ว: macOS อยู่ในแผน** R0.3 / R0.4 จึงต้องทดสอบบน macOS ด้วยตั้งแต่ต้น (ดูแถว R0.3 / R0.4 และ D1)
 - ยังไม่เลือก D1–D8 หรือผ่าน G0 และยังไม่เปลี่ยนโค้ด audio/runtime การ optimize รอบนี้ลดภาระ build ของตัวตรวจ ABI โดยแยกให้ compile เฉพาะ header ได้
 
@@ -229,6 +231,22 @@ hs-win ◄── hs-bus (Windows), hs-plugin-app, hs-karaoke
 ---
 
 ## 5. การตัดสินใจ (ตัวเลือก + คำแนะนำ) ← ArmZ เลือกที่ G0
+
+### ผล G0 (29 ต.ค. 2026)
+
+ArmZ ให้ "เอาตามที่แนะนำ" ทุกข้อ โดยปรับคำแนะนำตามผล R0.3 / R0.4 (`docs/spikes/R0.3-ui.md`, `docs/spikes/R0.4-framework.md`)
+และคำตอบ Q1–Q8 (หัวข้อ 12) ข้อที่มีเงื่อนไขต้องยืนยันใน DAW ก่อนเริ่ม R5/R6 ถ้าไม่ผ่านให้ใช้ทางถอยที่เขียนไว้
+
+| ข้อ | เลือก | เงื่อนไข / ทางถอย |
+|---|---|---|
+| D1 framework | **A. nice-plug 0.4.x** ปักเวอร์ชัน + fork ใน org: hook state แบบ JUCE (อ่าน/เขียน 1.0.10), ล้าง silence flags, bypass ID `'byps'` · AU ด้วย `clap-wrapper` | ถ้า state hook / Studio One ไม่ผ่านใน DAW → C (เขียนเองบน crate `vst3` + `clap-sys`) |
+| D2 UI | **A. Slint** ผ่าน adapter ที่เราเขียนเองบน baseview 0.4: software renderer + softbuffer (ไม่ใช้ OpenGL จึงไม่มี GL panic) และใช้ renderer เดียวกันทำ ui-snapshot | ต้องผ่านเกณฑ์ 2, 3, 6 ใน DAW (ปลั๊กอิน spike R0.3) ถ้าไม่ผ่าน → B (Vizia ผ่าน `vizia-plug`, ซึ่งบน Linux เปิด/ปิด 30 รอบผ่าน) |
+| D3 VST2 | **B.** shim C++ บาง ๆ (Q2: ยังมีผู้ใช้) | — |
+| D4 network | `tokio` 2 worker + `axum` + `tokio-tungstenite` + `reqwest` (rustls), audio ↔ net ผ่าน `rtrb` | — |
+| D5 WebRTC | **A. `str0m`** | ถ้า `friend_page` / `friend_opus` / net-sim ไม่ผ่าน → B (`datachannel`) |
+| D6 โค้ด C | ใช้ libopus / speexdsp ต่อ ผ่าน `cc` (golden R0.2 ยืนยันเสียง) | — |
+| D7 สะพาน | `hs-ffi` + `cbindgen` + Corrosion, สวิตช์ `HEARASIDE_USE_RUST_CORE` | — |
+| D8 ปลายทาง | **B.** ตัดสินที่ G1 (Q1 ชี้ไปทาง A: Rust ทั้งหมด) | วัด CPU / RAM / ขนาดตัวติดตั้งเทียบ 1.0.10 ที่ G1 |
 
 ### D1 framework ปลั๊กอิน
 

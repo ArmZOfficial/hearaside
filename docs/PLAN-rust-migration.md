@@ -48,7 +48,7 @@
 |---|---|---|---|---|
 | R0 | ลายนิ้วมือ 1.0.10 + spike | — | M | 🟨 R0.1, R0.2, R0.5 ✅; R0.3 / R0.4 ทำส่วน cloud แล้ว เหลือทดสอบใน DAW (`docs/spikes/`) |
 | G0 | ArmZ เลือก D1–D8 | R0 | — | ✅ 29 ต.ค. 2026 ตามคำแนะนำ (ดูหัวข้อ 5 "ผล G0") มีเงื่อนไขยืนยันใน DAW |
-| R1 | workspace + `hs-bus` | G0 | M | ⬜ |
+| R1 | workspace + `hs-bus` | G0 | M | 🟨 R1.2 `protocol.rs` ✅ (157 ฟิลด์ตรง fixture v14) |
 | R2 | `hs-dsp` + `hs-engine` + C ABI (hybrid) | R1 | L | ⬜ |
 | G1 | รุ่นทดสอบแกน Rust: ไปต่อ / หยุดที่ hybrid | R2 | — | ⬜ |
 | R3 | `hs-net` + เซิร์ฟเวอร์ | R1 | L | ⬜ |
@@ -69,6 +69,7 @@
 - **R0.5 ✅ ตรวจในเครื่อง Windows และ GitHub CI แล้ว**: workspace เฉพาะ `hs-tools`, Rust 1.99.0, static CRT, unwind, lockfile, fmt/clippy/test/release และ `cargo deny` ผ่าน workflow `rust.yml` ผ่านทั้ง Windows/Linux บน `main` (`98e71e3`)
 - **R0.3 🟨 ส่วน cloud เสร็จแล้ว**: ทำหน้า Track ซ้ำทั้ง Slint และ Vizia ตาม layout จริงแล้วเทียบกับ `ui-snapshot` เดิม ทั้งคู่แสดงไทยถูกทุกขนาดและหน้าตาใกล้ของเดิมมาก (เกณฑ์ 1, 4, Q8 ผ่าน) Slint เรนเดอร์ PNG ไม่ต้องมีหน้าต่าง (ข้อ 5 ผ่าน) Vizia ทำไม่ได้ เกณฑ์ 2, 3, 6 ต้องทดสอบใน DAW จริง และยังไม่มี adapter ของ nice-plug สำหรับทั้งสองตัวบน crates.io ดู `docs/spikes/R0.3-ui.md` · มีปลั๊กอินเปล่า VST3/CLAP ของทั้งสองตัวแล้ว (workflow `spike-plugins.yml` build ให้ Windows/macOS) บน Linux เปิด/ปิด editor 30 รอบ Vizia ผ่าน Slint (slint-baseview) ล่ม ต้องทดสอบใน DAW จริงต่อ
 - **R0.4 🟨 ตรวจจากโค้ดแล้ว**: nice-plug ให้ parameter ID เดิมของ 1.0.10 ได้ตรงทุกตัว, offline, playhead, latency, bus, VST3 + CLAP · ต้อง fork เพื่อ state แบบ JUCE, silence flags และ bypass ID · channel context มีใน 0.4.2 (ไม่มีใน 0.1.8) · AU มีเฉพาะสาย 0.1.x จึงใช้ `clap-wrapper` · ยังต้องเปิดโปรเจกต์ 1.0.10 ใน DAW จริง ดู `docs/spikes/R0.4-framework.md`
+- **R1.2 ✅** `rust/crates/hs-bus/src/protocol.rs`: ทุก struct / ค่าคงที่ / enum ของ `protocol.h` v14 พร้อม padding ชัดเจน test `hs-bus/tests/layout.rs` อ่าน `shm-v14-layout.json` แล้วเทียบ offset/size ครบ 157 ฟิลด์ ขนาด segment 55,636,864 ไบต์ตรง (สร้างซ้ำด้วย `gen_protocol.py`)
 - **G0 ✅** เลือก D1–D8 ตามคำแนะนำ (หัวข้อ 5 "ผล G0")
 - **Q4 ตอบแล้ว: macOS อยู่ในแผน** R0.3 / R0.4 จึงต้องทดสอบบน macOS ด้วยตั้งแต่ต้น (ดูแถว R0.3 / R0.4 และ D1)
 - ยังไม่เลือก D1–D8 หรือผ่าน G0 และยังไม่เปลี่ยนโค้ด audio/runtime การ optimize รอบนี้ลดภาระ build ของตัวตรวจ ABI โดยแยกให้ compile เฉพาะ header ได้
@@ -234,13 +235,13 @@ hs-win ◄── hs-bus (Windows), hs-plugin-app, hs-karaoke
 
 ### ผล G0 (29 ต.ค. 2026)
 
-ArmZ ให้ "เอาตามที่แนะนำ" ทุกข้อ โดยปรับคำแนะนำตามผล R0.3 / R0.4 (`docs/spikes/R0.3-ui.md`, `docs/spikes/R0.4-framework.md`)
+ArmZ ให้ "เอาตามที่แนะนำ" ทุกข้อ ยกเว้น D2 ที่เลือก Vizia หลังทดสอบใน DAW โดยปรับคำแนะนำตามผล R0.3 / R0.4 (`docs/spikes/R0.3-ui.md`, `docs/spikes/R0.4-framework.md`)
 และคำตอบ Q1–Q8 (หัวข้อ 12) ข้อที่มีเงื่อนไขต้องยืนยันใน DAW ก่อนเริ่ม R5/R6 ถ้าไม่ผ่านให้ใช้ทางถอยที่เขียนไว้
 
 | ข้อ | เลือก | เงื่อนไข / ทางถอย |
 |---|---|---|
-| D1 framework | **A. nice-plug 0.4.x** ปักเวอร์ชัน + fork ใน org: hook state แบบ JUCE (อ่าน/เขียน 1.0.10), ล้าง silence flags, bypass ID `'byps'` · AU ด้วย `clap-wrapper` | ถ้า state hook / Studio One ไม่ผ่านใน DAW → C (เขียนเองบน crate `vst3` + `clap-sys`) |
-| D2 UI | **A. Slint** ผ่าน adapter ที่เราเขียนเองบน baseview 0.4: software renderer + softbuffer (ไม่ใช้ OpenGL จึงไม่มี GL panic) และใช้ renderer เดียวกันทำ ui-snapshot | ต้องผ่านเกณฑ์ 2, 3, 6 ใน DAW (ปลั๊กอิน spike R0.3) ถ้าไม่ผ่าน → B (Vizia ผ่าน `vizia-plug`, ซึ่งบน Linux เปิด/ปิด 30 รอบผ่าน) |
+| D1 framework | **A. nice-plug** สาย 0.1.x (ตัวเดียวกับที่ `vizia-plug` และ `nice-plug-au2` ใช้) ปักเวอร์ชัน + fork ใน org: hook state แบบ JUCE (อ่าน/เขียน 1.0.10), ล้าง silence flags, bypass ID `'byps'`, backport channel context (`IInfoListener`) จาก 0.4.2 · AU ด้วย `nice-plug-au2` | ถ้า nice-plug ขึ้น 0.4 ให้ port `vizia-plug` ตาม (ทางเลือกเดิม: 0.4 + `clap-wrapper`) · ถ้า state hook / Studio One ไม่ผ่าน → C (เขียนเองบน crate `vst3` + `clap-sys`) |
+| D2 UI | **B. Vizia** ผ่าน `vizia-plug` (เปลี่ยนจากคำแนะนำ A หลัง ArmZ ทดสอบใน Studio One 7 บน Windows 29 ต.ค. 2026: ทั้งสองตัวโหลดและแสดงไทยถูก ArmZ เลือก Vizia) · ui-snapshot ใช้ Xvfb + จับภาพ (Vizia ไม่มี offscreen renderer) | ยังต้องทดสอบเปิด/ปิด 50 รอบ, IME ไทย, DAW อื่น และ macOS ระหว่าง R5 · ต้องดัก panic ตอนสร้าง OpenGL ไม่ให้ DAW ล่ม · fork baseview ให้วาดใหม่เมื่อได้ `WM_PAINT` (ย่อหน้าต่างแล้วหน้าว่าง) |
 | D3 VST2 | **B.** shim C++ บาง ๆ (Q2: ยังมีผู้ใช้) | — |
 | D4 network | `tokio` 2 worker + `axum` + `tokio-tungstenite` + `reqwest` (rustls), audio ↔ net ผ่าน `rtrb` | — |
 | D5 WebRTC | **A. `str0m`** | ถ้า `friend_page` / `friend_opus` / net-sim ไม่ผ่าน → B (`datachannel`) |

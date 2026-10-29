@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<HEARASIDE_APP app="" follow="0" uuid="5ee8ac6c-45b3-4f5a-b418-7ffebb4f5893">
+  <PARAM id="delay" value="500.0"/>
+  <PARAM id="level" value="12.0"/>
+  <PARAM id="mon" value="1.0"/>
+  <PARAM id="monTrim" value="6.0"/>
+  <PARAM id="on" value="1.0"/>
+  <PARAM id="only" value="1.0"/>
+  <PARAM id="str" value="1.0"/>
+  <PARAM id="strGain" value="12.0"/>
+</HEARASIDE_APP>

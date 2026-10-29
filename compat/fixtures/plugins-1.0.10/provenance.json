@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.10",
+  "installer": {
+    "path": "dist/HEARASIDE-Setup-1.0.10.exe",
+    "size": 25624822,
+    "sha256": "420d09e7be3e7dbb8393a2b2761cd5db98cbfe46fd5af93aa8aa062717f95580",
+    "innoSetupVersion": "6.7.0"
+  },
+  "extraction": {
+    "tool": "innounp",
+    "version": "2.71.2",
+    "download": "https://github.com/jrathlev/InnoUnpacker-Windows-GUI/releases/download/ui_2_2_13/innounp-2.zip",
+    "archiveSha256": "10fce27b6344b7674d5625cc34afca1c88c12183d957c6d93e401097fa2556cd",
+    "installerExecuted": false
+  },
+  "binaries": [
+    {
+      "plugin": "track",
+      "format": "vst3",
+      "archiveMember": "{commoncf64}/VST3/HEARASIDE/HEARASIDE Track.vst3/Contents/x86_64-win/HEARASIDE Track.vst3",
+      "size": 5088768,
+      "sha256": "cc803e9aa58c4bd7323fd5ac725ae1af3e91723faa7d6d14300d68bb8c3adfa4",
+      "moduleInfo": {
+        "archiveMember": "{commoncf64}/VST3/HEARASIDE/HEARASIDE Track.vst3/Contents/Resources/moduleinfo.json",
+        "size": 1135,
+        "sha256": "8b146e948ae4f1fe62b62b38224a051cca41ef762fddfc29515c2488281b0c47"
+      }
+    },
+    {
+      "plugin": "track",
+      "format": "vst2",
+      "archiveMember": "{code_Vst2Dir}/HEARASIDE/HEARASIDE Track.dll",
+      "size": 5005824,
+      "sha256": "b62f0d636b8246fa907eefa5903fdb0a47c0d267ce2d3c1c46ef318c44eec769"
+    },
+    {
+      "plugin": "hub",
+      "format": "vst3",
+      "archiveMember": "{commoncf64}/VST3/HEARASIDE/HEARASIDE Hub.vst3/Contents/x86_64-win/HEARASIDE Hub.vst3",
+      "size": 9208320,
+      "sha256": "a5283dfb8910a5d5b0e2fc1cdc58c24f1f52bba6fb984f2a58c4b3f467da834d",
+      "moduleInfo": {
+        "archiveMember": "{commoncf64}/VST3/HEARASIDE/HEARASIDE Hub.vst3/Contents/Resources/moduleinfo.json",
+        "size": 1129,
+        "sha256": "040fc8109e0ac99f6dc996f6f630eeba25a72e7f8de101d4d78d9f87da73b8b1"
+      }
+    },
+    {
+      "plugin": "hub",
+      "format": "vst2",
+      "archiveMember": "{code_Vst2Dir}/HEARASIDE/HEARASIDE Hub.dll",
+      "size": 9124352,
+      "sha256": "46bc3b98a75e0af94ca4ee31d4abde38d52c3aad98942571b916020e9e850690"
+    },
+    {
+      "plugin": "app",
+      "format": "vst3",
+      "archiveMember": "{commoncf64}/VST3/HEARASIDE/HEARASIDE App Audio.vst3/Contents/x86_64-win/HEARASIDE App Audio.vst3",
+      "size": 5925888,
+      "sha256": "b96062e77966ca6e21b254e5c781da5f05277a8137de971acd087981adb89760",
+      "moduleInfo": {
+        "archiveMember": "{commoncf64}/VST3/HEARASIDE/HEARASIDE App Audio.vst3/Contents/Resources/moduleinfo.json",
+        "size": 1147,
+        "sha256": "f24a6ec233454a2a89bb8b4c05ada99b138e5c096290b96ae4dd4c2b02a40d78"
+      }
+    },
+    {
+      "plugin": "app",
+      "format": "vst2",
+      "archiveMember": "{code_Vst2Dir}/HEARASIDE/HEARASIDE App Audio.dll",
+      "size": 5840896,
+      "sha256": "d808f46328bdf5a1cc221b127db692b66198383b40a451ef318b54527b1cc004"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 // plugin-host-test: loads the built HEARASIDE Track / Hub (and App Audio) binaries the way a DAW
 // does (VST3 or VST2 via JUCE hosting) and checks the behaviour end to end through shared memory.
 //   plugin-host-test <Track plugin> <Hub plugin> [App Audio plugin]
+//   plugin-host-test --dump-state <plugin> <empty output directory>
 // Exit code 0 = all checks passed.
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -615,9 +616,16 @@ float streamPeak(ssbus::BusLayout& L, uint32_t frames) {
     return pk;
 }
 
+#include "state_dump.h"
+
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && juce::String(argv[1]) == "--dump-state") {
+        if (argc != 4) { std::fprintf(stderr, "usage: plugin-host-test --dump-state <plugin> <empty output directory>\n"); return 2; }
+        juce::ScopedJuceInitialiser_GUI gui;
+        return dumpStates(argv[2], argv[3]);
+    }
     if (argc < 3) { std::printf("usage: plugin-host-test <Track plugin> <Hub plugin> [App Audio plugin]\n"); return 2; }
     juce::ScopedJuceInitialiser_GUI gui;
     juce::AudioPluginFormatManager fm;

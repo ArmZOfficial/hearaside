@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "7f4eccc298734d78667b67fa51ee81dee41d0e2b",
+  "capturePlatform": "Windows x64",
+  "coreProvenance": "core/provenance.json",
+  "vocal": {
+    "compiler": "MSVC 19.44.35229.0 Release",
+    "juceCommit": "91ad83ae34a81e0833b1a2b0866f54846370ae53",
+    "hashedSourceScope": "VocalChain, generator and direct JUCE DSP implementations",
+    "sourceSha256": {
+      "apps/karaoke/VocalChain.cpp": "25597f987be720214efc81bb73bb16063fdf35163724b093a5cb7d50795e7c97",
+      "apps/karaoke/VocalChain.h": "a64b298d620edbfcd353bf5d0ebfa16a049f6934b6e60beef706b201771161f3",
+      "tools/compat-vocal-golden/main.cpp": "d0e8d5c871b3346f80dda25351c0471f2f59824a9749a0864de55372b837bf02",
+      "tools/compat-vocal-golden/CMakeLists.txt": "8423c9ea68a07cca04d5f4376f26a63520ee556a05120234f08c4248f7b9d881",
+      "external/JUCE/modules/juce_audio_basics/utilities/juce_Reverb.h": "8154184c1442c168e48e5678ceed7e08160bc81cec90854cf70e244402e296ac",
+      "external/JUCE/modules/juce_dsp/widgets/juce_Reverb.h": "b4ffcf205ee9d42e37f1a4b6563d662216c0d363bf3df08c967547360070122c",
+      "external/JUCE/modules/juce_dsp/processors/juce_IIRFilter.cpp": "28cd7b10aac061ab2325d1c7ba65ace5bb4ac05d52ba515f3b3296825006009e",
+      "external/JUCE/modules/juce_dsp/processors/juce_IIRFilter.h": "428a68e6638f8d18efd2490ea016739a527cf5f450bc3ed02fec2b1bd62b9f85",
+      "external/JUCE/modules/juce_dsp/processors/juce_IIRFilter_Impl.h": "08f23994b10e9e017b578513d8007ceecece86d3e0ec0b15c4eaf750d4cd9944",
+      "external/JUCE/modules/juce_audio_basics/buffers/juce_FloatVectorOperations.cpp": "c655680618268d2970d4275180f791c87565721500aec6f8b0167c0e882880df",
+      "external/JUCE/modules/juce_audio_basics/buffers/juce_FloatVectorOperations.h": "3901983118308806a69d8414c05a1192fdde5b86dfff9815040af9d1eaeb0ccd"
+    }
+  },
+  "files": [
+    {
+      "path": "core/dsp/consumer.f32",
+      "size": 1152000,
+      "sha256": "8eff68f13de2b24c8ffc13e51608fb0a0f5167e5ace44ccd7573fcb08d78782b"
+    },
+    {
+      "path": "core/dsp/consumer_status.f32",
+      "size": 6000,
+      "sha256": "32e060c7540fc2db65221dcd24e0158957db1036e25caf1c757d276ad3e9b874"
+    },
+    {
+      "path": "core/dsp/drift.f32",
+      "size": 14400,
+      "sha256": "951f94b861216a329dba4da61a9c8e341ce5d0a8a87fded6402536f39dfb089f"
+    },
+    {
+      "path": "core/dsp/limiter.f32",
+      "size": 385024,
+      "sha256": "09a24b2fed0408fa24e47212ad580309ccc0ae7543f2edad3f711fd2d55e7738"
+    },
+    {
+      "path": "core/dsp/loudness.f32",
+      "size": 6000,
+      "sha256": "c525dac8981c3612d341332d38f1c0e7dcf4c14e2920ca732bf0eacc26c6fff9"
+    },
+    {
+      "path": "core/dsp/pan.f32",
+      "size": 16392,
+      "sha256": "bfe882b7a4c8433b7db4a1a2093cdc9a1fcfa1e4bc2cc759cdbd9bb5d562887c"
+    },
+    {
+      "path": "core/dsp/resampler.f32",
+      "size": 384000,
+      "sha256": "4a97149de24e49f8617f3c7a25fcce210e23a4b6c33804badd9a8a09b2e13d94"
+    },
+    {
+      "path": "core/dsp/resampler_counts.f32",
+      "size": 1200,
+      "sha256": "23ba80675ca7bb1d196f8664fefd03d483fb6730b35d296694c8ff25ba2d1d05"
+    },
+    {
+      "path": "core/dsp/smoother.f32",
+      "size": 8192,
+      "sha256": "e38ba27258eca86e743fbef2bd5aea24b297e003c32fdeb5d94c8876b6b96ef6"
+    },
+    {
+      "path": "core/engine/phones.f32",
+      "size": 409600,
+      "sha256": "5cd408ca60b2764997e7e0e2faf0e865a1db999ce67b90f87389d82f9c15851f"
+    },
+    {
+      "path": "core/engine/stem0.f32",
+      "size": 409600,
+      "sha256": "4b257a7dc0058acb9fc97925aec8333fc54f556721b98f643fa0e72847959380"
+    },
+    {
+      "path": "core/engine/stream.f32",
+      "size": 409600,
+      "sha256": "3b3d66d01b65c460f89a3d964cb2c9112d0f12daf6203ca40eab3c3aa4b074b1"
+    },
+    {
+      "path": "core/friend/outage_48000.f32",
+      "size": 576000,
+      "sha256": "c0621d92993fc39431db2be5274c258da6e7b0c29ce397ed534078db79934564"
+    },
+    {
+      "path": "core/friend/outage_48000_status.f32",
+      "size": 117000,
+      "sha256": "d0cdf70dfff76d6d6978cfa03ad9e7392d2f4af81cf3c57cef88c5d0ffb97432"
+    },
+    {
+      "path": "core/friend/stall_44100.f32",
+      "size": 576000,
+      "sha256": "45794ed2a6f80774664f27eef714e3c65fffbccec0efe8387de2fe2851ac87bd"
+    },
+    {
+      "path": "core/friend/stall_44100_status.f32",
+      "size": 117000,
+      "sha256": "e737c985cdbafe828cc2b46658aae74be4c81a82fa5eb85d4a004b074eb07c37"
+    },
+    {
+      "path": "core/inputs/impulse.f32",
+      "size": 16384,
+      "sha256": "c95f463c94680d773e99dbf60c2e5ac0a73f8261b374b8ed003a03a4bcdcfaf2"
+    },
+    {
+      "path": "core/inputs/music.f32",
+      "size": 384000,
+      "sha256": "4ac2b83de13653f8bbf89a55213a0fe8cd007c69b4c7e0c7fff8ecb56c9cef5b"
+    },
+    {
+      "path": "core/inputs/noise.f32",
+      "size": 192000,
+      "sha256": "682609b7a7bfe3cbc6627d7db362a511a3aec6e7be021939396f23ee1b438812"
+    },
+    {
+      "path": "core/inputs/sine.f32",
+      "size": 192000,
+      "sha256": "23a3c787d4f55cc4904cf87835598f93e083a9f1ed8e1b57b2f7be2fe9986b66"
+    },
+    {
+      "path": "core/manifest.json",
+      "size": 8075,
+      "sha256": "1d21e2f0ab979f011f65ef82c2d558d144a189c45946abf156eece9a6234b685"
+    },
+    {
+      "path": "core/provenance.json",
+      "size": 2677,
+      "sha256": "1d49444e306e2642a9ffca9b05bcb4bd26f1ac2499ab22c5a816112fbde0ee0f"
+    },
+    {
+      "path": "vocal/impulse-ambience-off.f32",
+      "size": 393216,
+      "sha256": "2f95a9d904cffff7cd2093885abe6009f23ccd0340a8ca2828c8314239676e4d"
+    },
+    {
+      "path": "vocal/impulse-default-dry-send.f32",
+      "size": 393216,
+      "sha256": "75d3c87c147bdd6b1d4348688399df59af9598d005468dd7da7772b73065b929"
+    },
+    {
+      "path": "vocal/impulse-gate-closed.f32",
+      "size": 393216,
+      "sha256": "38306448c169535429393129e12670e74f10edef35d5b9aef7961d1c0ea297b8"
+    },
+    {
+      "path": "vocal/impulse-muted.f32",
+      "size": 393216,
+      "sha256": "a6619f482fee91a315f76cdcd8705d39b6ce11077c435ccc696142e130c27762"
+    },
+    {
+      "path": "vocal/impulse-wet-send.f32",
+      "size": 393216,
+      "sha256": "24a605a08cb08a5f8a4c43163149af4a207c311a453dfe9c1c6a5f058e4ad24f"
+    },
+    {
+      "path": "vocal/input-impulse.f32",
+      "size": 131072,
+      "sha256": "1a5dde6e4a742385effcdffdbcff8a4e5822f63d26931dfd6f4b01c562aca17a"
+    },
+    {
+      "path": "vocal/input-noise.f32",
+      "size": 131072,
+      "sha256": "33fdc6159abfab6762a0c3fefd19078ba8f300a5018600da66fc7b4a11cec1d4"
+    },
+    {
+      "path": "vocal/input-sine.f32",
+      "size": 131072,
+      "sha256": "59819ef0973a0215efadab0b72c15e71e035a82641757a084211b99546a5245a"
+    },
+    {
+      "path": "vocal/input-synthetic-music.f32",
+      "size": 131072,
+      "sha256": "f5f3dccc57b988cdef337904ef86a00188203e016cb7061d69b01d645dd37460"
+    },
+    {
+      "path": "vocal/manifest.json",
+      "size": 9392,
+      "sha256": "31e03b916e4175746186477bc05c6080417735abb975d08800d8f28e02921a9a"
+    },
+    {
+      "path": "vocal/noise-ambience-off.f32",
+      "size": 393216,
+      "sha256": "3c351e5f54ade377c54d2e6d7d8d9aa045de97020600a19af9aa4fe896098fe8"
+    },
+    {
+      "path": "vocal/noise-default-dry-send.f32",
+      "size": 393216,
+      "sha256": "0cd36bf7b5105c93c3c03ca6a0344f8fc7dd02eac7cc947333a2914d665d7607"
+    },
+    {
+      "path": "vocal/noise-gate-closed.f32",
+      "size": 393216,
+      "sha256": "8b39d87fa9182a4ad6ef1801d909d7343fa6d3b2171e4b1482217891c604b2f4"
+    },
+    {
+      "path": "vocal/noise-muted.f32",
+      "size": 393216,
+      "sha256": "a6619f482fee91a315f76cdcd8705d39b6ce11077c435ccc696142e130c27762"
+    },
+    {
+      "path": "vocal/noise-wet-send.f32",
+      "size": 393216,
+      "sha256": "39b35732f8f1930496a5044ddfe62870ce663f25971a3cbb18b0761aebc756da"
+    },
+    {
+      "path": "vocal/sine-ambience-off.f32",
+      "size": 393216,
+      "sha256": "e624f4ab28e839822343474f6082ddeb96b3e30d5b31db9f2e3d51daa54fdc61"
+    },
+    {
+      "path": "vocal/sine-default-dry-send.f32",
+      "size": 393216,
+      "sha256": "2dc47c53c9a95f67d1eed6fd831b33bb18fe0b0db9203031e416f15cf71d2a54"
+    },
+    {
+      "path": "vocal/sine-gate-closed.f32",
+      "size": 393216,
+      "sha256": "2b13e58d3592aeac73aa353b6cc369ba6e26971a8e235a07c85e4eec168963af"
+    },
+    {
+      "path": "vocal/sine-muted.f32",
+      "size": 393216,
+      "sha256": "a6619f482fee91a315f76cdcd8705d39b6ce11077c435ccc696142e130c27762"
+    },
+    {
+      "path": "vocal/sine-wet-send.f32",
+      "size": 393216,
+      "sha256": "da63ab683b785ec5f955b31d1eec6e87b8ef5f2c7883a8412360af9f3a31247e"
+    },
+    {
+      "path": "vocal/synthetic-music-ambience-off.f32",
+      "size": 393216,
+      "sha256": "8aaa3a995e87ea4d9beae6f0ce7eab75f08f71186b8b4a7a50575279ed58ed55"
+    },
+    {
+      "path": "vocal/synthetic-music-default-dry-send.f32",
+      "size": 393216,
+      "sha256": "8334e5fed615c8cac8d172a2462232ca2be6b3089c2e388db6ac460b50c3b048"
+    },
+    {
+      "path": "vocal/synthetic-music-gate-closed.f32",
+      "size": 393216,
+      "sha256": "d46cfc691f18aa90f096ebb8e55dce6d56da9e0c7e89e3da6d9806b83dada89b"
+    },
+    {
+      "path": "vocal/synthetic-music-muted.f32",
+      "size": 393216,
+      "sha256": "a6619f482fee91a315f76cdcd8705d39b6ce11077c435ccc696142e130c27762"
+    },
+    {
+      "path": "vocal/synthetic-music-wet-send.f32",
+      "size": 393216,
+      "sha256": "8402eaf9bd677aa8b82448c18c8c6ecb0c7f2e3ca8d6918a58914c668755aa0e"
+    }
+  ]
+}

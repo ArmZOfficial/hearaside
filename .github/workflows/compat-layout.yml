@@ -1,0 +1,35 @@
+name: Shared-memory compatibility
+
+on:
+  push:
+    paths:
+      - libs/ssbus/include/ssbus/protocol.h
+      - tools/compat-dump/**
+      - tools/plugin-host-test/**
+      - compat/**
+      - .github/workflows/compat-layout.yml
+  pull_request:
+    paths:
+      - libs/ssbus/include/ssbus/protocol.h
+      - tools/compat-dump/**
+      - tools/plugin-host-test/**
+      - compat/**
+      - .github/workflows/compat-layout.yml
+
+permissions:
+  contents: read
+
+jobs:
+  layout:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S tools/compat-dump -B build/compat-layout
+      - run: cmake --build build/compat-layout --config Release
+      - run: ctest --test-dir build/compat-layout -C Release --output-on-failure
+      - run: python compat/check_fixtures.py
+      - run: python compat/check_golden.py
+      - run: python -m unittest discover -s compat -p test_fixtures.py

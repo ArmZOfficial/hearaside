@@ -1,0 +1,7 @@
+#pragma once
+constexpr const char* kGoldenCommit = "@HS_GOLDEN_COMMIT@";
+constexpr const char* kGoldenCompiler = "@CMAKE_CXX_COMPILER_ID@ @CMAKE_CXX_COMPILER_VERSION@";
+constexpr const char* kGoldenPlatform = "@CMAKE_SYSTEM_NAME@-@CMAKE_SYSTEM_PROCESSOR@";
+constexpr const char* kGoldenSourceHashes = R"golden({
+@HS_GOLDEN_HASHES@
+  })golden";

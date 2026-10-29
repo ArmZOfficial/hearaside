@@ -16,6 +16,16 @@ add_executable(ss_ipc_test integration/ipc_test.cpp)
 target_link_libraries(ss_ipc_test PRIVATE ssbus)
 add_test(NAME ipc COMMAND ss_ipc_test)
 
+add_executable(hs-layout-dump ../tools/compat-dump/layout.cpp)
+target_include_directories(hs-layout-dump PRIVATE ${CMAKE_SOURCE_DIR}/libs/ssbus/include)
+add_test(NAME shm_v14_layout COMMAND hs-layout-dump --check
+    ${CMAKE_SOURCE_DIR}/compat/fixtures/shm-v14-layout.json)
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/tools/compat-golden ${CMAKE_BINARY_DIR}/tools/compat-golden)
+if(TARGET juce::juce_dsp)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/tools/compat-vocal-golden ${CMAKE_BINARY_DIR}/tools/compat-vocal-golden)
+endif()
+
 # permanent share links, web side (web/share-vercel): the pages match plugins/hub/web, API tests
 find_program(NODE_EXECUTABLE node)
 if(NODE_EXECUTABLE)
@@ -26,6 +36,14 @@ if(NODE_EXECUTABLE)
 endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_FOUND)
+    add_test(NAME compat_state_fixtures
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/compat/check_fixtures.py)
+    add_test(NAME compat_golden_integrity
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/compat/check_golden.py)
+    add_test(NAME compat_state_envelopes
+             COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_SOURCE_DIR}/compat -p test_fixtures.py)
+endif()
 if(Python3_FOUND AND EXISTS ${CMAKE_SOURCE_DIR}/design/gen_theme.py)
     add_test(NAME design_tokens_in_sync
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/design/gen_theme.py --check)

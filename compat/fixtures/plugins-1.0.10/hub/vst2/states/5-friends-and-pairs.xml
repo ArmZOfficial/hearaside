@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<HEARASIDE_HUB bus="CompatState1f9e3242b6ac4f20b0b6e2b10915ad66" lineUp="0"
+               listenToken="675tt92ptw5rd7zrkjvji52dw5" sendToken="ms6tb73arjir7epz8x8c3qn66y">
+  <PARAM id="ceiling" value="-1.0"/>
+  <PARAM id="limiterOn" value="1.0"/>
+  <PARAM id="monitorMaster" value="0.0"/>
+  <PARAM id="panic" value="0.0"/>
+  <PARAM id="preview" value="0.0"/>
+  <PARAM id="streamMaster" value="0.0"/>
+  <PARAM id="syncSafety" value="0.0"/>
+  <FRIENDS nextId="143">
+    <FRIEND id="142" name="&#3648;&#3614;&#3639;&#3656;&#3629;&#3609;&#3607;&#3604;&#3626;&#3629;&#3610;"
+            token="compatfixturefriendtoken142" vol="-6.0" pan="-0.25" mon="1"
+            str="0" solo="1"/>
+  </FRIENDS>
+  <STEMS s0="&#3648;&#3626;&#3637;&#3618;&#3591;&#3619;&#3657;&#3629;&#3591;"
+         s1="" s2="" s3="" s4="" s5="" s6="" s7="Backing &amp; keys"/>
+  <PAIRS>
+    <PAIR feeder="Fixture feeder" slot="fixture-track-uuid"/>
+  </PAIRS>
+</HEARASIDE_HUB>

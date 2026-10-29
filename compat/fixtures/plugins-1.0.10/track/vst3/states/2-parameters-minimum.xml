@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<HEARASIDE_TRACK uuid="cce52449-7ecc-4cc2-a08d-171a005f3514" name="" bus="CompatState4e759a658cf741b688dab177e000b3a4"
+                 stem="-1" chainMs="0.0" role="track" friendId="0">
+  <PARAM id="friendLevel" value="-60.0"/>
+  <PARAM id="keepOwn" value="0.0"/>
+  <PARAM id="mon" value="0.0"/>
+  <PARAM id="monTrim" value="-60.0"/>
+  <PARAM id="str" value="0.0"/>
+  <PARAM id="strDelay" value="0.0"/>
+  <PARAM id="strGain" value="-60.0"/>
+  <PARAM id="strPan" value="-100.0"/>
+  <PARAM id="strSolo" value="0.0"/>
+</HEARASIDE_TRACK>

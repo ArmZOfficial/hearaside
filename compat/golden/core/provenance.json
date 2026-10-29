@@ -1,0 +1,30 @@
+{
+  "source_commit": "7f4eccc298734d78667b67fa51ee81dee41d0e2b",
+  "compiler": "MSVC 19.44.35229.0",
+  "platform": "Windows-AMD64",
+  "source_sha256": {
+    "libs/CMakeLists.txt": "95dc7df4adbfea1d711c78573554ad7c6e5da7a4b2fe42e6a64e5d2c06a4e1df",
+    "libs/ssbus/include/ssbus/protocol.h": "a711936a7edbace6361987418710055d3b43e3004744512fcea758d6ed00c7bb",
+    "libs/ssbus/include/ssbus/ring.h": "2a0523dd83dad6afea0f23224f604e2b995f004916cefdacccdc85a22e79103e",
+    "libs/ssbus/include/ssbus/bus.h": "076d7b8e03a81a9f2ad4ab6bae430e7f21768a0ca715baad81671381399efcfd",
+    "libs/ssbus/src/bus.cpp": "7248c82aea2b4077e79508f18c96d29385c475a7599252bb6cfe2eea102a682f",
+    "libs/ssbus/src/shm_win.cpp": "f5e18d2a33529ae208e7fab80d58cdd42a30ddfcee61a5163a233535e01c4332",
+    "libs/ssbus/src/shm_posix.cpp": "5fcd858785839e319ee2a262564c69b4c90603bbda1812ffca932492d7ba7a76",
+    "libs/ssdsp/include/ssdsp/dsp.h": "57399e92db78b27d0ea4a8a000ae06149aa147b46c2cf307c568d7d60ecc02cc",
+    "libs/ssdsp/include/ssdsp/consumer.h": "32537b568bb1a87194df8187b49d6bb2863fca8486b95de7ae763d457e646b18",
+    "libs/ssdsp/src/consumer.cpp": "52cba5b13478769e98a4378a38ce9e11e00b42e4d809467d6d983b9c44942d3e",
+    "libs/ssengine/include/ssengine/engine.h": "80810db665dcfc77165a8757704d8be70c238fdd6c3fd17dbc647eed4c7f2fba",
+    "libs/ssengine/include/ssengine/friend_reader.h": "e14f0c99e5ca892894ffa3414d488c91d0936ec5c3bb130061acae6bfb66d08a",
+    "libs/ssengine/src/track_publisher.cpp": "d28a22fad061ad6bc1792d710390681c8c16ad8940d9b8988ccd3abcf8bdad09",
+    "libs/ssengine/src/hub_engine.cpp": "427d41622c1557b64dfdd9daae017ed0c73409b920e316b9aec22c53471eea5e",
+    "libs/ssengine/src/hub_friends.cpp": "0b4f4afa44821286651d55386524bd344a7747e3a96351abe0b2b52c0e424d20",
+    "libs/ssengine/src/friend_reader.cpp": "b48a688f637e0cdb13831db207cbee7720d7c1b49ffd9b5643e4169a08f342f1",
+    "external/speexdsp/libspeexdsp/resample.c": "e4fe5b8215d64c833c2253114f4cf1bf651dff33f45b3b9596b135a181f53bd0",
+    "external/speexdsp/libspeexdsp/resample_sse.h": "dd23b57dcff292646b8c83290d8e5887a775cce4e960c7cf1eebfd3c2dcc2886",
+    "external/speexdsp/libspeexdsp/arch.h": "e516932942b310270d76777e88b486615b1b304c8025b59cef0e8bb19cd96153",
+    "external/speexdsp/include/speex/speex_resampler.h": "6b13e7d98432ec2dd60b3853869af127992d29f63f113c25aaf92e92841f2db8",
+    "tools/compat-golden/main.cpp": "57ee16a78f0f7a980937771089487087514c53612338ada841ac195c8b4f040e",
+    "tools/compat-golden/CMakeLists.txt": "37b526a0777965638572f1966b4a66353b273c930d25b37f04f9968817781b7d",
+    "tools/compat-golden/provenance.h.in": "1ed86722457df677a16a179715aef8267f173c920aa15bdd31e5886338017a12"
+  }
+}

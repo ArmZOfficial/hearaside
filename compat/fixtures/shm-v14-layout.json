@@ -1,0 +1,372 @@
+{
+  "schemaVersion": 1,
+  "constants": {
+    "kMagic": 1397968945,
+    "kProtocolVersion": 14,
+    "kMaxSlots": 64,
+    "kMaxStems": 8,
+    "kNumStreamOuts": 9,
+    "kMaxChannels": 2,
+    "kRingFrames": 65536,
+    "kRingMask": 65535,
+    "kGuardFrames": 4096,
+    "kMailboxSize": 32,
+    "kTagRingSize": 512,
+    "kNameBytes": 64,
+    "kUuidBytes": 40,
+    "kRemoteQueueSize": 64,
+    "kMaxSources": 16,
+    "kMaxFriends": 8,
+    "kMaxFeeders": 16,
+    "kRequestQueueSize": 16,
+    "kTapFrames": 8192,
+    "kTapDecimation": 4,
+    "kPairAutomatic": 4294967295,
+    "kReplyNotInRoom": 4294901761,
+    "kReplyRoomFull": 4294901762,
+    "kReplyFailed": 4294901763,
+    "kReplyNoMatch": 4294901764,
+    "kBeaconMagic": 1212305731,
+    "kLayoutSize": 55636864
+  },
+  "enums": {
+    "HubFlags": {
+    "kHubBypassed": 1,
+    "kHubPreview": 2,
+    "kHubPanic": 4,
+    "kHubOffline": 8,
+    "kHubLimiter": 16
+    },
+    "RemoteParam": {
+    "Panic": 1,
+    "Preview": 2,
+    "AutoSync": 3,
+    "Share": 4
+    },
+    "SlotState": {
+    "kSlotFree": 0,
+    "kSlotClaiming": 1,
+    "kSlotActive": 2
+    },
+    "SlotFlags": {
+    "kFlagMon": 1,
+    "kFlagStr": 2,
+    "kFlagSolo": 4,
+    "kFlagBypassed": 8,
+    "kFlagOffline": 16,
+    "kFlagMono": 32,
+    "kFlagApp": 64,
+    "kFlagViewersViaHub": 128
+    },
+    "ParamId": {
+    "Mon": 1,
+    "Str": 2,
+    "StrGainDb": 3,
+    "StrPan": 4,
+    "StrDelayMs": 5,
+    "MonTrimDb": 6,
+    "StrSolo": 7,
+    "StemIndex": 8
+    },
+    "SlotHubStatus": {
+    "kHubStatusNone": 0,
+    "kHubStatusOk": 1,
+    "kHubStatusRateMismatch": 2,
+    "kHubStatusAhead": 4,
+    "kHubStatusUnderrun": 8
+    },
+    "SourceFlags": {
+    "kSrcOn": 1,
+    "kSrcRecording": 2,
+    "kSrcFollowRec": 4,
+    "kSrcSystem": 8,
+    "kSrcDropped": 16
+    },
+    "SourceParam": {
+    "On": 1,
+    "LevelDb": 2,
+    "Record": 3,
+    "FollowRecord": 4,
+    "DelayMs": 5
+    },
+    "FriendState": {
+    "kFriendFree": 0,
+    "kFriendWaiting": 1,
+    "kFriendLive": 2,
+    "kFriendOffline": 3
+    },
+    "FriendRoute": {
+    "kRouteDirect": 0,
+    "kRouteDaw": 1
+    },
+    "FeederStatus": {
+    "kFeederFlowing": 0,
+    "kFeederBypassed": 1,
+    "kFeederOffline": 2,
+    "kFeederNoFriend": 3
+    },
+    "RequestKind": {
+    "kReqResolveToken": 1,
+    "kReqCreateFriend": 2,
+    "kReqRelease": 3,
+    "kReqCopyLink": 4,
+    "kReqPairWith": 5,
+    "kReqProbe": 6
+    }
+  },
+  "structs": {
+    "RemoteCommand": {
+      "size": 16,
+      "alignment": 4,
+      "fields": {
+        "seq": {"offset": 0, "size": 4, "alignment": 4},
+        "target": {"offset": 4, "size": 4, "alignment": 4},
+        "paramId": {"offset": 8, "size": 4, "alignment": 4},
+        "valueBits": {"offset": 12, "size": 4, "alignment": 4}
+      }
+    },
+    "BusHeader": {
+      "size": 4096,
+      "alignment": 64,
+      "fields": {
+        "magic": {"offset": 0, "size": 4, "alignment": 4},
+        "version": {"offset": 4, "size": 4, "alignment": 4},
+        "layoutSize": {"offset": 8, "size": 4, "alignment": 4},
+        "reserved0": {"offset": 12, "size": 4, "alignment": 4},
+        "hubOwnerToken": {"offset": 16, "size": 8, "alignment": 8},
+        "hubOwnerPid": {"offset": 24, "size": 4, "alignment": 4},
+        "hubSampleRate": {"offset": 28, "size": 4, "alignment": 4},
+        "hubHeartbeatNs": {"offset": 32, "size": 8, "alignment": 8},
+        "hubFlags": {"offset": 40, "size": 4, "alignment": 4},
+        "hubBlockSize": {"offset": 44, "size": 4, "alignment": 4},
+        "hubLatencyFrames": {"offset": 48, "size": 4, "alignment": 4},
+        "slotSequence": {"offset": 52, "size": 4, "alignment": 4},
+        "consumerHeartbeatNs": {"offset": 56, "size": 8, "alignment": 8},
+        "consumerCount": {"offset": 64, "size": 4, "alignment": 4},
+        "consumerBufferMs": {"offset": 68, "size": 4, "alignment": 4},
+        "remoteReserve": {"offset": 72, "size": 4, "alignment": 4},
+        "reserved1": {"offset": 76, "size": 4, "alignment": 4},
+        "remote": {"offset": 80, "size": 1024, "alignment": 4},
+        "pad": {"offset": 1104, "size": 2992, "alignment": 1}
+      }
+    },
+    "Command": {
+      "size": 8,
+      "alignment": 4,
+      "fields": {
+        "paramId": {"offset": 0, "size": 4, "alignment": 4},
+        "value": {"offset": 4, "size": 4, "alignment": 4}
+      }
+    },
+    "TimelineTag": {
+      "size": 32,
+      "alignment": 8,
+      "fields": {
+        "seq": {"offset": 0, "size": 8, "alignment": 8},
+        "fifoPos": {"offset": 8, "size": 8, "alignment": 8},
+        "timeSamples": {"offset": 16, "size": 8, "alignment": 8},
+        "numFrames": {"offset": 24, "size": 4, "alignment": 4},
+        "playing": {"offset": 28, "size": 4, "alignment": 4}
+      }
+    },
+    "SlotHeader": {
+      "size": 640,
+      "alignment": 64,
+      "fields": {
+        "state": {"offset": 0, "size": 4, "alignment": 4},
+        "epoch": {"offset": 4, "size": 4, "alignment": 4},
+        "ownerPid": {"offset": 8, "size": 4, "alignment": 4},
+        "sequence": {"offset": 12, "size": 4, "alignment": 4},
+        "nameSeq": {"offset": 16, "size": 4, "alignment": 4},
+        "colorARGB": {"offset": 20, "size": 4, "alignment": 4},
+        "uuid": {"offset": 24, "size": 40, "alignment": 1},
+        "name": {"offset": 64, "size": 64, "alignment": 1},
+        "sampleRate": {"offset": 128, "size": 4, "alignment": 4},
+        "numChannels": {"offset": 132, "size": 4, "alignment": 4},
+        "heartbeatNs": {"offset": 136, "size": 8, "alignment": 8},
+        "claimNs": {"offset": 144, "size": 8, "alignment": 8},
+        "flags": {"offset": 152, "size": 4, "alignment": 4},
+        "strGainBits": {"offset": 156, "size": 4, "alignment": 4},
+        "strPanBits": {"offset": 160, "size": 4, "alignment": 4},
+        "strDelayBits": {"offset": 164, "size": 4, "alignment": 4},
+        "monTrimBits": {"offset": 168, "size": 4, "alignment": 4},
+        "stemIndex": {"offset": 172, "size": 4, "alignment": 4},
+        "cmdWrite": {"offset": 176, "size": 4, "alignment": 4},
+        "cmds": {"offset": 180, "size": 256, "alignment": 4},
+        "renameSeq": {"offset": 436, "size": 4, "alignment": 4},
+        "renameTo": {"offset": 440, "size": 64, "alignment": 1},
+        "peakInBits": {"offset": 504, "size": 8, "alignment": 4},
+        "peakStreamBits": {"offset": 512, "size": 8, "alignment": 4},
+        "hubStatus": {"offset": 520, "size": 4, "alignment": 4},
+        "hubLeadFrames": {"offset": 524, "size": 4, "alignment": 4},
+        "hubMute": {"offset": 528, "size": 4, "alignment": 4},
+        "chainLatencyBits": {"offset": 532, "size": 4, "alignment": 4},
+        "fedBy": {"offset": 536, "size": 4, "alignment": 4},
+        "fxLatencyBits": {"offset": 540, "size": 4, "alignment": 4},
+        "tagWrite": {"offset": 544, "size": 8, "alignment": 8},
+        "writePos": {"offset": 576, "size": 8, "alignment": 8},
+        "pad": {"offset": 584, "size": 48, "alignment": 1}
+      }
+    },
+    "SlotTags": {
+      "size": 16384,
+      "alignment": 8,
+      "fields": {
+        "tags": {"offset": 0, "size": 16384, "alignment": 8}
+      }
+    },
+    "StreamOutHeader": {
+      "size": 832,
+      "alignment": 64,
+      "fields": {
+        "nameSeq": {"offset": 0, "size": 4, "alignment": 4},
+        "sampleRate": {"offset": 4, "size": 4, "alignment": 4},
+        "active": {"offset": 8, "size": 4, "alignment": 4},
+        "reserved": {"offset": 12, "size": 4, "alignment": 4},
+        "names": {"offset": 16, "size": 576, "alignment": 1},
+        "peakBits": {"offset": 592, "size": 72, "alignment": 4},
+        "loudnessMBits": {"offset": 664, "size": 4, "alignment": 4},
+        "loudnessSBits": {"offset": 668, "size": 4, "alignment": 4},
+        "writePos": {"offset": 704, "size": 72, "alignment": 8}
+      }
+    },
+    "SourceHeader": {
+      "size": 640,
+      "alignment": 64,
+      "fields": {
+        "state": {"offset": 0, "size": 4, "alignment": 4},
+        "ownerPid": {"offset": 4, "size": 4, "alignment": 4},
+        "sequence": {"offset": 8, "size": 4, "alignment": 4},
+        "nameSeq": {"offset": 12, "size": 4, "alignment": 4},
+        "name": {"offset": 16, "size": 64, "alignment": 1},
+        "app": {"offset": 80, "size": 64, "alignment": 1},
+        "colorARGB": {"offset": 144, "size": 4, "alignment": 4},
+        "flags": {"offset": 148, "size": 4, "alignment": 4},
+        "heartbeatNs": {"offset": 152, "size": 8, "alignment": 8},
+        "capture": {"offset": 160, "size": 4, "alignment": 4},
+        "levelBits": {"offset": 164, "size": 4, "alignment": 4},
+        "peakBits": {"offset": 168, "size": 4, "alignment": 4},
+        "latencyBits": {"offset": 172, "size": 4, "alignment": 4},
+        "recordMs": {"offset": 176, "size": 4, "alignment": 4},
+        "delayBits": {"offset": 180, "size": 4, "alignment": 4},
+        "hubMute": {"offset": 184, "size": 4, "alignment": 4},
+        "trackSlot": {"offset": 188, "size": 4, "alignment": 4},
+        "cmdWrite": {"offset": 192, "size": 4, "alignment": 4},
+        "cmds": {"offset": 196, "size": 256, "alignment": 4},
+        "appSeq": {"offset": 452, "size": 4, "alignment": 4},
+        "appTo": {"offset": 456, "size": 64, "alignment": 1},
+        "writePos": {"offset": 576, "size": 8, "alignment": 8}
+      }
+    },
+    "LinkInHeader": {
+      "size": 128,
+      "alignment": 64,
+      "fields": {
+        "sampleRate": {"offset": 0, "size": 4, "alignment": 4},
+        "active": {"offset": 4, "size": 4, "alignment": 4},
+        "heartbeatNs": {"offset": 8, "size": 8, "alignment": 8},
+        "writePos": {"offset": 64, "size": 8, "alignment": 8}
+      }
+    },
+    "FriendHeader": {
+      "size": 192,
+      "alignment": 64,
+      "fields": {
+        "state": {"offset": 0, "size": 4, "alignment": 4},
+        "id": {"offset": 4, "size": 4, "alignment": 4},
+        "nameSeq": {"offset": 8, "size": 4, "alignment": 4},
+        "name": {"offset": 12, "size": 64, "alignment": 1},
+        "sampleRate": {"offset": 76, "size": 4, "alignment": 4},
+        "heartbeatNs": {"offset": 80, "size": 8, "alignment": 8},
+        "delayBits": {"offset": 88, "size": 4, "alignment": 4},
+        "route": {"offset": 92, "size": 4, "alignment": 4},
+        "feeder": {"offset": 96, "size": 4, "alignment": 4},
+        "outSlot": {"offset": 100, "size": 4, "alignment": 4},
+        "peakBits": {"offset": 104, "size": 4, "alignment": 4},
+        "writePos": {"offset": 128, "size": 8, "alignment": 8}
+      }
+    },
+    "FeederRecord": {
+      "size": 192,
+      "alignment": 64,
+      "fields": {
+        "state": {"offset": 0, "size": 4, "alignment": 4},
+        "ownerPid": {"offset": 4, "size": 4, "alignment": 4},
+        "friendId": {"offset": 8, "size": 4, "alignment": 4},
+        "nameSeq": {"offset": 12, "size": 4, "alignment": 4},
+        "trackName": {"offset": 16, "size": 64, "alignment": 1},
+        "colorARGB": {"offset": 80, "size": 4, "alignment": 4},
+        "heartbeatNs": {"offset": 88, "size": 8, "alignment": 8},
+        "blockCount": {"offset": 96, "size": 8, "alignment": 8},
+        "status": {"offset": 104, "size": 4, "alignment": 4},
+        "reply": {"offset": 108, "size": 4, "alignment": 4},
+        "replySeq": {"offset": 112, "size": 4, "alignment": 4},
+        "hubCommand": {"offset": 116, "size": 4, "alignment": 4},
+        "hubCommandSeq": {"offset": 120, "size": 4, "alignment": 4},
+        "sampleRate": {"offset": 124, "size": 4, "alignment": 4},
+        "tapWrite": {"offset": 128, "size": 8, "alignment": 8}
+      }
+    },
+    "PluginRequest": {
+      "size": 80,
+      "alignment": 4,
+      "fields": {
+        "seq": {"offset": 0, "size": 4, "alignment": 4},
+        "feeder": {"offset": 4, "size": 4, "alignment": 4},
+        "kind": {"offset": 8, "size": 4, "alignment": 4},
+        "arg": {"offset": 12, "size": 4, "alignment": 4},
+        "text": {"offset": 16, "size": 64, "alignment": 1}
+      }
+    },
+    "FeederTap": {
+      "size": 32768,
+      "alignment": 4,
+      "fields": {
+        "mono": {"offset": 0, "size": 32768, "alignment": 4}
+      }
+    },
+    "BeaconHeader": {
+      "size": 64,
+      "alignment": 64,
+      "fields": {
+        "magic": {"offset": 0, "size": 4, "alignment": 4},
+        "protocolVersion": {"offset": 4, "size": 4, "alignment": 4},
+        "hubPid": {"offset": 8, "size": 4, "alignment": 4},
+        "heartbeatNs": {"offset": 16, "size": 8, "alignment": 8}
+      }
+    },
+    "ChannelRing": {
+      "size": 524288,
+      "alignment": 4,
+      "fields": {
+        "ch": {"offset": 0, "size": 524288, "alignment": 4}
+      }
+    },
+    "BusLayout": {
+      "size": 55636864,
+      "alignment": 64,
+      "fields": {
+        "header": {"offset": 0, "size": 4096, "alignment": 64},
+        "slots": {"offset": 4096, "size": 40960, "alignment": 64},
+        "slotTags": {"offset": 45056, "size": 1048576, "alignment": 8},
+        "streamHeader": {"offset": 1093632, "size": 832, "alignment": 64},
+        "sources": {"offset": 1094464, "size": 10240, "alignment": 64},
+        "slotAudio": {"offset": 1104704, "size": 33554432, "alignment": 4},
+        "sourceAudio": {"offset": 34659136, "size": 8388608, "alignment": 4},
+        "linkIn": {"offset": 43047744, "size": 128, "alignment": 64},
+        "linkInAudio": {"offset": 43047872, "size": 524288, "alignment": 4},
+        "streamAudio": {"offset": 43572160, "size": 4718592, "alignment": 4},
+        "friends": {"offset": 48290752, "size": 1536, "alignment": 64},
+        "feeders": {"offset": 48292288, "size": 3072, "alignment": 64},
+        "requests": {"offset": 48295360, "size": 1280, "alignment": 4},
+        "requestReserve": {"offset": 48296640, "size": 4, "alignment": 4},
+        "feederTap": {"offset": 48296704, "size": 524288, "alignment": 4},
+        "friendAudio": {"offset": 48820992, "size": 4194304, "alignment": 4},
+        "friendMixWrite": {"offset": 53015296, "size": 8, "alignment": 8},
+        "friendMixAudio": {"offset": 53015360, "size": 524288, "alignment": 4},
+        "friendVoiceWrite": {"offset": 53539648, "size": 32, "alignment": 8},
+        "friendVoiceAudio": {"offset": 53539712, "size": 2097152, "alignment": 4}
+      }
+    }
+  }
+}

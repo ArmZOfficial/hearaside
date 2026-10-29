@@ -1,0 +1,48 @@
+{
+  "Name": "HEARASIDE App Audio",
+  "Version": "1.0.10",
+  "Factory Info": {
+    "Vendor": "HEARASIDE",
+    "URL": "https://github.com/ArmZOfficial/hearaside",
+    "E-Mail": "",
+    "Flags": {
+      "Unicode": true,
+      "Classes Discardable": false,
+      "Component Non Discardable": false,
+    },
+  },
+  "Classes": [
+    {
+      "CID": "ABCDEF019182FAEB4872736448724170",
+      "Category": "Audio Module Class",
+      "Name": "HEARASIDE App Audio",
+      "Vendor": "HEARASIDE",
+      "Version": "1.0.10",
+      "SDKVersion": "VST 3.8.0",
+      "Sub Categories": [
+        "Fx",
+        "Tools",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+    {
+      "CID": "ABCDEF011234ABCD4872736448724170",
+      "Category": "Component Controller Class",
+      "Name": "HEARASIDE App Audio",
+      "Vendor": "HEARASIDE",
+      "Version": "1.0.10",
+      "SDKVersion": "VST 3.8.0",
+      "Sub Categories": [
+        "Fx",
+        "Tools",
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": [
+      ],
+    },
+  ],
+}

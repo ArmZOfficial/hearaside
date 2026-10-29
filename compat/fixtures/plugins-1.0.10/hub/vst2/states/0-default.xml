@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<HEARASIDE_HUB bus="CompatState1f9e3242b6ac4f20b0b6e2b10915ad66" lineUp="1"
+               listenToken="675tt92ptw5rd7zrkjvji52dw5" sendToken="ms6tb73arjir7epz8x8c3qn66y">
+  <PARAM id="ceiling" value="-1.0"/>
+  <PARAM id="limiterOn" value="1.0"/>
+  <PARAM id="monitorMaster" value="0.0"/>
+  <PARAM id="panic" value="0.0"/>
+  <PARAM id="preview" value="0.0"/>
+  <PARAM id="streamMaster" value="0.0"/>
+  <PARAM id="syncSafety" value="0.0"/>
+  <FRIENDS nextId="100"/>
+  <STEMS s0="" s1="" s2="" s3="" s4="" s5="" s6="" s7=""/>
+  <PAIRS/>
+</HEARASIDE_HUB>

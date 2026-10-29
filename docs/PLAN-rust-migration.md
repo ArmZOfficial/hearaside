@@ -66,7 +66,8 @@
 
 - **R0.1 ✅ ตรวจในเครื่อง Windows แล้ว**: layout v14 ครบ 16 struct / 157 ฟิลด์; `hs-compat-dump` อ่าน factory/class ID/parameter ID จาก VST3 จริง (Track 10, Hub 8, App Audio 9 พารามิเตอร์ รวม bypass); `plugin-host-test --dump-state` เก็บและ restore state 6 แบบ × 3 ปลั๊กอิน × 2 format ครบ 36 กรณี จากไฟล์ที่แตกจาก installer 1.0.10 จริง เก็บ SHA-256 ของ installer/ไบนารีทั้ง 6 ใน `compat/fixtures/plugins-1.0.10/provenance.json` ตัวตรวจ offline เทียบ bin/XML, metadata กับ host และ hash ผ่านทั้งหมด ข้อจำกัด range/color ดู `compat/README.md`
 - **R0.2 ✅ ตรวจในเครื่อง Windows และ Linux แล้ว**: `compat/golden/core` มี 20 f32 captures (DSP/LUFS/resampler/PI/Track/Hub/StreamConsumer/FriendReader); `compat/golden/vocal` มี input 4 แบบและ VocalChain 20 กรณี; `compat/golden/netsim` มี trace เวลาถึงของ packet ที่บันทึกผ่าน net-sim proxy จริง 3 โปรไฟล์ (ดี/บ้าน/มือถือ) และ FriendReader ที่เล่นซ้ำจาก trace รวม 58 ไฟล์พร้อม manifest/provenance/hash สร้างซ้ำได้ทุกบิตบน toolchain อ้างอิงของแต่ละชุด (core/vocal: MSVC, netsim: GCC 13.3.0) Linux GCC ผ่านเกณฑ์ `1e-6` (core 19/20 ไฟล์ตรงทุกบิต, แย่สุด −138.5 dBFS ใน VocalChain) `--rt-audit` นับ alloc/lock ใน audio thread: ทุกบล็อกเป็น 0 ยกเว้น baseline C++ 2 จุด (`StreamConsumer::pull` ครั้งแรก, Speex realloc ใน `FriendReader::pull`) ที่ Rust ต้องเป็น 0 ตาม R2.4 มี CTest และ workflow Linux `compat-golden.yml` ผ่านบน GitHub แล้ว (รวม `compat-layout.yml` Windows/Linux) merge เข้า `main` แล้ว packet loss/reorder ยังไม่ทดสอบเพราะ net-sim เป็น TCP ดู `compat/golden/README.md`
-- **R0.5 ตรวจในเครื่อง Windows แล้ว**: workspace เฉพาะ `hs-tools`, Rust 1.99.0, static CRT, unwind, lockfile, fmt/clippy/test/release และ `cargo deny` ผ่าน มี workflow Windows/Linux ยังต้องยืนยันผล CI บน GitHub ก่อนปิดงาน
+- **R0.5 ✅ ตรวจในเครื่อง Windows และ GitHub CI แล้ว**: workspace เฉพาะ `hs-tools`, Rust 1.99.0, static CRT, unwind, lockfile, fmt/clippy/test/release และ `cargo deny` ผ่าน workflow `rust.yml` ผ่านทั้ง Windows/Linux บน `main` (`98e71e3`)
+- **Q4 ตอบแล้ว: macOS อยู่ในแผน** R0.3 / R0.4 จึงต้องทดสอบบน macOS ด้วยตั้งแต่ต้น (ดูแถว R0.3 / R0.4 และ D1)
 - ยังไม่เลือก D1–D8 หรือผ่าน G0 และยังไม่เปลี่ยนโค้ด audio/runtime การ optimize รอบนี้ลดภาระ build ของตัวตรวจ ABI โดยแยกให้ compile เฉพาะ header ได้
 
 ---
@@ -238,6 +239,8 @@ hs-win ◄── hs-bus (Windows), hs-plugin-app, hs-karaoke
 
 คำแนะนำ: **A** ปักเวอร์ชันใน `Cargo.lock` และเตรียม fork ไว้ใน org ถ้าต้อง patch (เช่น channel context) · ถ้า R0.4 พบว่าแก้ไม่ได้ ไป C
 
+macOS (Q4): Logic รับเฉพาะ AU ต้องตรวจใน R0.4 ว่าตัวเลือกไหนออก AU ได้ (ในตัวเอง หรือห่อ CLAP ด้วย `clap-wrapper`) ถ้าออก AU ไม่ได้ Logic จะใช้ไม่ได้
+
 ### D2 UI framework (ตัดสินด้วย spike R0.3 เท่านั้น)
 
 | ตัวเลือก | ภาษาไทย (สระ/วรรณยุกต์ซ้อน) | ฝังใน DAW | ข้อสังเกต |
@@ -312,8 +315,8 @@ hs-win ◄── hs-bus (Windows), hs-plugin-app, hs-karaoke
 |---|---|---|
 | R0.1 | `hs-compat-dump` (Rust, crate `vst3`): โหลด `.vst3` 1.0.10 แล้วอ่าน factory: class ID, ชื่อ, หมวด, parameter ID/ชื่อ/ช่วง/ค่าเริ่ม/flag · ให้ `plugin-host-test` เพิ่ม `--dump-state` บันทึก state blob 6 แบบต่อปลั๊กอิน (VST3 + VST2) · โปรแกรม C++ เล็ก ๆ พิมพ์ `sizeof`/`offsetof` ทุกฟิลด์ใน `protocol.h` → `compat/fixtures/*.json`, `*.bin` | fixture ครบ 3 ปลั๊กอิน × 2 format + layout v14 commit แล้ว |
 | R0.2 | golden เสียง: รัน `ssdsp` / `ssengine` / `FriendReader` / VocalChain C++ กับสัญญาณทดสอบ (sine, noise, impulse, เพลงสั้น, jitter จาก net-sim) → `compat/golden/*.f32` + สคริปต์สร้างใหม่ | สร้างซ้ำแล้วได้ไฟล์เดิมทุกบิต |
-| R0.3 | spike UI ตาม D2 (A และ B): ปลั๊กอินเปล่า 1 หน้า (การ์ด Track 1 แถว + สไลเดอร์ + ข้อความไทย) | รายงานผลเกณฑ์ 6 ข้อต่อตัวเลือก + รูป PNG |
-| R0.4 | spike framework (D1): ปลั๊กอินเปล่าทดสอบ channel context ใน Studio One, silence flags ตอน arm, `isNonRealtime`, playhead (timeSamples, playing), latency report, state ขนาดอิสระ, bus layout mono/stereo, VST3 + CLAP | ตาราง "ได้ / ต้อง patch / ไม่ได้" ต่อข้อในหัวข้อ 3.3 |
+| R0.3 | spike UI ตาม D2 (A และ B): ปลั๊กอินเปล่า 1 หน้า (การ์ด Track 1 แถว + สไลเดอร์ + ข้อความไทย) บน Windows **และ macOS** (Retina 200 %, ธีมตามระบบ, IME ไทยของ macOS) | รายงานผลเกณฑ์ 6 ข้อต่อตัวเลือกต่อ OS + รูป PNG |
+| R0.4 | spike framework (D1): ปลั๊กอินเปล่าทดสอบ channel context ใน Studio One, silence flags ตอน arm, `isNonRealtime`, playhead (timeSamples, playing), latency report, state ขนาดอิสระ, bus layout mono/stereo, VST3 + CLAP · **macOS**: universal binary (arm64 + x86_64), AU สำหรับ Logic (ถ้า framework ไม่มี AU ให้ลอง `clap-wrapper`), โหลดใน Logic / Studio One / Reaper บน Mac, shm แบบ POSIX ข้าม sandbox ของ host, code signing + notarization | ตาราง "ได้ / ต้อง patch / ไม่ได้" ต่อข้อในหัวข้อ 3.3 ต่อ OS |
 | R0.5 | toolchain + CI: `rust-toolchain.toml`, `+crt-static`, `cargo deny`, GitHub Actions (Windows + Linux: `cargo test`, `clippy -D warnings`, `fmt --check`) | CI เขียวบน workspace เปล่า |
 
 **G0:** Opus สรุปผล R0.3 / R0.4 เป็นตารางเดียว ArmZ เลือก D1–D8 แล้วบันทึกในหัวข้อ 5 (ใส่ ✅ ตัวที่เลือก)
@@ -533,11 +536,25 @@ branch: rs/<ID>-<slug>
 1. **Q1** เหตุผลหลักที่อยากย้ายคืออะไร (ความปลอดภัย / ความเร็วในการพัฒนา / ฝึกภาษา / อยากเลิกพึ่ง JUCE) ถ้าเป็นเรื่องความปลอดภัยของ network อย่างเดียว แผนแบบ hybrid (D8-C) ได้ประโยชน์เกือบทั้งหมดด้วยงานน้อยกว่ามาก
 2. **Q2** ยังมีผู้ใช้ VST2 อยู่ไหม (เลือก D3)
 3. **Q3** อยากได้ CLAP เพิ่มไหม (ได้ฟรีจาก nice-plug แต่ต้องทดสอบเพิ่ม)
-4. **Q4** macOS อยู่ในแผนไหม (ถ้าอยู่ ต้องใส่ใน spike R0.3 / R0.4 ตั้งแต่ต้น)
+4. **Q4** macOS อยู่ในแผนไหม (ถ้าอยู่ ต้องใส่ใน spike R0.3 / R0.4 ตั้งแต่ต้น) → **ตอบแล้ว: อยู่ในแผน** (29 ต.ค. 2026)
 5. **Q5** ชื่อเวอร์ชัน: รุ่น Rust เต็มตัวเป็น 2.0.0 หรือไม่ (PLAN-v2 จอง 2.0 ไว้ให้ Hub ถึง Hub)
 6. **Q6** ระหว่างย้ายรับบั๊กแก้อย่างเดียว หรือยังเพิ่มฟีเจอร์ใน C++ ด้วย (แนะนำ: ฟีเจอร์ใหม่เฉพาะส่วนที่ยังไม่เริ่ม port)
 7. **Q7** license ของทั้งโปรเจกต์ (ปลั๊กอิน + app) เป็นอะไร: มีผลกับการเลือก Slint (GPLv3 / royalty-free ต้องใส่เครดิต / เชิงพาณิชย์)
 8. **Q8** ยอมให้หน้าตา UI ต่างจากเดิมได้แค่ไหน (เหมือน pixel / เหมือน design export / ปรับได้)
+
+
+### คำตอบของ ArmZ (29 ต.ค. 2026)
+
+| ข้อ | คำตอบ | ผลต่อแผน |
+|---|---|---|
+| Q1 | ความเร็ว เสถียร เขียนง่าย เบากว่า (ไม่ใช่แค่ความปลอดภัยของ network) | hybrid ถาวร (D8-C) ไม่ตอบโจทย์ เป้าหมายคือ D8-A Rust ทั้งหมด แต่ยังยืนยันที่ G1 ด้วยผลวัด CPU / RAM / ขนาดตัวติดตั้งเทียบ 1.0.10 (ตัวชี้วัดหัวข้อ 1) |
+| Q2 | ยังมีผู้ใช้ VST2 | D3-B: shim VST2 แบบ C++ บาง ๆ เรียกแกน Rust ผ่าน C ABI เก็บ ID และ chunk เดิม |
+| Q3 | เอา CLAP ด้วยก็ดี | ทำ CLAP เพิ่ม ทดสอบใน R0.4 (ใน Reaper / Bitwig / Studio One 7) ไม่บล็อก G0 ถ้ามีปัญหา |
+| Q4 | macOS อยู่ในแผน | R0.3 / R0.4 ทดสอบ macOS ด้วย, ต้องมี AU สำหรับ Logic (ดู D1) |
+| Q5 | รุ่น Rust เต็มตัวเป็น 2.0.0 ได้ | ต้องย้ายหมายเลขที่ PLAN-v2 จอง 2.0 ไว้ให้ Hub ถึง Hub เป็นเวอร์ชันอื่น |
+| Q6 | ไม่เพิ่มฟีเจอร์ใน C++ แล้ว | C++ รับเฉพาะแก้บั๊กจนกว่าจะเลิกใช้ ฟีเจอร์ใหม่ทำใน Rust เท่านั้น |
+| Q7 | ให้มี ArmZ ใน license, **โค้ดเปิด** → **MIT**, Copyright (c) 2026 ArmZ (`LICENSE`) | ไม่ติด VST2 / ASIO SDK · Slint ใช้แบบ royalty-free ต้องแสดงเครดิต Slint (เช่นหน้า About) หรือ GPLv3 ก็ได้เพราะ MIT เข้ากับ GPL · OBS plug-in ที่ link libobs แจกเป็น GPL · crate ใหม่ต้องผ่าน `cargo deny` (`rust/deny.toml`) |
+| Q8 | หน้าตาสวยงามแบบเดิม | UI Rust ต้องเหมือน design export / ui-snapshot เดิม (Frosted Studio, ฟอนต์ Anuphan, ธีมสว่าง/มืด) เป็นเกณฑ์เพิ่มของ R0.3 |
 
 ---
 

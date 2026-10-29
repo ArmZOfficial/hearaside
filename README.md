@@ -195,9 +195,11 @@ Hub › ตั้งค่า › **REST API** แล้วคัดลอก AP
 
 ## Dependencies และ License
 
+โค้ดของ HEARASIDE ทั้งหมดเป็น **MIT**, Copyright (c) 2026 ArmZ (ดู `LICENSE`) ไบนารีที่ build แล้วต้องทำตาม license ของสิ่งที่รวมอยู่ด้วยตามตารางนี้ (เช่น ปลั๊กอินที่ใช้ JUCE, OBS plugin ที่ link libobs เป็น GPL)
+
 | | License |
 |---|---|
-| แกนกลาง `libs/*` | MIT |
+| โค้ด HEARASIDE (`libs/*`, `plugins`, `apps`, `obs`, `rust`, `tools`, `web`) | MIT |
 | JUCE 8 | AGPLv3 หรือ commercial |
 | VST3 SDK | MIT (ตั้งแต่ 3.8) |
 | OBS / libobs | GPLv2 (OBS plugin ต้องเปิด source) |

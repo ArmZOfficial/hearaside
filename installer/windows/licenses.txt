@@ -1,7 +1,9 @@
 HEARASIDE and the software it includes
 
 HEARASIDE (Hub, Track, App Audio and HEARASIDE for OBS)
-  Copyright (c) the HEARASIDE authors. All rights reserved. [LICENSE TO BE CONFIRMED BY THE OWNER BEFORE PUBLIC RELEASE]
+  Copyright (c) 2026 ArmZ. Source code licensed under the MIT License (LICENSE in the source repository).
+  The plug-in binaries also include JUCE, and HEARASIDE for OBS links libobs, so those builds are
+  distributed under the terms below as well.
 
 JUCE
   The plug-ins are built with the JUCE framework. See https://juce.com/legal for the licence that applies to this build.

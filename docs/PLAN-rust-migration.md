@@ -553,7 +553,7 @@ branch: rs/<ID>-<slug>
 | Q4 | macOS อยู่ในแผน | R0.3 / R0.4 ทดสอบ macOS ด้วย, ต้องมี AU สำหรับ Logic (ดู D1) |
 | Q5 | รุ่น Rust เต็มตัวเป็น 2.0.0 ได้ | ต้องย้ายหมายเลขที่ PLAN-v2 จอง 2.0 ไว้ให้ Hub ถึง Hub เป็นเวอร์ชันอื่น |
 | Q6 | ไม่เพิ่มฟีเจอร์ใน C++ แล้ว | C++ รับเฉพาะแก้บั๊กจนกว่าจะเลิกใช้ ฟีเจอร์ใหม่ทำใน Rust เท่านั้น |
-| Q7 | ให้มี ArmZ ใน license, **โค้ดเปิด** | ผู้ถือลิขสิทธิ์คือ ArmZ ยังต้องเลือกชนิด: GPLv3 (ใช้ Slint GPLv3 ได้ แต่ต้องเขียน exception ให้ link กับ VST2 SDK ซึ่งไม่ใช่ open source) หรือ MIT (เข้ากับ `libs/*` เดิม ใช้ Slint royalty-free ต้องแสดงเครดิต) · ส่วน OBS plug-in ยังต้องเป็น GPL ตาม libobs |
+| Q7 | ให้มี ArmZ ใน license, **โค้ดเปิด** → **MIT**, Copyright (c) 2026 ArmZ (`LICENSE`) | ไม่ติด VST2 / ASIO SDK · Slint ใช้แบบ royalty-free ต้องแสดงเครดิต Slint (เช่นหน้า About) หรือ GPLv3 ก็ได้เพราะ MIT เข้ากับ GPL · OBS plug-in ที่ link libobs แจกเป็น GPL · crate ใหม่ต้องผ่าน `cargo deny` (`rust/deny.toml`) |
 | Q8 | หน้าตาสวยงามแบบเดิม | UI Rust ต้องเหมือน design export / ui-snapshot เดิม (Frosted Studio, ฟอนต์ Anuphan, ธีมสว่าง/มืด) เป็นเกณฑ์เพิ่มของ R0.3 |
 
 ---

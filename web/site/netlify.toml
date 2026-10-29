@@ -2,6 +2,9 @@
   command = "npm run build"
   publish = "dist"
   functions = "netlify/functions"
+  # Deploy only from the production branch: main, feature branches and pull requests do not build.
+  # Netlify skips a build when this command exits 0. Set Production branch = production in the Netlify UI.
+  ignore = "[ \"$BRANCH\" != \"production\" ]"
 
 [functions]
   node_bundler = "esbuild"

@@ -31,13 +31,55 @@ target_include_directories(ssdsp PUBLIC ssdsp/include)
 target_link_libraries(ssdsp PUBLIC ssbus PRIVATE ss_speex_resampler)
 
 # ---- ssengine: Track publisher + Hub engine -------------------------------------------------
-add_library(ssengine STATIC
-    ssengine/src/track_publisher.cpp
-    ssengine/src/hub_engine.cpp
-    ssengine/src/hub_friends.cpp
-    ssengine/src/friend_reader.cpp)
-target_include_directories(ssengine PUBLIC ssengine/include)
-target_link_libraries(ssengine PUBLIC ssbus ssdsp)
+if(HEARASIDE_USE_RUST_CORE)
+    # The same API over the Rust core: cargo builds the hs-ffi static library, ssengine keeps only the adapter.
+    find_program(HEARASIDE_CARGO cargo REQUIRED)
+    set(HS_RUST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../rust)
+    set(HS_RUST_TARGET_DIR ${CMAKE_BINARY_DIR}/rust-target)
+    if(WIN32)
+        set(HS_FFI_LIB ${HS_RUST_TARGET_DIR}/release/hs_ffi.lib)
+    else()
+        set(HS_FFI_LIB ${HS_RUST_TARGET_DIR}/release/libhs_ffi.a)
+    endif()
+    file(GLOB_RECURSE HS_RUST_SOURCES CONFIGURE_DEPENDS ${HS_RUST_DIR}/crates/*.rs ${HS_RUST_DIR}/crates/*/Cargo.toml)
+    # RUSTFLAGS from the environment would replace rust/.cargo/config.toml (and drop +crt-static) without a word
+    add_custom_command(
+        OUTPUT ${HS_FFI_LIB}
+        COMMAND ${CMAKE_COMMAND} -E env --unset=RUSTFLAGS
+                ${HEARASIDE_CARGO} build -p hs-ffi --release --locked --target-dir ${HS_RUST_TARGET_DIR}
+        WORKING_DIRECTORY ${HS_RUST_DIR}
+        DEPENDS ${HS_RUST_SOURCES} ${HS_RUST_DIR}/Cargo.lock ${HS_RUST_DIR}/Cargo.toml
+                ${HS_RUST_DIR}/.cargo/config.toml ${SS_EXTERNAL}/speexdsp/libspeexdsp/resample.c
+        COMMENT "cargo build hs-ffi: the Rust core"
+        VERBATIM)
+    add_custom_target(hs_ffi_build DEPENDS ${HS_FFI_LIB})
+    add_library(hs_ffi STATIC IMPORTED GLOBAL)
+    set_target_properties(hs_ffi PROPERTIES IMPORTED_LOCATION ${HS_FFI_LIB})
+    add_dependencies(hs_ffi hs_ffi_build)
+    if(WIN32)
+        # what `cargo rustc -- --print native-static-libs` lists (+ bcrypt / advapi32, harmless)
+        target_link_libraries(hs_ffi INTERFACE ws2_32 userenv bcrypt ntdll advapi32 kernel32 dbghelp)
+        if(MSVC)
+            # the Rust lib is built against the static release CRT (libcmt); a Debug build links libcmtd instead
+            target_link_options(hs_ffi INTERFACE $<$<CONFIG:Debug>:/NODEFAULTLIB:libcmt>)
+        endif()
+    else()
+        target_link_libraries(hs_ffi INTERFACE pthread dl m)
+    endif()
+
+    add_library(ssengine STATIC ssengine/src/rust_core.cpp)
+    target_include_directories(ssengine PUBLIC ssengine/include PRIVATE ${HS_RUST_DIR}/crates/hs-ffi/include)
+    target_compile_definitions(ssengine PUBLIC HEARASIDE_USE_RUST_CORE=1)
+    target_link_libraries(ssengine PUBLIC ssbus ssdsp hs_ffi)
+else()
+    add_library(ssengine STATIC
+        ssengine/src/track_publisher.cpp
+        ssengine/src/hub_engine.cpp
+        ssengine/src/hub_friends.cpp
+        ssengine/src/friend_reader.cpp)
+    target_include_directories(ssengine PUBLIC ssengine/include)
+    target_link_libraries(ssengine PUBLIC ssbus ssdsp)
+endif()
 
 # ---- opus: audio codec (BSD-3) -------------------------------------------------------------
 set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)

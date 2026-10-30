@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import App from '../../src/App';
@@ -26,6 +26,27 @@ describe('pages', () => {
   it('home in Thai under /th', async () => {
     at('/th');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ฟังมิกซ์หนึ่ง');
+    expect(document.documentElement.lang).toBe('th');
+    expect(screen.getAllByRole('link', { name: 'เข้าสู่ระบบ' }).every(link => link.getAttribute('href')?.startsWith('/th/login'))).toBe(true);
+  });
+
+  it('login explains invalid input and associates the error with the field', async () => {
+    at('/th/login');
+    await userEvent.click(await screen.findByRole('button', { name: 'เข้าสู่ระบบ' }));
+    expect(await screen.findByText('กรอกอีเมลให้ถูกต้อง')).toHaveAttribute('role', 'alert');
+    const email = screen.getByLabelText('อีเมล');
+    expect(email).toHaveAttribute('aria-invalid', 'true');
+    expect(email).toHaveAttribute('aria-describedby', 'f-email-d');
+  });
+
+  it('both theme controls share one state', async () => {
+    localStorage.clear();
+    at('/');
+    await userEvent.click(screen.getByRole('button', { name: 'Menu' }));
+    const buttons = screen.getAllByRole('button', { name: 'Theme: System. Change' });
+    await userEvent.click(buttons[1]);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Theme: Light. Change' })).toHaveLength(2));
+    localStorage.clear();
   });
 
   it('sign-up: "Create account" stays off until everything is filled in and agreed', async () => {

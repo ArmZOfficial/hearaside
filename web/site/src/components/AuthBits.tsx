@@ -8,10 +8,8 @@ import { DiscordLogo, GoogleLogo } from './ui/Icons';
 const env = import.meta.env;
 
 /** only same-site paths: "/link?code=..." yes, "//evil.example" or "https://..." no */
-export function safeNext(raw: string | null | undefined, fallback = '/account'): string {
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return fallback;
-  return raw;
-}
+export { safeNext } from '../lib/navigation';
+import { safeNext } from '../lib/navigation';
 
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {

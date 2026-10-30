@@ -1,4 +1,4 @@
-// "/privacy" and "/terms" (A7): drafts in MDX, EN + TH, to be reviewed before accounts open.
+// "/privacy" and "/terms" (A7): documents in MDX, EN + TH.
 import type { ComponentType } from 'react';
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';

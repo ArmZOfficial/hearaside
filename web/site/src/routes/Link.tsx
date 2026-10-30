@@ -1,7 +1,7 @@
 // "/link" (3.11 Link, 3.11.1 #10): approve a plug-in's sign-in code (device flow, A4).
 //   1 enter the code (8 boxes, jumps ahead, paste the whole code) -> 2 "Sign in HEARASIDE on this
 //   computer?" -> 3 signed in / 4 not allowed. Must be signed in; otherwise /login comes first.
-import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { Link as RouterLink, Navigate, useLocation, useSearchParams } from 'react-router';
 import { motion, useReducedMotion } from 'motion/react';
 import { useT } from '../i18n';
@@ -94,25 +94,38 @@ export default function LinkPage() {
   const [pending, setPending] = useState<PendingDevice | null>(null);
   const [bad, setBad] = useState(false);
   const [busy, setBusy] = useState(false);
+  const lookupSequence = useRef(0);
+  const heading = useRef<HTMLHeadingElement>(null);
 
   const lookup = async (c: string) => {
     const norm = normalizeUserCode(c);
     if (!norm) { setBad(true); return; }
+    const request = ++lookupSequence.current;
     setBusy(true); setBad(false);
     try {
       const p = await api<PendingDevice>('POST', '/device/lookup', { user_code: norm });
+      if (request !== lookupSequence.current) return;
       setPending(p);
       setStage('confirm');
     } catch {
-      setBad(true);
+      if (request === lookupSequence.current) setBad(true);
     } finally {
-      setBusy(false);
+      if (request === lookupSequence.current) setBusy(false);
     }
   };
 
+  useEffect(() => {
+    if (auth.status === 'signedIn' && code.length === 8 && stage === 'enter') void lookup(code);
+    else setBusy(false);
+    return () => { lookupSequence.current++; };
+    // Lookup follows code edits, not renders; approval remains an explicit action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, stage, auth.status]);
+  useEffect(() => { if (stage !== 'enter') heading.current?.focus(); }, [stage]);
+
 
   if (auth.status === 'signedOut') {
-    return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+    return <Navigate to={`${path('/login')}?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
 
   const decide = async (allow: boolean) => {
@@ -141,16 +154,17 @@ export default function LinkPage() {
       <div className="wrap auth-center">
         <div className="card auth-card link-card">
           {auth.status === 'loading' ? <div className="spin mx-auto" aria-hidden="true" /> : stage === 'enter' ? (
-            <form className="flex flex-col gap-5" noValidate onSubmit={e => { e.preventDefault(); lookup(code); }}>
+            <form className="flex flex-col gap-5" noValidate onSubmit={e => { e.preventDefault(); if (!busy) void lookup(code); }}>
               <h1 className="h4">{t('link.h1')}</h1>
               <p className="m-0 text-[15px] leading-relaxed text-ink2">{t('link.lead')}</p>
               <CodeBoxes value={code} onChange={v => { setCode(v); setBad(false); }} invalid={bad} />
               {bad && <p className="alert" role="alert">{t('link.bad')}</p>}
-              <SubmitButton busy={busy} disabled={code.length !== 8} className="solid big">{t('link.continue')}</SubmitButton>
+              {busy && <p className="query-feedback" role="status"><span className="spin" aria-hidden="true" />{t('link.checking')}</p>}
+              {bad && <SubmitButton busy={busy} disabled={code.length !== 8} className="solid big">{t('retry')}</SubmitButton>}
             </form>
           ) : stage === 'confirm' && info ? (
             <div className="flex flex-col gap-5">
-              <h1 className="h4">{t('link.confirmH1')}</h1>
+              <h1 ref={heading} tabIndex={-1} className="h4">{t('link.confirmH1')}</h1>
               <div className="devcard">
                 <div className="flex items-center gap-3">
                   <span className="tile solid text-[11px] font-semibold tracking-[.12em]">{PLUGIN_TILE[info.plugin] ?? 'HUB'}</span>
@@ -175,7 +189,7 @@ export default function LinkPage() {
           ) : stage === 'done' ? (
             <div className="flex flex-col gap-4 items-start" role="status">
               <DoneMark />
-              <h1 className="h4">{t('link.doneH1', { computer: info?.computer ?? '' })}</h1>
+              <h1 ref={heading} tabIndex={-1} className="h4">{t('link.doneH1', { computer: info?.computer ?? '' })}</h1>
               <p className="m-0 text-[15px] leading-relaxed text-ink2">
                 {t('link.doneA')} <RouterLink to={path('/account/devices')}>{t('link.doneLink')}</RouterLink>.
               </p>
@@ -183,7 +197,7 @@ export default function LinkPage() {
             </div>
           ) : (
             <div className="flex flex-col gap-4 items-start" role="status">
-              <h1 className="h4">{t('link.deniedH1')}</h1>
+              <h1 ref={heading} tabIndex={-1} className="h4">{t('link.deniedH1')}</h1>
               <p className="m-0 text-[15px] leading-relaxed text-ink2">{t('link.denied')}</p>
               <button type="button" className="btn" onClick={startOver}>{t('link.startOver')}</button>
             </div>

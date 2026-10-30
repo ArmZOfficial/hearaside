@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import release from '../../src/content/release.json';
 import { setup, signInPlugin } from './helpers';
+import { summarizeDownloads } from '../../server/routes/admin';
 
 beforeEach(() => { process.env.ADMIN_EMAILS = 'singer@example.test'; });
 afterEach(() => { delete process.env.ADMIN_EMAILS; vi.restoreAllMocks(); });
@@ -28,6 +29,16 @@ describe('who gets in', () => {
 });
 
 describe('downloads', () => {
+  it('last30 excludes earlier downloads even when the chart covers 60 days', () => {
+    const day = (ago: number) => new Date(Date.now() - ago * 86400000).toISOString().slice(0, 10);
+    const result = summarizeDownloads([
+      { day: day(1), version: '1.0.10', source: 'site', count: 3 },
+      { day: day(40), version: '1.0.10', source: 'site', count: 17 },
+    ], 60);
+    expect(result.last30).toBe(3);
+    expect(result.total).toBe(20);
+    expect(result.daily.reduce((sum, d) => sum + d.count, 0)).toBe(20);
+  });
   it('counts a download and redirects to the installer; unknown versions are 404', async () => {
     const { api, auth } = await setup();
     const r = await api.get(`/api/v1/download/${release.version}`);
@@ -58,7 +69,7 @@ describe('downloads', () => {
   it('back-fills from GitHub (replacing, not adding) and takes a typed-in number', async () => {
     const { api, auth } = await setup();
     const gh = (n: number) => vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify([
-      { tag_name: 'v1.0.5', assets: [{ name: 'HEARASIDE-Setup-1.0.5.exe', download_count: n }, { name: 'notes.txt', download_count: 99 }] },
+      { tag_name: 'v1.0.5', assets: [{ name: 'HEARASIDE-Setup-1.0.5.exe', download_count: n }, { name: 'HAS-Karaoke-1.0.5.exe', download_count: 900 }, { name: 'notes.txt', download_count: 99 }] },
       { tag_name: 'v1.0.4', assets: [] },
       { tag_name: 'nightly', assets: [{ name: 'x.exe', download_count: 5 }] },
     ])));

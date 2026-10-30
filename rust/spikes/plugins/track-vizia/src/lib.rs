@@ -29,7 +29,7 @@ impl Default for SpikeVizia {
 
 impl Plugin for SpikeVizia {
     const NAME: &'static str = "HEARASIDE Spike Vizia";
-    const VENDOR: &'static str = "ArmZ";
+    const VENDOR: &'static str = "HEARASIDE";
     const URL: &'static str = "https://github.com/ArmZOfficial/hearaside";
     const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");

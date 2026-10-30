@@ -1,0 +1,18 @@
+[package]
+name = "hs-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+hs-bus = { version = "0.1.0", path = "../hs-bus" }
+hs-dsp = { version = "0.1.0", path = "../hs-dsp" }
+hs-engine = { version = "0.1.0", path = "../hs-engine" }

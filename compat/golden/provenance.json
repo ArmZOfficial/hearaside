@@ -311,11 +311,107 @@
       "path": "netsim/traces/mobile.trace",
       "size": 42952,
       "sha256": "1892c06687eff575cf59c75772206e15fb74cadda6cb0d73b050bb0a12c1975b"
+    },
+    {
+      "path": "net/aec240_erle.f32",
+      "size": 1600,
+      "sha256": "792ee9a55b200548ac282e17013ebfd54f984a2ea07c9a7585cdd449b8a207b0"
+    },
+    {
+      "path": "net/aec240_mic.f32",
+      "size": 384000,
+      "sha256": "578978ec745b017111895a292f5b9d2f5c0e8ebab080acb3d73db452ec24c133"
+    },
+    {
+      "path": "net/aec240_out.f32",
+      "size": 384000,
+      "sha256": "89cb9288fa34f9f3da3232645dd29a79608fc7ad57ef2637cbdbcd05d2de9993"
+    },
+    {
+      "path": "net/aec240_ref.f32",
+      "size": 392000,
+      "sha256": "179f8a99e03f4deaaceca7901c5eac35de0c710bc68e896a1936f2de4d458670"
+    },
+    {
+      "path": "net/aec_erle.f32",
+      "size": 1200,
+      "sha256": "88bb51ecba87a159c37ddad679a6fda5b7badb94aebbd89305e74e313336eb1b"
+    },
+    {
+      "path": "net/aec_mic.f32",
+      "size": 576000,
+      "sha256": "5efcebc8fe5d4a3245d8afa6cd273c3f012950523bedc2c9fb62530a0cd7573f"
+    },
+    {
+      "path": "net/aec_out.f32",
+      "size": 576000,
+      "sha256": "9da2575cc0ed1be9d1ba1b1f19e728c29594542c00536e2fc54f7278309ce456"
+    },
+    {
+      "path": "net/aec_ref.f32",
+      "size": 579840,
+      "sha256": "a7c340c55628e996002b027025019770099dead7be3bbf7aac334c6963215b5a"
+    },
+    {
+      "path": "net/input_mono.f32",
+      "size": 192000,
+      "sha256": "a3be4348116b13c8b419ba8239c65ab20d633d4955d0ae1041f2753c6e9c7c33"
+    },
+    {
+      "path": "net/input_stereo.f32",
+      "size": 384000,
+      "sha256": "b2547abe895e3277497af9f89b99bffc39d709336a3bea9352d328ad3f198fe4"
+    },
+    {
+      "path": "net/opus_audio_stereo.pkt",
+      "size": 16150,
+      "sha256": "456c0ae4c6306a0fef1954ffb80035b153fbeeec694d7209bfe36f2f48d55c05"
+    },
+    {
+      "path": "net/opus_audio_stereo_dec.f32",
+      "size": 384000,
+      "sha256": "5b95ce8b898b1a5d7d6db0002b547bb3426b8436815f60d43f6544e59f1c8bc6"
+    },
+    {
+      "path": "net/opus_interleaved.pkt",
+      "size": 12108,
+      "sha256": "b5e8e8dab3674da59b0d3a40620316452c36835ded03bd55b9d07713ae199b98"
+    },
+    {
+      "path": "net/opus_interleaved_dec.f32",
+      "size": 384000,
+      "sha256": "18af1a882b6fe39d9ee3a9f286da386d13a86d4518fd608e2be1330676bcd3c8"
+    },
+    {
+      "path": "net/opus_lowdelay.pkt",
+      "size": 7033,
+      "sha256": "372db8d7b22267ad63f2454c0a4644f9c8b2807c574bf3919f9dccf558a0d443"
+    },
+    {
+      "path": "net/opus_lowdelay_dec.f32",
+      "size": 192000,
+      "sha256": "142b5b907af601a4c2929c2bcd5bf89bb7873d04557284e6b79794d8896d30ab"
+    },
+    {
+      "path": "net/opus_voip.pkt",
+      "size": 8219,
+      "sha256": "41e2425a9d76f17287fe9981920835149371e8bc2cef6ea974d20685fc82bf95"
+    },
+    {
+      "path": "net/opus_voip_dec.f32",
+      "size": 192000,
+      "sha256": "9cff2bfaa465b8dc75428b9fc916055dd41dd2d225794f4707de6146e4a7abef"
     }
   ],
   "netsim": {
     "provenance": "netsim/provenance.json",
     "capturePlatform": "Linux x86_64, GNU 13.3.0 Release",
     "traceRecorder": "tools/net-sim/record-trace.mjs through tools/net-sim/net-sim.mjs, node v22.22.0"
+  },
+  "net": {
+    "compiler": "MSVC 19.44.35229.0 Release",
+    "generator": "tests/golden/net_golden.cpp (ss_net_golden <dir>)",
+    "note": "C++ ssnet: Opus (external/opus) packets + decode with PLC/FEC, FriendEcho (speexdsp MDF + preprocess)",
+    "cpu": "AMD Ryzen 9 7950X3D (x86-64 with AVX2 + FMA: libopus picks its AVX2 paths at run time, so packets compare on such CPUs only)"
   }
 }

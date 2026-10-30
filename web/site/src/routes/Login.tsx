@@ -1,15 +1,15 @@
 // "/login" (3.11 Login). A 440 px card. Coming from a plug-in (next=/link?code=...) shows which
 // plug-in and computer is waiting. A wrong email or password never says which one was wrong.
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Link, Navigate, useSearchParams } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
-import { Avatar, Field, SubmitButton } from '../components/ui/Kit';
+import { Field, SubmitButton } from '../components/ui/Kit';
 import { DiscordButton, GoogleButton, OrLine, Turnstile, authErrorText, needsCaptcha, safeNext } from '../components/AuthBits';
 import { AuthError, useAuth } from '../lib/auth';
-import { call, useMe } from '../lib/api';
+import { call } from '../lib/api';
 import { Seo } from '../lib/seo';
 import { loginForm, normalizeUserCode, type LoginForm } from '../../shared/schemas';
 
@@ -19,7 +19,7 @@ const PLUGIN_NAMES: Record<string, string> = { hub: 'HEARASIDE Hub', track: 'HEA
 function usePluginBanner(next: string) {
   const [info, setInfo] = useState<{ plugin: string; computer: string } | null>(null);
   useEffect(() => {
-    if (!next.startsWith('/link')) return;
+    if (!/^\/(th\/)?link(?:\?|$)/.test(next)) return;
     const code = normalizeUserCode(new URLSearchParams(next.split('?')[1] ?? '').get('code') ?? '');
     if (!code) return;
     call<{ plugin: string; computer: string }>(null, 'POST', '/device/peek', { user_code: code })
@@ -31,12 +31,10 @@ function usePluginBanner(next: string) {
 export default function Login() {
   const { t, path } = useT();
   const auth = useAuth();
-  const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'), '');
-  const fromPlugin = next.startsWith('/link');
+  const fromPlugin = /^\/(th\/)?link(?:\?|$)/.test(next);
   const banner = usePluginBanner(next);
-  const me = useMe();
   const [err, setErr] = useState<AuthError | null>(null);
   const [captcha, setCaptcha] = useState<string | undefined>();
   const [challenge, setChallenge] = useState(0);   // a Turnstile token works once: a new widget after every failed try
@@ -48,13 +46,12 @@ export default function Login() {
     catch (e) { setErr(e instanceof AuthError ? e : new AuthError('failed')); setCaptcha(undefined); setChallenge(n => n + 1); }
   });
 
-  const done = auth.status === 'signedIn';
   // a wrong email or password never says which (nobody can test whose email has an account here), so after a
   // failed sign-in the card offers to create an account with that email instead
   const wrong = err?.code === 'wrong';
   const typed = watch('email')?.trim() ?? '';
   const signupTo = `${path('/signup')}${typed || next ? '?' : ''}${new URLSearchParams({ ...(typed ? { email: typed } : {}), ...(next ? { next } : {}) })}`;
-  const name = me.data?.displayName || me.data?.handle || '';
+  if (auth.status === 'signedIn') return <Navigate to={next || path('/account')} replace />;
 
   return (
     <PageShell nav="login">
@@ -66,21 +63,12 @@ export default function Login() {
           </div>
         )}
         <div className="card auth-card narrow">
-          {done ? (
-            <div className="flex flex-col items-center gap-3 text-center py-2" role="status">
-              <Avatar name={name || '?'} url={me.data?.avatarUrl} size={72} />
-              <h1 className="h4">{t('login.signedInAs', { name: name || '…' })}</h1>
-              {me.data && <span className="text-sm muted">@{me.data.handle}</span>}
-              <button type="button" className="btn solid big w-full mt-2" onClick={() => navigate(next || path('/account'))}>
-                {fromPlugin ? t('login.continueHub') : t('login.toAccount')}
-              </button>
-            </div>
-          ) : (
             <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
               <h1 className="h4">{t('login.h1')}</h1>
-              <Field label={t('login.email')} type="email" autoComplete="email" inputMode="email" {...register('email')} />
+              <Field label={t('login.email')} type="email" autoComplete="email" inputMode="email" error={formState.errors.email && t('form.email')} {...register('email')} />
               <Field label={t('login.password')} type="password" autoComplete="current-password"
-                     right={<Link to="/forgot" className="text-[13px]">{t('login.forgot')}</Link>} {...register('password')} />
+                     error={formState.errors.password && t('form.required')}
+                     right={<Link to={`${path('/forgot')}${next ? `?next=${encodeURIComponent(next)}` : ''}`} className="text-[13px]">{t('login.forgot')}</Link>} {...register('password')} />
               {err && (
                 <div className="flex flex-col gap-1" role="alert">
                   <p className="alert">{authErrorText(t, err)}</p>
@@ -90,14 +78,13 @@ export default function Login() {
               <Turnstile key={challenge} onToken={setCaptcha} />
               <SubmitButton busy={formState.isSubmitting} disabled={needsCaptcha() && !captcha} className={`${wrong ? '' : 'solid'} big`}>{t('login.submit')}</SubmitButton>
               <OrLine />
-              <GoogleButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
-              <DiscordButton next={`/login${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
+              <GoogleButton next={`${path('/login')}${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
+              <DiscordButton next={`${path('/login')}${next ? `?next=${encodeURIComponent(next)}` : ''}`} onError={setErr} />
               <div className="auth-switch">
                 <span>{t('login.newHere')}</span>
                 <Link className={`btn big w-full ${wrong ? 'solid' : 'accent-outline'}`} to={signupTo}>{t('login.createCta')}</Link>
               </div>
             </form>
-          )}
         </div>
         <p className="text-sm muted text-center m-0">{t('login.noAccountNeeded')}</p>
       </div>

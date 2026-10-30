@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -64,13 +65,19 @@ int main(int argc, char** argv) {
     auto& L = shm->layout();
 
 #ifdef _WIN32
-    std::string cmd = std::string("\"") + argv[0] + "\" --writer " + bus;
+    // HS_IPC_WRITER: another program (the Rust hs-ipc-test) that takes the same "--writer <bus>" arguments
+    const char* other = std::getenv("HS_IPC_WRITER");
+    std::string cmd = std::string("\"") + (other ? other : argv[0]) + "\" --writer " + bus;
     STARTUPINFOA si{}; si.cb = sizeof si;
     PROCESS_INFORMATION pi{};
     if (!CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) { std::printf("spawn failed\n"); return 1; }
 #else
+    const char* other = std::getenv("HS_IPC_WRITER");   // another program taking "--writer <bus>" (the Rust hs-ipc-test)
     pid_t child = fork();
-    if (child == 0) { _exit(writer(bus, 2.0)); }
+    if (child == 0) {
+        if (other) { execl(other, other, "--writer", bus.c_str(), nullptr); _exit(4); }
+        _exit(writer(bus, 2.0));
+    }
 #endif
 
     // find the writer's slot

@@ -1,4 +1,6 @@
-export const meta = { title: 'Record program audio', description: 'Bring Chrome, Spotify or Discord into a track and record it with your DAW.', order: 4 };
+import { GuideScreenshot } from '../../../components/GuideScreenshot';
+
+export const meta = { title: 'Record program audio', description: 'Choose a program in App Audio and record it in your DAW.', order: 4 };
 
 # Record program audio
 
@@ -6,18 +8,28 @@ HEARASIDE App Audio brings the sound of one program, or the whole computer excep
 
 ## Play it in a track
 
-1. Add **HEARASIDE App Audio** to any audio track (it’s an effect: the program is added to the track’s own sound).
-2. Choose the program from the big source button. **Whole computer (except the DAW)** never pulls the DAW back into itself.
+1. Add **HEARASIDE App Audio** to an audio track.
+2. Choose a program from the source button, or choose **Whole computer (except the DAW)**.
 3. Use *You hear* and *Viewers hear* just like HEARASIDE Track.
 
-Offline export can’t include program audio (the program can’t play faster than real time). Record it first.
+<GuideScreenshot name="app" caption="Choose a program, such as Chrome, from the source button" />
+
+Record program audio before an offline export. Programs play in real time.
 
 ## Record it with your DAW
 
-A DAW records a track’s **input**, before the track’s inserts. So App Audio goes on the **input channel**, with **Program only** switched on:
+A DAW records before the track inserts. Put App Audio on the **input channel** and switch **Program only** on.
 
-- **Studio One:** Song › Song Setup › Audio I/O Setup › Inputs › Add (Stereo), name it `App Audio`. Show Inputs in the Console and put the plug-in on that input. Set a stereo track’s input to `App Audio` and record.
-- **Cubase:** put it on the Input Channel.
-- **Reaper:** put it in the track’s Input FX.
+### Studio One
 
-Or press **Record** in the App Audio’s **⋯** menu in the Hub: takes are saved to `Documents\HEARASIDE\Recordings` and can be dragged into a track.
+1. Open **Song › Song Setup › Audio I/O Setup › Inputs**.
+2. Press **Add (Stereo)** and name it `App Audio`.
+3. Show **Inputs** in the Console and add the plug-in to this input.
+4. Choose `App Audio` as a stereo track’s input and record.
+
+### Other DAWs
+
+- **Cubase:** use the **Input Channel**.
+- **Reaper:** use the track’s **Input FX**.
+
+Or choose **⋯ › Record** for App Audio in the Hub. Files go to `Documents\HEARASIDE\Recordings`; drag them into your DAW.

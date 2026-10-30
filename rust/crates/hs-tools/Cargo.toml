@@ -13,7 +13,12 @@ workspace = true
 name = "hs-compat-dump"
 path = "src/bin/hs-compat-dump.rs"
 
+[[bin]]
+name = "bus-inspector"
+path = "src/bin/bus-inspector.rs"
+
 [dependencies]
+hs-bus = { version = "0.1.0", path = "../hs-bus" }
 serde_json = "1"
 
 [target."cfg(windows)".dependencies]

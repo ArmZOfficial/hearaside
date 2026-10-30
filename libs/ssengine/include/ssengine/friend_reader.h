@@ -5,6 +5,10 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#if defined(HEARASIDE_USE_RUST_CORE) && HEARASIDE_USE_RUST_CORE
+#include "ssengine/friend_reader_rust.h"   // the Rust core (PLAN-rust-migration R2.5)
+#else
+
 #include "ssbus/bus.h"
 #include "ssdsp/consumer.h"
 #include "ssdsp/dsp.h"
@@ -65,3 +69,5 @@ private:
 };
 
 } // namespace ssengine
+
+#endif // HEARASIDE_USE_RUST_CORE

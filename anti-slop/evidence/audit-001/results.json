@@ -1,0 +1,1653 @@
+{
+  "results": [
+    {
+      "route": "/",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/",
+        "htmlLang": "en",
+        "h1": "Hear one mix.Stream another.",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [
+          {
+            "tag": "IMG",
+            "className": "shot only-light",
+            "text": "",
+            "rect": {
+              "x": 41,
+              "y": 2260.765625,
+              "width": 474.390625,
+              "height": 360.828125,
+              "top": 2260.765625,
+              "right": 515.390625,
+              "bottom": 2621.59375,
+              "left": 41
+            }
+          }
+        ],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.2 (foreground color: #ababaa, background color: #fafafa, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/th",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th",
+        "htmlLang": "en",
+        "h1": "ฟังมิกซ์หนึ่งส่งอีกมิกซ์ให้คนดู",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [
+          {
+            "tag": "IMG",
+            "className": "shot only-light",
+            "text": "",
+            "rect": {
+              "x": 41,
+              "y": 2099.953125,
+              "width": 474.390625,
+              "height": 360.828125,
+              "top": 2099.953125,
+              "right": 515.390625,
+              "bottom": 2460.78125,
+              "left": 41
+            }
+          }
+        ],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.2 (foreground color: #ababaa, background color: #fafafa, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/download",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/download",
+        "htmlLang": "en",
+        "h1": "Get HEARASIDE",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/download",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/download",
+        "htmlLang": "en",
+        "h1": "ดาวน์โหลด HEARASIDE",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/guides",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/guides",
+        "htmlLang": "en",
+        "h1": "From first install to karaoke with friends",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/guides/getting-started",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/guides/getting-started",
+        "htmlLang": "en",
+        "h1": "เริ่มต้นใช้งาน",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/login",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/login",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/login",
+        "htmlLang": "en",
+        "h1": "ยินดีต้อนรับกลับ",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/login"
+          },
+          {
+            "text": "ลืมรหัสผ่าน?",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/signup",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/signup",
+        "htmlLang": "en",
+        "h1": "Make HEARASIDE yours.",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "link-in-text-block",
+          "impact": "serious",
+          "description": "Ensure links are distinguished from surrounding text in a way that does not rely on color",
+          "nodes": [
+            {
+              "target": [
+                "a[href$=\"terms\"]"
+              ],
+              "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.65:1 with the surrounding text. (Minimum contrast is 3:1, link text: #181818, surrounding text: #3e3e3a)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+            },
+            {
+              "target": [
+                "a[href$=\"privacy\"]"
+              ],
+              "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.65:1 with the surrounding text. (Minimum contrast is 3:1, link text: #181818, surrounding text: #3e3e3a)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/th/signup",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/signup",
+        "htmlLang": "en",
+        "h1": "ทำให้ HEARASIDE เป็นของคุณ",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?next=%2Faccount"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/forgot",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/forgot",
+        "htmlLang": "en",
+        "h1": "Reset your password",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/reset",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/reset",
+        "htmlLang": "en",
+        "h1": "ตั้งรหัสผ่านใหม่",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "ส่งลิงก์",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/privacy",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/privacy",
+        "htmlLang": "en",
+        "h1": "Privacy Policy",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/terms",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/terms",
+        "htmlLang": "en",
+        "h1": "ข้อตกลงการใช้งาน",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/account/devices",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/no-such-page",
+      "width": 390,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/no-such-page",
+        "htmlLang": "en",
+        "h1": "This page isn’t here",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/",
+        "htmlLang": "en",
+        "h1": "Hear one mix.Stream another.",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [
+          {
+            "tag": "IMG",
+            "className": "shot only-dark",
+            "text": "",
+            "rect": {
+              "x": 41,
+              "y": 2260.765625,
+              "width": 474.390625,
+              "height": 360.828125,
+              "top": 2260.765625,
+              "right": 515.390625,
+              "bottom": 2621.59375,
+              "left": 41
+            }
+          }
+        ],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #636360, background color: #20201e, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/th",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th",
+        "htmlLang": "en",
+        "h1": "ฟังมิกซ์หนึ่งส่งอีกมิกซ์ให้คนดู",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [
+          {
+            "tag": "IMG",
+            "className": "shot only-dark",
+            "text": "",
+            "rect": {
+              "x": 41,
+              "y": 2099.953125,
+              "width": 474.390625,
+              "height": 360.828125,
+              "top": 2099.953125,
+              "right": 515.390625,
+              "bottom": 2460.78125,
+              "left": 41
+            }
+          }
+        ],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #636360, background color: #20201e, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/download",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/download",
+        "htmlLang": "en",
+        "h1": "Get HEARASIDE",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/download",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/download",
+        "htmlLang": "en",
+        "h1": "ดาวน์โหลด HEARASIDE",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/guides",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/guides",
+        "htmlLang": "en",
+        "h1": "From first install to karaoke with friends",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/guides/getting-started",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/guides/getting-started",
+        "htmlLang": "en",
+        "h1": "เริ่มต้นใช้งาน",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/login",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/login",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/login",
+        "htmlLang": "en",
+        "h1": "ยินดีต้อนรับกลับ",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/login"
+          },
+          {
+            "text": "ลืมรหัสผ่าน?",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/signup",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/signup",
+        "htmlLang": "en",
+        "h1": "Make HEARASIDE yours.",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/signup",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/signup",
+        "htmlLang": "en",
+        "h1": "ทำให้ HEARASIDE เป็นของคุณ",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?next=%2Faccount"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/forgot",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/forgot",
+        "htmlLang": "en",
+        "h1": "Reset your password",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/reset",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/reset",
+        "htmlLang": "en",
+        "h1": "ตั้งรหัสผ่านใหม่",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "ส่งลิงก์",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/privacy",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/privacy",
+        "htmlLang": "en",
+        "h1": "Privacy Policy",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/terms",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/terms",
+        "htmlLang": "en",
+        "h1": "ข้อตกลงการใช้งาน",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/account/devices",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/no-such-page",
+      "width": 390,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/no-such-page",
+        "htmlLang": "en",
+        "h1": "This page isn’t here",
+        "width": 390,
+        "scrollWidth": 390,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/",
+        "htmlLang": "en",
+        "h1": "Hear one mix.Stream another.",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.2 (foreground color: #ababaa, background color: #fafafa, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/th",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th",
+        "htmlLang": "en",
+        "h1": "ฟังมิกซ์หนึ่งส่งอีกมิกซ์ให้คนดู",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.2 (foreground color: #ababaa, background color: #fafafa, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/download",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/download",
+        "htmlLang": "en",
+        "h1": "Get HEARASIDE",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/download",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/download",
+        "htmlLang": "en",
+        "h1": "ดาวน์โหลด HEARASIDE",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/guides",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/guides",
+        "htmlLang": "en",
+        "h1": "From first install to karaoke with friends",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/guides/getting-started",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/guides/getting-started",
+        "htmlLang": "en",
+        "h1": "เริ่มต้นใช้งาน",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/login",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/login",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/login",
+        "htmlLang": "en",
+        "h1": "ยินดีต้อนรับกลับ",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/login"
+          },
+          {
+            "text": "ลืมรหัสผ่าน?",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/signup",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/signup",
+        "htmlLang": "en",
+        "h1": "Make HEARASIDE yours.",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "link-in-text-block",
+          "impact": "serious",
+          "description": "Ensure links are distinguished from surrounding text in a way that does not rely on color",
+          "nodes": [
+            {
+              "target": [
+                "a[href$=\"terms\"]"
+              ],
+              "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.65:1 with the surrounding text. (Minimum contrast is 3:1, link text: #181818, surrounding text: #3e3e3a)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+            },
+            {
+              "target": [
+                "a[href$=\"privacy\"]"
+              ],
+              "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.65:1 with the surrounding text. (Minimum contrast is 3:1, link text: #181818, surrounding text: #3e3e3a)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/th/signup",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/signup",
+        "htmlLang": "en",
+        "h1": "ทำให้ HEARASIDE เป็นของคุณ",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?next=%2Faccount"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/forgot",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/forgot",
+        "htmlLang": "en",
+        "h1": "Reset your password",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/reset",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/reset",
+        "htmlLang": "en",
+        "h1": "ตั้งรหัสผ่านใหม่",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "ส่งลิงก์",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/privacy",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/privacy",
+        "htmlLang": "en",
+        "h1": "Privacy Policy",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/terms",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/th/terms",
+        "htmlLang": "en",
+        "h1": "ข้อตกลงการใช้งาน",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/account/devices",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/no-such-page",
+      "width": 1440,
+      "theme": "light",
+      "metrics": {
+        "pathname": "/no-such-page",
+        "htmlLang": "en",
+        "h1": "This page isn’t here",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/",
+        "htmlLang": "en",
+        "h1": "Hear one mix.Stream another.",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #636360, background color: #20201e, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/th",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th",
+        "htmlLang": "en",
+        "h1": "ฟังมิกซ์หนึ่งส่งอีกมิกซ์ให้คนดู",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+          "nodes": [
+            {
+              "target": [
+                ".beat > span"
+              ],
+              "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #636360, background color: #20201e, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "route": "/download",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/download",
+        "htmlLang": "en",
+        "h1": "Get HEARASIDE",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/download",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/download",
+        "htmlLang": "en",
+        "h1": "ดาวน์โหลด HEARASIDE",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          },
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/guides",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/guides",
+        "htmlLang": "en",
+        "h1": "From first install to karaoke with friends",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/guides/getting-started",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/guides/getting-started",
+        "htmlLang": "en",
+        "h1": "เริ่มต้นใช้งาน",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/login",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/login",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/login",
+        "htmlLang": "en",
+        "h1": "ยินดีต้อนรับกลับ",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/login"
+          },
+          {
+            "text": "ลืมรหัสผ่าน?",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/signup",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/signup",
+        "htmlLang": "en",
+        "h1": "Make HEARASIDE yours.",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/signup",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/signup",
+        "htmlLang": "en",
+        "h1": "ทำให้ HEARASIDE เป็นของคุณ",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login"
+          },
+          {
+            "text": "EN · ไทย",
+            "href": "/signup"
+          },
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?next=%2Faccount"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/forgot",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/forgot",
+        "htmlLang": "en",
+        "h1": "Reset your password",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/reset",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/reset",
+        "htmlLang": "en",
+        "h1": "ตั้งรหัสผ่านใหม่",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "สร้างบัญชี",
+            "href": "/signup"
+          },
+          {
+            "text": "ส่งลิงก์",
+            "href": "/forgot"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/privacy",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/privacy",
+        "htmlLang": "en",
+        "h1": "Privacy Policy",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/th/terms",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/th/terms",
+        "htmlLang": "en",
+        "h1": "ข้อตกลงการใช้งาน",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": [
+          {
+            "text": "เข้าสู่ระบบ",
+            "href": "/login?lang=th"
+          }
+        ]
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/account/devices",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/login",
+        "htmlLang": "en",
+        "h1": "Welcome back",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    },
+    {
+      "route": "/no-such-page",
+      "width": 1440,
+      "theme": "dark",
+      "metrics": {
+        "pathname": "/no-such-page",
+        "htmlLang": "en",
+        "h1": "This page isn’t here",
+        "width": 1440,
+        "scrollWidth": 1440,
+        "overflow": [],
+        "brokenImages": [],
+        "wrongLanguageLinks": []
+      },
+      "errors": [],
+      "axe": []
+    }
+  ],
+  "checks": [
+    {
+      "name": "mobile menu opens",
+      "expanded": "true"
+    },
+    {
+      "name": "mobile menu Escape focus",
+      "focused": true,
+      "expanded": "false"
+    },
+    {
+      "name": "theme buttons stay in sync",
+      "before": "ธีม: ตามระบบ เปลี่ยน",
+      "desktop": "ธีม: ตามระบบ เปลี่ยน",
+      "mobile": "ธีม: สว่าง เปลี่ยน"
+    },
+    {
+      "name": "empty login validation",
+      "alerts": [],
+      "invalid": 0,
+      "focused": "<input id=\"f-email\" class=\"inp \" autocomplete=\"email\" inputmode=\"email\" type=\"email\" name=\"email\">"
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th",
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th/signup",
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th/download",
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th",
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th/signup",
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th/download",
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th",
+      "width": 1024,
+      "scrollWidth": 1024
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th/signup",
+      "width": 1024,
+      "scrollWidth": 1024
+    },
+    {
+      "name": "extra breakpoint",
+      "route": "/th/download",
+      "width": 1024,
+      "scrollWidth": 1024
+    }
+  ]
+}

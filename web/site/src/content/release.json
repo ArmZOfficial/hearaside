@@ -1,69 +1,69 @@
 {
-    "version":  "1.0.10",
-    "date":  "27 Oct 2026",
-    "installer":  "/downloads/HEARASIDE-Setup-1.0.10.exe",
-    "sizeMb":  "24.4",
-    "sha256":  "420d09e7be3e7dbb8393a2b2761cd5db98cbfe46fd5af93aa8aa062717f95580",
-    "obsMin":  "32",
-    "notes":  [
-                  {
-                      "version":  "1.0.10",
-                      "en":  "Radmin VPN: the Hub can copy a Radmin VPN link for HAS Karaoke (the friend's menu, or the Radmin button on the Share page), so friends in the same Radmin network connect straight to the Hub without the internet tunnel. The installer allows the Hub's ports in Windows Firewall for the local network and Radmin VPN only, and the Hub's WebRTC now uses a fixed UDP port range. HAS Karaoke: new HAS Direct audio type that uses an audio interface's own low-latency driver, and a 44.1 kHz device is switched to 48 kHz so friends hear the right pitch. Share page: the friends header no longer overlaps. After a network hiccup the friend's buffer comes back down within seconds (it used to stay high for half a minute). Opus now travels in 5 ms packets between the Hub and HAS Karaoke (about 10 ms less round trip). TikTok LIVE Studio: the Hub's virtual mic is back (Settings > Connection, send to VB-Cable).",
-                      "th":  "Radmin VPN: Hub คัดลอกลิงก์ Radmin VPN สำหรับ HAS Karaoke ได้ (เมนูของเพื่อน หรือปุ่ม Radmin ในหน้าแชร์) เพื่อนที่อยู่วง Radmin เดียวกันจะต่อตรงเข้า Hub โดยไม่ผ่าน tunnel อินเทอร์เน็ต ตัวติดตั้งเปิดพอร์ตของ Hub ใน Windows Firewall ให้เฉพาะเครือข่ายในบ้านและ Radmin VPN และ WebRTC ของ Hub ใช้ช่วงพอร์ต UDP ตายตัวแล้ว HAS Karaoke: เพิ่มชนิดเสียง HAS Direct ใช้ไดรเวอร์ latency ต่ำของ audio interface ได้โดยตรง และอุปกรณ์ที่ตั้ง 44.1 kHz จะถูกเปลี่ยนเป็น 48 kHz ให้เอง เพื่อนจะได้ยินเสียงไม่เพี้ยน หน้าแชร์: หัวข้อเพื่อนไม่ซ้อนกันแล้ว หลังเน็ตสะดุด buffer ของเพื่อนจะลดกลับภายในไม่กี่วินาที (เดิมค้างสูงอยู่ครึ่งนาที) เสียงระหว่าง Hub กับ HAS Karaoke ส่งเป็นแพ็กเก็ตละ 5 ms แล้ว (ไปกลับเร็วขึ้นประมาณ 10 ms) TikTok LIVE Studio: ไมค์เสมือนของ Hub กลับมาแล้ว (ตั้งค่า > การเชื่อมต่อ ส่งเข้า VB-Cable)"
-                  },
-                  {
-                      "version":  "1.0.9",
-                      "en":  "Streamlabs Desktop: one HEARASIDE source for OBS and Streamlabs that adapts to Streamlabs' audio engine (an unknown Streamlabs version gets no source instead of a crash), and an optional hidden check that puts HEARASIDE back after Streamlabs updates. Fixes a 1.0.8 issue that could put an older Streamlabs file back after a Streamlabs update.",
-                      "th":  "Streamlabs Desktop: ปลั๊กอิน HEARASIDE ตัวเดียวใช้ได้ทั้ง OBS และ Streamlabs ปรับตามเครื่องเสียงของ Streamlabs เอง (Streamlabs เวอร์ชันที่ไม่รู้จักจะไม่มี source แทนที่จะ crash) และมีตัวเลือกให้ใส่ HEARASIDE กลับเองหลัง Streamlabs อัปเดต แก้ปัญหาของ 1.0.8 ที่อาจเอาไฟล์ Streamlabs รุ่นเก่ากลับมาใส่หลังอัปเดต"
-                  },
-                  {
-                      "version":  "1.0.8",
-                      "en":  "Friends singing fix (drops late packets, FEC recovery, latched AEC Auto on mic leak), redesigned HAS Karaoke (proper Thai UTF-8 text, \"Hear yourself\" / \"Others hear you\" switches, startup howl fix, Discord-style UI), and Streamlabs Desktop source support.",
-                      "th":  "แก้เสียงเพื่อนร้องขาดๆ กระตุกๆ (ตัดแพ็กเก็ตที่มาช้า, กู้เสียงด้วย FEC, เปิด AEC อัตโนมัติเมื่อเสียงไมค์รั่ว), ยกเครื่อง HAS Karaoke ใหม่ (ภาษาไทยไม่เพี้ยน, สวิตช์ได้ยินเสียงตัวเอง/คนอื่นได้ยิน, แก้เสียงหอนตอนเปิด, ดีไซน์ Discord-style) และรองรับ Streamlabs Desktop เป็นตัวเลือกในตัวติดตั้ง"
-                  },
-                  {
-                      "version":  "1.0.7",
-                      "en":  "WebRTC UDP DataChannel audio transport in HAS Karaoke with automatic failover, startup and deep link crash fixes, admin dashboard with download tracking, and animated download page.",
-                      "th":  "ระบบส่งเสียง WebRTC UDP DataChannel ใน HAS Karaoke พร้อมสลับเส้นทางอัตโนมัติเมื่อมีปัญหา, แก้บั๊กเปิดโปรแกรมไม่ขึ้นและ deep link, ระบบจัดการหลังบ้านและนับยอดดาวน์โหลด และหน้าดาวน์โหลดพร้อมสถานะติดตั้ง"
-                  },
-                  {
-                      "version":  "1.0.6",
-                      "en":  "Introduces HAS Karaoke standalone desktop app (8 MB, no DAW or OBS needed) for friends to sing together with built-in vocal effects, plus automatic version check and modular installer types.",
-                      "th":  "เพิ่มแอป HAS Karaoke สำหรับเพื่อนแบบเดี่ยว (8 MB ไม่ต้องมี DAW หรือ OBS) พร้อมเอฟเฟกต์เสียงในตัว ระบบแจ้งเตือนเมื่อมีเวอร์ชันใหม่ และตัวเลือกติดตั้งแบบแยกชุดใน installer"
-                  },
-                  {
-                      "version":  "1.0.5",
-                      "en":  "The website moves to its permanent home (hearaside.netlify.app, old links redirect) and the logo is refreshed as a clean black-and-white H. Plug-ins and protocol are unchanged, so 1.0.4 and 1.0.5 work together.",
-                      "th":  "เว็บไซต์ย้ายไปที่บ้านถาวร (hearaside.netlify.app ลิงก์เก่า redirect ให้) และรีเฟรช logo เป็นอักษร H ขาวดำสะอาดตา ตัวปลั๊กอินและ protocol ไม่เปลี่ยน ใช้ 1.0.4 กับ 1.0.5 ร่วมกันได้"
-                  },
-                  {
-                      "version":  "1.0.4",
-                      "en":  "Security fixes: signing a plug-in in now needs the code typed from the plug-in itself, sign-in tokens are never saved unprotected, and the link server holds up better against a flood of connections. The website adds a bot check to sign-in and sign-up.",
-                      "th":  "แก้ด้านความปลอดภัย: การเชื่อมปลั๊กอินกับบัญชีต้องพิมพ์โค้ดจากปลั๊กอินเอง โทเคนเข้าสู่ระบบจะไม่ถูกบันทึกแบบไม่เข้ารหัสอีก และเซิร์ฟเวอร์ลิงก์ทนต่อการเชื่อมต่อถล่มได้ดีขึ้น เว็บเพิ่มการตรวจบอตตอนเข้าสู่ระบบและสมัครสมาชิก"
-                  },
-                  {
-                      "version":  "1.0.3",
-                      "en":  "Friends hear each other while you sing together (never themselves), lower latency on the friends’ page, friends mixed in a DAW track no longer echo or come in late, and sign-in gives you permanent links with no website of your own.",
-                      "th":  "เพื่อนได้ยินกันเองตอนร้องด้วยกัน (ไม่ได้ยินเสียงตัวเอง) หน้าเว็บเพื่อนหน่วงน้อยลง เพื่อนที่มิกซ์ในแทร็ก DAW ไม่มีเสียงสะท้อนและไม่ช้ากว่าจังหวะ และเข้าสู่ระบบแล้วได้ลิงก์ถาวรโดยไม่ต้องมีเว็บของตัวเอง"
-                  },
-                  {
-                      "version":  "1.0.2",
-                      "en":  "Auto-sync vocal works when music also reaches the master another way (an FX return, a group, a channel without HEARASIDE Track), and with “Hear viewers’ mix” switched on.",
-                      "th":  "ซิงก์เสียงร้องอัตโนมัติวัดได้แม้เพลงไปถึง master ทางอื่นด้วย (ช่อง FX return, group หรือช่องที่ไม่มี HEARASIDE Track) และตอนเปิด “ฟังแบบคนดู” อยู่"
-                  },
-                  {
-                      "version":  "1.0.1",
-                      "en":  "Fixes: text in fields readable in the light theme, the OBS delay no longer cut off, the Settings › Account title no longer shows twice, friends mixed in a DAW track stay audible with large buffers, more stable latency measuring.",
-                      "th":  "แก้บั๊ก: ตัวอักษรในช่องพิมพ์อ่านได้ในธีมสว่าง ตัวเลขความหน่วง OBS ไม่ถูกตัด หัวข้อบัญชีในการตั้งค่าไม่ซ้ำ เสียงเพื่อนในแทร็ก DAW ไม่หายเมื่อใช้บัฟเฟอร์ใหญ่ และวัดความหน่วงได้นิ่งขึ้น"
-                  },
-                  {
-                      "version":  "1.0.0",
-                      "en":  "New look for every plug-in, English by default, one installer with everything included.",
-                      "th":  "หน้าตาใหม่ทุกปลั๊กอิน ภาษาอังกฤษเป็นค่าเริ่มต้น และตัวติดตั้งไฟล์เดียวที่มีทุกอย่าง"
-                  }
-              ],
-    "vst2":  true,
-    "karaokeInstaller":  "/downloads/HAS-Karaoke-1.0.10.exe",
-    "karaokeSizeMb":  "8.2",
-    "karaokeSha256":  "b432711e8fef6a42a4c311d573d8cbed4fe36337af5ec99e8023b1777a7c92fa"
+  "version": "1.0.10",
+  "date": "27 Oct 2026",
+  "installer": "/downloads/HEARASIDE-Setup-1.0.10.exe",
+  "sizeMb": "24.4",
+  "sha256": "420d09e7be3e7dbb8393a2b2761cd5db98cbfe46fd5af93aa8aa062717f95580",
+  "obsMin": "32",
+  "notes": [
+    {
+      "version": "1.0.10",
+      "th": "เพื่อนที่ใช้ Radmin VPN วงเดียวกันเชื่อมตรงเข้า Hub ได้ คัดลอกลิงก์จากหน้าแชร์หรือเมนูของเพื่อน\nตัวติดตั้งตั้งค่าไฟร์วอลล์ให้ใช้กับเครือข่ายในบ้านและ Radmin VPN\nHAS Karaoke เพิ่ม HAS Direct ให้ใช้ไดรเวอร์ของอุปกรณ์เสียงโดยตรง เพื่อลดความหน่วง\nปรับอุปกรณ์เสียงจาก 44.1 เป็น 48 kHz อัตโนมัติ แก้เสียงเพื่อนเพี้ยน\nเสียงกลับมาตรงจังหวะเร็วขึ้นหลังเน็ตสะดุด และส่งเสียงไปกลับเร็วขึ้นประมาณ 10 ms\nแก้หัวข้อซ้อนกันในหน้าแชร์\nส่งเสียงเข้า TikTok LIVE Studio ผ่าน VB-Cable ได้อีกครั้ง เปิดที่ ตั้งค่า › การเชื่อมต่อ",
+      "en": "Friends on the same Radmin VPN network can connect straight to the Hub. Copy a link from Share or the friend’s menu.\nThe installer sets firewall access for your local network and Radmin VPN.\nHAS Karaoke adds HAS Direct to use your audio device’s own driver for lower delay.\nAudio devices switch from 44.1 to 48 kHz automatically to fix incorrect vocal pitch.\nAudio recovers its timing sooner after a network drop. Round-trip delay is about 10 ms lower.\nFixed overlapping headings on the Share page.\nSend audio to TikTok LIVE Studio through VB-Cable again. Open Settings › Connection."
+    },
+    {
+      "version": "1.0.9",
+      "th": "ใช้ source HEARASIDE ตัวเดียวกับ OBS และ Streamlabs Desktop ได้\nหากยังไม่รองรับรุ่นของ Streamlabs จะไม่โหลด source เพื่อกันโปรแกรมปิดเอง\nมีตัวเลือกคืน source หลัง Streamlabs อัปเดต และแก้การนำไฟล์รุ่นเก่ากลับมาใส่",
+      "en": "One HEARASIDE source works with OBS and Streamlabs Desktop.\nUnsupported Streamlabs versions skip loading the source to avoid a crash.\nAn option restores the source after Streamlabs updates. Fixed older files being restored by mistake."
+    },
+    {
+      "version": "1.0.8",
+      "th": "แก้เสียงเพื่อนขาดและกระตุก พร้อมลดเสียงสะท้อนจากไมค์อัตโนมัติ\nปรับหน้าตา HAS Karaoke แก้ภาษาไทยเพี้ยนและเสียงหอนตอนเปิด\nเพิ่มสวิตช์เลือกฟังเสียงตัวเองและส่งเสียงให้คนอื่น\nเลือกติดตั้ง source สำหรับ Streamlabs Desktop ได้",
+      "en": "Fixed broken-up audio from friends and added automatic microphone echo reduction.\nUpdated HAS Karaoke’s layout. Fixed Thai text and feedback noise at startup.\nAdded switches for hearing yourself and letting others hear you.\nAdded a Streamlabs Desktop source option to the installer."
+    },
+    {
+      "version": "1.0.7",
+      "th": "HAS Karaoke สลับเส้นทางส่งเสียงให้เองเมื่อการเชื่อมต่อมีปัญหา\nแก้โปรแกรมปิดเองตอนเปิดแอปหรือเปิดจากลิงก์\nเพิ่มหน้าผู้ดูแลสำหรับดูยอดดาวน์โหลด และแอนิเมชันในหน้าดาวน์โหลด",
+      "en": "HAS Karaoke switches audio connections automatically when a connection fails.\nFixed crashes when starting the app or opening it from a link.\nAdded download tracking for admins and animation on the download page."
+    },
+    {
+      "version": "1.0.6",
+      "th": "เพิ่ม HAS Karaoke ให้เพื่อนร้องด้วยกันได้โดยไม่ต้องมี DAW หรือ OBS พร้อมเอฟเฟกต์เสียงในตัว\nแจ้งเตือนเมื่อมีเวอร์ชันใหม่ และเลือกชุดที่จะติดตั้งได้",
+      "en": "Added HAS Karaoke so friends can sing together without a DAW or OBS, with vocal effects included.\nAdded update notifications and a choice of which components to install."
+    },
+    {
+      "version": "1.0.5",
+      "th": "ย้ายเว็บไป hearaside.netlify.app ลิงก์เก่าพาไปเว็บใหม่ให้เอง\nเปลี่ยนโลโก้เป็นตัว H ขาวดำ\nปลั๊กอินรุ่น 1.0.4 และ 1.0.5 ยังใช้ร่วมกันได้",
+      "en": "Moved the website to hearaside.netlify.app. Old links redirect there.\nUpdated the logo to a black-and-white H.\nPlug-in versions 1.0.4 and 1.0.5 still work together."
+    },
+    {
+      "version": "1.0.4",
+      "th": "เชื่อมบัญชีโดยกรอกรหัสจากปลั๊กอินของคุณเอง\nเข้ารหัสข้อมูลเข้าสู่ระบบที่บันทึกไว้ และปรับเซิร์ฟเวอร์ให้รับมือคำขอจำนวนมากได้ดีขึ้น\nเพิ่มการตรวจบอตตอนเข้าสู่ระบบและสมัครบัญชี",
+      "en": "Connect your account by typing the code from your own plug-in.\nSaved sign-in details are encrypted. The link server handles floods of requests better.\nAdded a bot check when signing in or creating an account."
+    },
+    {
+      "version": "1.0.3",
+      "th": "เพื่อนได้ยินเสียงกันตอนร้อง โดยไม่ส่งเสียงตัวเองกลับมา\nลดความหน่วงหน้าเพื่อน และแก้เสียงเพื่อนสะท้อนหรือช้ากว่าจังหวะใน DAW\nเข้าสู่ระบบเพื่อใช้ลิงก์ถาวรได้ ไม่ต้องตั้งเว็บเอง",
+      "en": "Friends hear each other while singing, without hearing their own voice sent back.\nReduced delay on the friends’ page. Fixed echo and late audio from friends in the DAW.\nSign in to use permanent links without setting up your own website."
+    },
+    {
+      "version": "1.0.2",
+      "th": "ซิงก์เสียงร้องอัตโนมัติได้แม้ดนตรีผ่านแทร็กที่ไม่มี HEARASIDE Track เช่น แทร็กรวมเสียงหรือแทร็กเอฟเฟกต์\nใช้งานได้ขณะเปิด ฟังแบบคนดู ด้วย",
+      "en": "Auto-sync vocal works when music passes through a track without HEARASIDE Track, such as a group or effects return.\nIt also works with Hear viewers’ mix turned on."
+    },
+    {
+      "version": "1.0.1",
+      "th": "แก้ข้อความอ่านยากในธีมสว่าง ตัวเลขความหน่วง OBS ถูกตัด และหัวข้อบัญชีซ้ำ\nแก้เสียงเพื่อนหายเมื่อ DAW ใช้บัฟเฟอร์ใหญ่ และวัดความหน่วงได้นิ่งขึ้น",
+      "en": "Fixed hard-to-read text in the light theme, cut-off OBS delay numbers and a repeated Account heading.\nFixed missing friend audio with large DAW buffers and made delay readings steadier."
+    },
+    {
+      "version": "1.0.0",
+      "th": "ปรับหน้าตาปลั๊กอินทุกตัว ใช้ภาษาอังกฤษเป็นค่าเริ่มต้น\nรวมทุกอย่างไว้ในตัวติดตั้งเดียว",
+      "en": "Updated every plug-in’s layout, with English as the default language.\nCombined everything into one installer."
+    }
+  ],
+  "vst2": true,
+  "karaokeInstaller": "/downloads/HAS-Karaoke-1.0.10.exe",
+  "karaokeSizeMb": "8.2",
+  "karaokeSha256": "b432711e8fef6a42a4c311d573d8cbed4fe36337af5ec99e8023b1777a7c92fa"
 }

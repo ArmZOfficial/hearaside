@@ -10,7 +10,7 @@ import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
 import { Check, Field, SubmitButton } from '../components/ui/Kit';
 import { DiscordButton, GoogleButton, OrLine, Turnstile, authErrorText, needsCaptcha, safeNext } from '../components/AuthBits';
-import { AuthError, useAuth } from '../lib/auth';
+import { AuthError, authMode, useAuth } from '../lib/auth';
 import { Seo } from '../lib/seo';
 import { passwordScore, signupForm, type SignupForm } from '../../shared/schemas';
 
@@ -39,7 +39,7 @@ export default function Signup() {
   const { t, lang, path } = useT();
   const auth = useAuth();
   const [params] = useSearchParams();
-  const next = safeNext(params.get('next'));
+  const next = safeNext(params.get('next'), path('/account'));
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [err, setErr] = useState<AuthError | null>(null);
   const [captcha, setCaptcha] = useState<string | undefined>();
@@ -54,7 +54,7 @@ export default function Signup() {
   const submit = handleSubmit(async v => {
     setErr(null);
     try {
-      await auth.signUp({ email: v.email, password: v.password, displayName: v.displayName, locale: lang, captchaToken: captcha });
+      await auth.signUp({ email: v.email, password: v.password, displayName: v.displayName, locale: lang, next, captchaToken: captcha });
       setSentTo(v.email);
     } catch (e) {
       setErr(e instanceof AuthError ? e : new AuthError('failed'));
@@ -81,19 +81,20 @@ export default function Signup() {
           {sentTo ? (
             <div className="flex flex-col gap-4 items-start" role="status">
               <span className="tile solid"><Mail size={20} strokeWidth={1.8} aria-hidden="true" /></span>
-              <h2 className="h4">{t('signup.sentTitle')}</h2>
+              <h2 className="h4">{t(authMode === 'memory' ? 'local.created' : 'signup.sentTitle')}</h2>
               <p className="m-0 text-[15px] leading-relaxed text-ink2">
-                {t('signup.sentA')} <strong className="text-ink break-all">{sentTo}</strong>. {t('signup.sentB')}
+                {authMode === 'memory' ? t('local.auth') : <>{t('signup.sentA')} <strong className="text-ink break-all">{sentTo}</strong>. {t('signup.sentB')}</>}
               </p>
               <button type="button" className="btn" onClick={() => { setSentTo(null); reset(); }}>{t('signup.different')}</button>
+              {authMode === 'memory' && <Link className="btn solid" to={`${path('/login')}?${new URLSearchParams({ next })}`}>{t('signup.signInCta')}</Link>}
             </div>
           ) : (
             <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
               <h2 className="h4">{t('signup.card')}</h2>
-              <Field label={t('signup.name')} placeholder={t('signup.namePh')} autoComplete="nickname" maxLength={40} {...register('displayName')} />
-              <Field label={t('signup.email')} type="email" placeholder={t('signup.emailPh')} autoComplete="email" inputMode="email" {...register('email')} />
+              <Field label={t('signup.name')} placeholder={t('signup.namePh')} autoComplete="nickname" maxLength={40} error={formState.errors.displayName && t('form.name')} {...register('displayName')} />
+              <Field label={t('signup.email')} type="email" placeholder={t('signup.emailPh')} autoComplete="email" inputMode="email" error={formState.errors.email && t('form.email')} {...register('email')} />
               <Field label={t('signup.password')} type="password" placeholder={t('signup.passwordPh')} autoComplete="new-password"
-                     maxLength={128} {...register('password')} />
+                     maxLength={128} error={formState.errors.password && t('form.password')} {...register('password')} />
               <Strength pw={pw} />
               <label className="agree">
                 <input type="checkbox" {...register('agree')} />
@@ -110,7 +111,7 @@ export default function Signup() {
               <DiscordButton next={next} onError={setErr} />
               <div className="auth-switch">
                 <span>{t('signup.haveAccount')}</span>
-                <Link className="btn big w-full accent-outline" to={`/login${next && next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`}>{t('signup.signInCta')}</Link>
+                <Link className="btn big w-full accent-outline" to={`${path('/login')}?${new URLSearchParams({ next })}`}>{t('signup.signInCta')}</Link>
               </div>
             </form>
           )}

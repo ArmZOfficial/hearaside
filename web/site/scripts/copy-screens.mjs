@@ -11,7 +11,7 @@ const src = resolve(process.argv[2] ?? join(here, '..', '..', '..', 'ui-snapshot
 const out = join(here, '..', 'public', 'screens');
 
 // website name <- ui-snapshot name
-const SCREENS = { hub: 'hub-default', share: 'page-share', track: 'track-default' };
+const SCREENS = { hub: 'hub-default', share: 'page-share', track: 'track-default', app: 'app-default', setup: 'page-setup' };
 
 if (!existsSync(src)) {
   console.error(`No snapshots in ${src}. Run: build\\tools\\ui-snapshot\\...\\ui-snapshot.exe --audit ui-snapshots/redesign`);
@@ -25,7 +25,7 @@ for (const [name, snap] of Object.entries(SCREENS)) {
     for (const theme of ['light', 'dark']) {
       const file = join(src, `${snap}-${lang}-${theme}.png`);
       if (!existsSync(file)) { console.warn(`missing ${file}`); continue; }
-      await sharp(file).webp({ quality: 86, effort: 5 }).toFile(join(out, `${name}-${lang}-${theme}.webp`));
+      await sharp(file).webp({ quality: 86, effort: 5, lossless: name === 'hub' }).toFile(join(out, `${name}-${lang}-${theme}.webp`));
       n++;
     }
   }

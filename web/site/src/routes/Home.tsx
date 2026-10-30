@@ -1,5 +1,5 @@
 // "/" (3.11 Home + 3.11.1 #1–#6). Text is the mock's English, word for word (i18n/en.json).
-import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { ChevronDown, Download, Play, Square, Check as CheckIcon } from 'lucide-react';
@@ -24,7 +24,13 @@ function MixDemo() {
     { id: 'friend', you: true, view: true },
   ].map((r, i) => ({ ...r, name: names[i] ?? r.id })));
   const [playing, setPlaying] = useState<null | 'you' | 'viewers'>(null);
+  const [starting, setStarting] = useState(false);
+  const [audioError, setAudioError] = useState(false);
   const player = useRef<{ stop(): void; set(on: Record<string, boolean>): void } | null>(null);
+  const sequence = useRef(0);
+  const latestRows = useRef(rows);
+  latestRows.current = rows;
+  useEffect(() => () => { sequence.current++; player.current?.stop(); player.current = null; }, []);
 
   const flip = (id: string, key: 'you' | 'view') => {
     setRows(rs => {
@@ -35,13 +41,23 @@ function MixDemo() {
   };
 
   const play = async (as: 'you' | 'viewers') => {
+    const request = ++sequence.current;
     if (playing === as) { player.current?.stop(); player.current = null; setPlaying(null); return; }
     player.current?.stop();
-    const { startDemo, startSong } = await import('../motion/demoAudio');
-    const state = Object.fromEntries(rows.map(r => [r.id, as === 'you' ? r.you : r.view]));
-    setPlaying(as);
-    const song = import.meta.env.DEV ? await startSong(() => Object.values(state).some(Boolean), () => setPlaying(null)).catch(() => null) : null;
-    player.current = song ?? startDemo(state, () => setPlaying(null));
+    player.current = null;
+    setPlaying(null); setStarting(true); setAudioError(false);
+    try {
+      const { startDemo, startSong } = await import('../motion/demoAudio');
+      if (request !== sequence.current) return;
+      const state = () => Object.fromEntries(latestRows.current.map(r => [r.id, as === 'you' ? r.you : r.view]));
+      const end = () => { if (request === sequence.current) { player.current = null; setPlaying(null); } };
+      const song = import.meta.env.DEV ? await startSong(() => Object.values(state()).some(Boolean), end).catch(() => null) : null;
+      if (request !== sequence.current) { song?.stop(); return; }
+      player.current = song ?? startDemo(state(), end);
+      player.current.set(state());
+      setPlaying(as);
+    } catch { if (request === sequence.current) setAudioError(true); }
+    finally { if (request === sequence.current) setStarting(false); }
   };
 
   const box = (key: 'you' | 'view', title: string) => {
@@ -93,12 +109,13 @@ function MixDemo() {
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <span className="text-[13px] muted">{t('home.mix.playDemo')} · {t('home.mix.listenAs')}</span>
         {(['you', 'viewers'] as const).map(as => (
-          <button key={as} type="button" className={`btn small ${playing === as ? 'solid' : ''}`} aria-pressed={playing === as} onClick={() => play(as)}>
+          <button key={as} type="button" className={`btn small ${playing === as ? 'solid' : ''}`} disabled={starting} aria-busy={starting || undefined} aria-pressed={playing === as} onClick={() => play(as)}>
             {playing === as ? <Square size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
             {as === 'you' ? t('home.mix.you') : t('home.mix.viewers')}
           </button>
         ))}
       </div>
+      {audioError && <p className="alert" role="alert">{t('home.mix.audioError')}</p>}
     </div>
   );
 }
@@ -132,7 +149,7 @@ export default function Home() {
             </div>
           </div>
           <div className="hero-shot">
-            <Tilt><Screenshot name="hub" lang={lang} alt={t('home.shotAlt')} eager width={1040} height={790} /></Tilt>
+            <Tilt><Screenshot name="hub" lang={lang} alt={t('home.shotAlt')} eager zoom width={1040} height={790} /></Tilt>
           </div>
         </section>
 
@@ -157,8 +174,8 @@ export default function Home() {
           </Reveal>
           <div className="plug-grid">
             <Reveal className="card plug plug-main">
-              <div className="plug-main-shot" aria-hidden="true">
-                <Screenshot name="hub" lang={lang} alt="" width={1040} height={790} />
+              <div className="plug-main-shot">
+                <Screenshot name="hub" lang={lang} alt={t('home.shotAlt')} zoom width={1040} height={790} />
               </div>
               <span className="plug-where">{features[0].where}</span>
               <span className="h3">Hub</span>
@@ -231,8 +248,8 @@ export default function Home() {
                 </div>
               ))}
               <div className="flex flex-wrap gap-2.5 pt-1">
-                <Link className="btn solid" to="/signup">{t('home.acct.create')}</Link>
-                <Link className="btn" to="/login">{t('home.acct.signIn')}</Link>
+                <Link className="btn solid" to={path('/signup')}>{t('home.acct.create')}</Link>
+                <Link className="btn" to={path('/login')}>{t('home.acct.signIn')}</Link>
               </div>
             </div>
           </div>

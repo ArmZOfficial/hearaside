@@ -2,9 +2,9 @@ name: Rust migration
 
 on:
   push:
-    paths: ['rust/**', '.github/workflows/rust.yml']
+    paths: ['rust/**', 'compat/golden/**', 'compat/fixtures/**', 'scripts/fetch-deps.ps1', '.github/workflows/rust.yml']
   pull_request:
-    paths: ['rust/**', '.github/workflows/rust.yml']
+    paths: ['rust/**', 'compat/golden/**', 'compat/fixtures/**', 'scripts/fetch-deps.ps1', '.github/workflows/rust.yml']
   workflow_dispatch:
 
 permissions:
@@ -21,6 +21,10 @@ jobs:
         working-directory: rust
     steps:
       - uses: actions/checkout@v4
+      - name: Third-party sources (hs-dsp / hs-net build speexdsp and opus from external/)
+        shell: pwsh
+        working-directory: .
+        run: ./scripts/fetch-deps.ps1
       - name: Install pinned toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
@@ -33,3 +37,27 @@ jobs:
       - name: Check dependency licenses and sources
         if: runner.os == 'Linux'
         run: cargo deny --locked check licenses bans sources
+
+  # R1.6: exhaustive interleaving models of the bus protocols, and UB checks of the OS-free code
+  loom:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - run: RUSTFLAGS="--cfg loom" cargo test -p hs-bus --test loom_models --release --target-dir target/loom
+
+  miri:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly-2026-10-28 --profile minimal --component miri
+      - name: Miri on the code that does not touch the OS (no shm, no process queries)
+        run: >
+          cargo +nightly-2026-10-28 miri test --locked -p hs-bus --test bus --
+          ring_ mailbox rename requests_ reply friends_names tags_
+      - run: cargo +nightly-2026-10-28 miri test --locked -p hs-bus --test paced_send -- --skip memory_stays_small

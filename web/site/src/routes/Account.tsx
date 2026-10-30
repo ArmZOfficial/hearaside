@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Download, Link2, Monitor, Shield, Trash2, User, X } from 'lucide-react';
 import { useT } from '../i18n';
 import { PageShell } from '../components/Layout';
-import { Avatar, Field, SubmitButton, useToast } from '../components/ui/Kit';
+import { Avatar, Field, QueryFeedback, SubmitButton, useToast } from '../components/ui/Kit';
 import { useAuth, authMode, AuthError } from '../lib/auth';
 import { ApiError, useApi, useDevices, useFriends, useLinks, useMe, useUpdateMe } from '../lib/api';
 import { Seo } from '../lib/seo';
@@ -295,7 +295,7 @@ function Devices() {
   return (
     <>
       <p className="sec-lead">{t('acct.devicesLead')}</p>
-      {q.isLoading ? <div className="spin" aria-hidden="true" /> : list.length === 0 ? <p className="rd py-4">{t('acct.noDevices')}</p> : (
+      {q.isLoading || q.isError ? <QueryFeedback query={q} /> : list.length === 0 ? <p className="rd py-4">{t('acct.noDevices')}</p> : (
         <div className="flex flex-col gap-2.5 pt-2">
           {list.map(d => {
             const w = when(d.lastSeenAt, t, lang);
@@ -337,7 +337,8 @@ function Links() {
   return (
     <>
       <p className="sec-lead">{t('acct.linksLead')}</p>
-      {listen.length === 0 ? <Row title={t('acct.listenLink')} desc={t('acct.noLink')} /> : listen.map(l => (
+      <QueryFeedback query={links} />
+      {!links.isLoading && !links.isError && (listen.length === 0 ? <Row title={t('acct.listenLink')} desc={t('acct.noLink')} /> : listen.map(l => (
         <Row key={l.id} title={t('acct.listenLink')} desc={<span className="break-all font-mono text-[12.5px]">{l.url ?? l.label}</span>}>
           {l.url && <button type="button" className="btn" onClick={async () => {
             try { await navigator.clipboard.writeText(l.url!); setCopied(l.id); window.setTimeout(() => setCopied(null), 1600); } catch { /* no clipboard */ }
@@ -347,10 +348,11 @@ function Links() {
             catch { toast(t('acct.offline')); }
           }}>{t('acct.revoke')}</button>
         </Row>
-      ))}
+      )))}
       <Row title={t('acct.savedFriends')} desc={t('acct.savedFriendsCap')} />
+      <QueryFeedback query={friends} />
       <div className="flex flex-wrap gap-2 pb-2">
-        {(friends.data?.friends ?? []).length === 0 && <span className="rd">{t('acct.noFriends')}</span>}
+        {!friends.isLoading && !friends.isError && (friends.data?.friends ?? []).length === 0 && <span className="rd">{t('acct.noFriends')}</span>}
         {(friends.data?.friends ?? []).map(f => (
           <span key={f.id} className="friendchip">
             <Avatar name={f.name} size={26} />{f.name}
@@ -421,7 +423,7 @@ export default function Account() {
   const navigate = useNavigate();
   const sec = (SECTIONS.some(s => s.id === section) ? section : 'profile') as SectionId;
 
-  if (auth.status === 'signedOut') return <Navigate to={`/login?next=${encodeURIComponent(path(`/account${section === 'profile' ? '' : `/${section}`}`))}`} replace />;
+  if (auth.status === 'signedOut') return <Navigate to={`${path('/login')}?next=${encodeURIComponent(path(`/account${section === 'profile' ? '' : `/${section}`}`))}`} replace />;
 
   const title = t(SECTIONS.find(s => s.id === sec)!.key);
   return (

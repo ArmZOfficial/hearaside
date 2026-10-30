@@ -5,6 +5,7 @@ import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { Route, Routes, useLocation } from 'react-router';
 import { loadPage, reloadIfNewer } from './lib/update';
 import Home from './routes/Home';
+import { langOf, useT } from './i18n';
 
 const Download = lazy(loadPage(() => import('./routes/Download')));
 const Guides = lazy(loadPage(() => import('./routes/Guides')));
@@ -23,7 +24,11 @@ const NotFound = lazy(loadPage(() => import('./routes/NotFound')));
 /** marketing pages, in both languages, written out as HTML by the prerender step */
 export const PRERENDER = ['/', '/download', '/guides', '/privacy', '/terms'];
 
-const page = (el: ReactNode) => <Suspense fallback={<div className="page-wait" />}>{el}</Suspense>;
+function PageLoading() {
+  const { t } = useT();
+  return <div className="page-wait query-feedback wrap" role="status"><span className="spin" aria-hidden="true" />{t('loading')}</div>;
+}
+const page = (el: ReactNode) => <Suspense fallback={<PageLoading />}>{el}</Suspense>;
 
 function both(path: string, el: ReactNode) {
   const th = path === '/' ? '/th' : `/th${path}`;
@@ -45,6 +50,8 @@ function useNewBuildOnNavigate() {
 
 export default function App() {
   useNewBuildOnNavigate();
+  const { pathname } = useLocation();
+  useEffect(() => { document.documentElement.lang = langOf(pathname); }, [pathname]);
   return (
     <Routes>
       {both('/', <Home />)}
@@ -61,8 +68,8 @@ export default function App() {
       {both('/link', <LinkPage />)}
       {both('/account', <Account />)}
       {both('/account/:section', <Account />)}
-      <Route path="/admin" element={page(<Admin />)} />
-      <Route path="/admin/:section" element={page(<Admin />)} />
+      {both('/admin', <Admin />)}
+      {both('/admin/:section', <Admin />)}
       <Route path="*" element={page(<NotFound />)} />
     </Routes>
   );

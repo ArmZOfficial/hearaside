@@ -41,10 +41,13 @@ export function clientIp(req: Request): string {
 }
 
 /** true when `who` went over `perMinute` for `what` (counts this call) */
-export async function over(what: string, who: string, perMinute: number): Promise<boolean> {
+export async function over(what: string, who: string, limits: number | { perMinute: number; perDay: number }): Promise<boolean> {
   try {
-    const n = await get().incr(`hs:rl:${what}:${who}:${Math.floor(Date.now() / 60000)}`, 60);
-    return n > perMinute;
+    const now = Date.now();
+    const minute = await get().incr(`hs:rl:${what}:${who}:${Math.floor(now / 60000)}`, 60);
+    if (typeof limits === 'number') return minute > limits;
+    const day = await get().incr(`hs:rl:day:${what}:${who}:${Math.floor(now / 86400000)}`, 86400);
+    return minute > limits.perMinute || day > limits.perDay;
   } catch {
     return false;   // a limiter outage must not lock everyone out
   }

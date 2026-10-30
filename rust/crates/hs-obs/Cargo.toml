@@ -1,0 +1,24 @@
+[package]
+name = "hs-obs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# like obs/hearaside-obs/src/plugin.cpp: the module links libobs (GPL-2.0-or-later); libs/* and the other crates stay MIT
+license = "GPL-2.0-or-later"
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+hs-bus = { version = "0.1.0", path = "../hs-bus" }
+hs-dsp = { version = "0.1.0", path = "../hs-dsp" }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[dev-dependencies]
+hs-engine = { version = "0.1.0", path = "../hs-engine" }

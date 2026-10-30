@@ -1,6 +1,8 @@
 [licenses]
 allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "Unicode-3.0", "CDLA-Permissive-2.0"]
 # CDLA-Permissive-2.0: the Mozilla root certificate list (webpki-root-certs, a fallback of rustls-platform-verifier). Permissive data licence.
+# hs-obs is GPL-2.0-or-later like obs/hearaside-obs: it links libobs. Its own dependencies still have to fit the list above.
+exceptions = [{ allow = ["GPL-2.0-or-later"], crate = "hs-obs" }]
 
 [bans]
 multiple-versions = "warn"

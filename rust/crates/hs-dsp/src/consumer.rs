@@ -156,6 +156,12 @@ impl StreamConsumer {
         s
     }
 
+    /// `status()` without the copy: the numbers only (`output_name` and `error` stay empty, `status()` fills them).
+    /// Allocates nothing, so a real-time thread can publish it every block (the OBS source does).
+    pub fn status_ref(&self) -> &ConsumerStatus {
+        &self.st
+    }
+
     fn try_connect(&mut self) {
         match SharedMemory::open_existing(&self.bus_name) {
             Ok(s) => {

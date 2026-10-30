@@ -524,6 +524,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hs-obs"
+version = "0.1.0"
+dependencies = [
+ "hs-bus",
+ "hs-dsp",
+ "hs-engine",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "hs-testkit"
 version = "0.1.0"
 dependencies = [

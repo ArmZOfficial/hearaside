@@ -1,8 +1,10 @@
-export const meta = { title: 'Privacy Policy', updated: '[DATE]' };
+import { ContactDetails } from '../../../components/ContactDetails';
+
+export const meta = { title: 'Privacy Policy', updated: '2026-10-30' };
 
 # Privacy Policy
 
-*Draft. To be reviewed before accounts open to the public. Last updated [DATE].*
+*Last updated: 30 October 2026.*
 
 ArmZ (“we”) runs this website and the optional HEARASIDE account. This page says what we keep, why, and what you can do about it, in line with Thailand’s Personal Data Protection Act (PDPA).
 
@@ -29,7 +31,7 @@ We do **not** keep: audio, track names, project files, or what you stream. The p
 ## Who else handles it
 
 - **Supabase** (Singapore): database, sign-in and profile photos.
-- **Vercel** (Singapore): this website and its API.
+- **Netlify / Vercel**: hosting for this website and its API, depending on the deployment.
 - **Upstash** (Redis): the short-lived address of your Hub for permanent links.
 - **Resend**: the emails we send (confirmation, password reset).
 - **Google** or **Discord**, only if you choose to sign in with them.
@@ -46,4 +48,4 @@ We don’t sell your data and we don’t use advertising or tracking cookies. If
 
 ## Contact
 
-[CONTACT EMAIL]
+<ContactDetails />

@@ -54,7 +54,7 @@ export function summarizeDownloads(rows: DownloadRow[], days = 30) {
   const sum = (f: (v: (typeof versions)[number]) => number) => versions.reduce((n, v) => n + f(v), 0);
   return {
     total: sum(v => v.total), counted: sum(v => v.site), before: sum(v => Math.max(v.github, v.manual)),
-    last30: daily.reduce((n, d) => n + d.count, 0), versions, daily,
+    last30: daily.slice(-30).reduce((n, d) => n + d.count, 0), versions, daily,
   };
 }
 
@@ -69,7 +69,7 @@ export async function githubDownloads(repo = process.env.GITHUB_REPO || 'ArmZOff
   return releases.flatMap(rel => {
     const version = rel.tag_name.replace(/^v/, '');
     if (!VERSION_RE.test(version)) return [];
-    return [{ version, count: rel.assets.filter(a => /\.exe$/i.test(a.name)).reduce((n, a) => n + a.download_count, 0) }];
+    return [{ version, count: rel.assets.filter(a => a.name === `HEARASIDE-Setup-${version}.exe`).reduce((n, a) => n + a.download_count, 0) }];
   });
 }
 

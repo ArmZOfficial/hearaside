@@ -1,0 +1,198 @@
+[
+  {
+    "name": "language switch document language",
+    "url": "http://127.0.0.1:5187/th",
+    "lang": "en",
+    "heading": "ฟังมิกซ์หนึ่ง\nส่งอีกมิกซ์ให้คนดู"
+  },
+  {
+    "name": "audio after SPA navigation",
+    "url": "http://127.0.0.1:5187/guides",
+    "contexts": [
+      "running"
+    ]
+  },
+  {
+    "name": "signup next input",
+    "oauthAndLoginTargets": []
+  },
+  {
+    "name": "memory signup",
+    "status": "success"
+  },
+  {
+    "name": "memory Thai sign-in",
+    "pathname": "/th/account"
+  },
+  {
+    "name": "Audit Updated",
+    "toast": [
+      "บันทึกแล้ว"
+    ]
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account",
+    "width": 320,
+    "scrollWidth": 334,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/security",
+    "width": 320,
+    "scrollWidth": 334,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/devices",
+    "width": 320,
+    "scrollWidth": 334,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/links",
+    "width": 320,
+    "scrollWidth": 334,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/data",
+    "width": 320,
+    "scrollWidth": 334,
+    "violations": [
+      {
+        "id": "link-in-text-block",
+        "impact": "serious",
+        "nodes": [
+          {
+            "target": [
+              ".sec-lead > a[href$=\"privacy\"][data-discover=\"true\"]"
+            ],
+            "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.55:1 with the surrounding text. (Minimum contrast is 3:1, link text: #3e3e3a, surrounding text: #5a5a56)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/link",
+    "width": 320,
+    "scrollWidth": 334,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account",
+    "width": 390,
+    "scrollWidth": 390,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/security",
+    "width": 390,
+    "scrollWidth": 390,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/devices",
+    "width": 390,
+    "scrollWidth": 390,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/links",
+    "width": 390,
+    "scrollWidth": 390,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/data",
+    "width": 390,
+    "scrollWidth": 390,
+    "violations": [
+      {
+        "id": "link-in-text-block",
+        "impact": "serious",
+        "nodes": [
+          {
+            "target": [
+              ".sec-lead > a[href$=\"privacy\"][data-discover=\"true\"]"
+            ],
+            "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.55:1 with the surrounding text. (Minimum contrast is 3:1, link text: #3e3e3a, surrounding text: #5a5a56)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/link",
+    "width": 390,
+    "scrollWidth": 390,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account",
+    "width": 1440,
+    "scrollWidth": 1440,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/security",
+    "width": 1440,
+    "scrollWidth": 1440,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/devices",
+    "width": 1440,
+    "scrollWidth": 1440,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/links",
+    "width": 1440,
+    "scrollWidth": 1440,
+    "violations": []
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/account/data",
+    "width": 1440,
+    "scrollWidth": 1440,
+    "violations": [
+      {
+        "id": "link-in-text-block",
+        "impact": "serious",
+        "nodes": [
+          {
+            "target": [
+              ".sec-lead > a[href$=\"privacy\"][data-discover=\"true\"]"
+            ],
+            "summary": "Fix any of the following:\n  The link has insufficient color contrast of 1.55:1 with the surrounding text. (Minimum contrast is 3:1, link text: #3e3e3a, surrounding text: #5a5a56)\n  The link has no styling (such as underline) to distinguish it from the surrounding text"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "signed-in route",
+    "route": "/th/link",
+    "width": 1440,
+    "scrollWidth": 1440,
+    "violations": []
+  }
+]

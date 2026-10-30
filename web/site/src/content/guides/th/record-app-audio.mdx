@@ -1,23 +1,35 @@
-export const meta = { title: 'อัดเสียงโปรแกรม', description: 'ดึงเสียง Chrome, Spotify หรือ Discord เข้าแทร็ก แล้วอัดด้วย DAW', order: 4 };
+import { GuideScreenshot } from '../../../components/GuideScreenshot';
+
+export const meta = { title: 'อัดเสียงโปรแกรม', description: 'เลือกโปรแกรมใน App Audio แล้วอัดเข้า DAW', order: 4 };
 
 # อัดเสียงโปรแกรม
 
-HEARASIDE App Audio ดึงเสียงของโปรแกรมเดียว หรือเสียงทั้งเครื่องยกเว้น DAW เข้ามาในแทร็ก
+HEARASIDE App Audio รับเสียงจากโปรแกรม เช่น Chrome เข้าแทร็กในโปรแกรมทำเพลง (DAW) ได้ หรือเลือกรับเสียงทั้งเครื่องยกเว้น DAW
 
 ## เล่นในแทร็ก
 
-1. ใส่ **HEARASIDE App Audio** ในแทร็กเสียงใดก็ได้ (เป็น effect: เสียงโปรแกรมถูกบวกเข้ากับเสียงของแทร็กเอง)
-2. เลือกโปรแกรมจากปุ่มแหล่งเสียงใหญ่ · **เสียงทั้งเครื่อง (ยกเว้น DAW)** จะไม่ดึงเสียง DAW วนกลับเข้ามา
+1. ใส่ **HEARASIDE App Audio** ในแทร็กเสียง
+2. เลือกโปรแกรมที่ช่องแหล่งเสียง หรือเลือก **เสียงทั้งเครื่อง (ยกเว้น DAW)**
 3. ใช้ *คุณได้ยิน* กับ *คนดูได้ยิน* เหมือน HEARASIDE Track
 
-การ export แบบ offline ใส่เสียงโปรแกรมไม่ได้ (โปรแกรมเล่นเร็วกว่าเวลาจริงไม่ได้) ให้อัดไว้ก่อน
+<GuideScreenshot name="app" caption="เลือกโปรแกรมที่ช่องแหล่งเสียง เช่น Chrome" />
+
+อัดเสียงโปรแกรมให้เรียบร้อยก่อนส่งออกเพลงแบบเร็ว (offline export) เพราะ App Audio รับเสียงได้ตอนโปรแกรมกำลังเล่นเท่านั้น
 
 ## อัดด้วย DAW
 
-DAW อัด **input** ของแทร็ก ซึ่งอยู่ก่อน insert ของแทร็ก ดังนั้น App Audio ต้องอยู่บน **ช่อง input** และเปิด **เฉพาะเสียงโปรแกรม**
+วาง App Audio ที่ **ช่อง Input** แล้วเปิด **เฉพาะเสียงโปรแกรม** เพราะ DAW อัดเสียงก่อนผ่าน Insert ของแทร็ก
 
-- **Studio One:** Song › Song Setup › Audio I/O Setup › Inputs › Add (Stereo) ตั้งชื่อ `App Audio` · เปิด Inputs ใน Console แล้วใส่ปลั๊กอินที่ input นั้น · ตั้ง input ของแทร็กสเตอริโอเป็น `App Audio` แล้วกดอัด
-- **Cubase:** ใส่ที่ Input Channel
-- **Reaper:** ใส่ใน Input FX ของแทร็ก
+### Studio One
 
-หรือกด **อัด** ในเมนู **⋯** ของ App Audio ใน Hub: ไฟล์ถูกเก็บที่ `Documents\HEARASIDE\Recordings` และลากลงแทร็กได้
+1. ไปที่ **Song › Song Setup › Audio I/O Setup › Inputs**
+2. กด **Add (Stereo)** ตั้งชื่อ `App Audio`
+3. เปิด **Inputs** ใน Console แล้วใส่ปลั๊กอินที่ Input นี้
+4. ตั้ง Input ของแทร็กสเตอริโอเป็น `App Audio` แล้วกดอัด
+
+### DAW อื่น
+
+- **Cubase:** ใส่ปลั๊กอินที่ **Input Channel**
+- **Reaper:** ใส่ปลั๊กอินที่ **Input FX** ของแทร็ก
+
+อัดจาก Hub ได้เช่นกัน: กด **⋯ › อัด** ที่ App Audio ไฟล์อยู่ใน `Documents\HEARASIDE\Recordings` ลากเข้า DAW ได้เลย

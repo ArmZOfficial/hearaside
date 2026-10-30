@@ -26,6 +26,7 @@ option(HEARASIDE_BUILD_KARAOKE "Build HAS Karaoke standalone executable" ON)
 option(HEARASIDE_BUILD_OBS     "Build the OBS source plug-in" ON)
 option(HEARASIDE_BUILD_TOOLS   "Build bus-inspector and other tools" ON)
 option(HEARASIDE_BUILD_TESTS   "Build unit / integration tests" ON)
+option(HEARASIDE_USE_RUST_CORE "Use the Rust core (rust/crates/hs-ffi) for ssengine: TrackPublisher, HubEngine, FriendReader (PLAN-rust-migration R2.5; needs cargo, Release builds)" OFF)
 set(HEARASIDE_VST2_SDK "" CACHE PATH
     "Folder that contains pluginterfaces/vst2.x/aeffect.h from a *licensed* VST 2 SDK. Empty = no VST2 build.")
 

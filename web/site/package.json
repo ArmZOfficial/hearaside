@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:local": "node scripts/dev.mjs --memory",
     "dev:web": "vite",
     "dev:api": "tsx watch server/dev.ts",
     "tokens": "python ../../design/gen_theme.py",
@@ -17,6 +18,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:plugin": "vitest run tests/server/device.test.ts tests/server/share.test.ts tests/server/me.test.ts tests/server/plugin-contract.test.ts",
     "test:e2e": "playwright test",
     "mock:plugin-api": "tsx server/dev.ts --memory"
   },

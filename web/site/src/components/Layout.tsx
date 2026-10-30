@@ -9,13 +9,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowUpRight, BookOpen, Download, LayoutDashboard, Link2, LogOut, Monitor, Moon, Sun, User } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, BookOpen, Download, LayoutDashboard, Link2, LogOut, Monitor, Moon, Sun, User } from 'lucide-react';
 import { maskEmail } from '../../shared/schemas';
 import { otherLangPath, useT } from '../i18n';
 import { useTheme } from '../lib/theme';
 import { useAuth } from '../lib/auth';
 import { useIsAdmin, useMe } from '../lib/api';
 import { Avatar, Wordmark } from './ui/Kit';
+import { ContactDetails } from './ContactDetails';
 
 
 /** which home-page section is on screen (for the sliding underline) */
@@ -49,9 +50,9 @@ function ThemeButton({ className = '' }: { className?: string }) {
 
 function LangButton() {
   const { t } = useT();
-  const { pathname, search } = useLocation();
+  const { pathname, search, hash } = useLocation();
   return (
-    <Link to={otherLangPath(pathname) + search} className="langbtn" aria-label={t('nav.langAria')} hrefLang={pathname.startsWith('/th') ? 'en' : 'th'}>
+    <Link to={otherLangPath(pathname) + search + hash} className="langbtn" aria-label={t('nav.langAria')} hrefLang={pathname.startsWith('/th') ? 'en' : 'th'}>
       {t('nav.lang')}
     </Link>
   );
@@ -59,7 +60,7 @@ function LangButton() {
 
 /** The avatar in the nav and the profile menu under it (WAI-ARIA menu button: Enter / Space / arrows open it,
  *  arrows move, Escape or a click outside closes it and gives focus back to the avatar). */
-function AccountMenu() {
+function AccountMenu({ onOpen }: { onOpen?(): void }) {
   const { t, path } = useT();
   const auth = useAuth();
   const me = useMe();
@@ -88,7 +89,7 @@ function AccountMenu() {
   const name = me.data?.displayName || me.data?.handle || '';
   function items() { return Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []); }
   function focusItem(i: number) { const all = items(); all[(i + all.length) % all.length]?.focus(); }
-  const openWith = (first: boolean) => { focusOnOpen.current = first ? 0 : -1; setOpen(true); };
+  const openWith = (first: boolean) => { focusOnOpen.current = first ? 0 : -1; onOpen?.(); setOpen(true); };
   const close = () => { setOpen(false); button.current?.focus(); };
 
   const onButtonKey = (e: ReactKeyboardEvent) => {
@@ -141,7 +142,7 @@ function AccountMenu() {
             <div className="menu-sep" role="separator" />
             <Item icon={Download} label={t('nav.download')} onSelect={go(path('/download'))} />
             <Item icon={BookOpen} label={t('nav.guides')} onSelect={go(path('/guides'))} />
-            {isAdmin && <Item icon={LayoutDashboard} label="หลังบ้าน (Admin)" onSelect={go('/admin')} />}
+            {isAdmin && <Item icon={LayoutDashboard} label="หลังบ้าน (Admin)" onSelect={go(path('/admin'))} />}
             <div className="menu-sep" role="separator" />
             <Item icon={LogOut} label={t('acct.signOutBrowser')} onSelect={signOut} tone="danger" />
           </motion.div>
@@ -152,7 +153,7 @@ function AccountMenu() {
 }
 
 export function Nav() {
-  const { t, path, lang } = useT();
+  const { t, path } = useT();
   const { pathname } = useLocation();
   const { status } = useAuth();
   const home = pathname === '/' || pathname === '/th';
@@ -222,9 +223,9 @@ export function Nav() {
           <div className="nav-right">
             <LangButton />
             <ThemeButton className="nav-theme" />
-            {status === 'signedIn' ? <AccountMenu /> : (
+            {status === 'signedIn' ? <AccountMenu onOpen={() => setOpen(false)} /> : (
               <span className="nav-auth">
-                <Link className="navlink" to={`/login${lang === 'th' ? '?lang=th' : ''}`}>{t('nav.signIn')}</Link>
+                <Link className="navlink" to={path('/login')}>{t('nav.signIn')}</Link>
                 <Link className="btn solid" to={path('/download')}>{t('nav.get')}</Link>
               </span>
             )}
@@ -253,7 +254,7 @@ export function Nav() {
                     ? <>{cardLink({ label: t('nav.accountSettings'), to: path('/account'), icon: User })}</>
                     : <div className="flex flex-col gap-2">
                         <Link className="btn solid" to={path('/download')} onClick={close}>{t('nav.get')}</Link>
-                        <Link className="btn" to={`/login${lang === 'th' ? '?lang=th' : ''}`} onClick={close}>{t('nav.signIn')}</Link>
+                        <Link className="btn" to={path('/login')} onClick={close}>{t('nav.signIn')}</Link>
                       </div>}
                   <div className="nav-card-tools"><ThemeButton /></div>
                 </motion.section>
@@ -268,14 +269,17 @@ export function Nav() {
 
 export function MinimalNav({ kind }: { kind: 'signup' | 'login' | 'none' }) {
   const { t, path } = useT();
+  const { search } = useLocation();
+  const next = new URLSearchParams(search).get('next');
+  const context = next ? `?${new URLSearchParams({ next })}` : '';
   return (
     <header className="nav-shell">
       <nav aria-label="Main" className="wrap nav">
         <div className="nav-row">
           <Link to={path('/')} className="brand" aria-label="HEARASIDE home"><Wordmark /></Link>
           <div className="nav-right">
-            {kind === 'signup' && <span className="nav-hint">{t('nav.haveAccount')} <Link to="/login">{t('nav.signIn')}</Link></span>}
-            {kind === 'login' && <span className="nav-hint">{t('nav.newHere')} <Link to="/signup">{t('nav.createAccount')}</Link></span>}
+            {kind === 'signup' && <span className="nav-hint">{t('nav.haveAccount')} <Link to={path('/login') + context}>{t('nav.signIn')}</Link></span>}
+            {kind === 'login' && <span className="nav-hint">{t('nav.newHere')} <Link to={path('/signup') + context}>{t('nav.createAccount')}</Link></span>}
             <LangButton />
             <ThemeButton />
           </div>
@@ -287,18 +291,22 @@ export function MinimalNav({ kind }: { kind: 'signup' | 'login' | 'none' }) {
 
 export function Footer() {
   const { t, path } = useT();
+  const reduce = useReducedMotion();
   return (
-    <footer className="wrap">
+    <footer className="wrap site-footer">
       <div className="footer">
-        <span className="wordmark">HEARASIDE</span>
-        <div className="flex flex-wrap gap-5">
-          <Link to={path('/guides')}>{t('footer.guides')}</Link>
-          <Link to={path('/download')}>{t('footer.download')}</Link>
-          <Link to={path('/privacy')}>{t('footer.privacy')}</Link>
-          <Link to={path('/terms')}>{t('footer.terms')}</Link>
-          <a href="mailto:[CONTACT EMAIL]">{t('footer.contact')}</a>
+        <div className="footer-main">
+          <div className="footer-brand"><Link className="brand" to={path('/')} aria-label="HEARASIDE home"><Wordmark /></Link><p>{t('footer.description')}</p></div>
+          <nav className="footer-links" aria-label={t('footer.navigation')}>
+            <div className="footer-group"><h2>HEARASIDE</h2><Link to={path('/download')}>{t('footer.download')}</Link><Link to={path('/guides')}>{t('footer.guides')}</Link></div>
+            <div className="footer-group"><h2>{t('footer.info')}</h2><Link to={path('/privacy')}>{t('footer.privacy')}</Link><Link to={path('/terms')}>{t('footer.terms')}</Link></div>
+          </nav>
+          <div className="footer-group footer-contact"><h2>{t('footer.contact')}</h2><ContactDetails /></div>
         </div>
-        <span>{t('footer.owner')}</span>
+        <div className="footer-bottom">
+          <span>{t('footer.owner')}</span>
+          <button type="button" className="footer-top" onClick={() => window.scrollTo({ top: 0, behavior: reduce ? 'instant' : 'smooth' })}>{t('footer.top')}<ArrowUp size={15} aria-hidden="true" /></button>
+        </div>
       </div>
     </footer>
   );

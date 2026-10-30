@@ -20,8 +20,13 @@ export function Tilt({ children, max = 4 }: { children: ReactNode; max?: number 
   const leave = () => { rx.set(0); ry.set(0); };
 
   return (
-    <div ref={ref} onPointerMove={move} onPointerLeave={leave} style={{ perspective: 1200 }}>
-      <motion.div style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }}>{children}</motion.div>
+    <div ref={ref} className="tilt-frame" onPointerMove={move} onPointerLeave={leave} style={{ perspective: 1200 }}>
+      <motion.div className="tilt-content" style={{ rotateX: rx, rotateY: ry }}
+                  transformTemplate={(values, generated) => {
+                    const x = parseFloat(String(values.rotateX)) || 0;
+                    const y = parseFloat(String(values.rotateY)) || 0;
+                    return Math.abs(x) < .01 && Math.abs(y) < .01 ? 'none' : generated;
+                  }}>{children}</motion.div>
     </div>
   );
 }

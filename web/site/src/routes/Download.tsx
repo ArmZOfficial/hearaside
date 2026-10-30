@@ -15,7 +15,7 @@ import release from '../content/release.json';
 const placeholder = (v: string) => /^\[.*\]$/.test(v);
 
 export default function Download() {
-  const { t, lang } = useT();
+  const { t, lang, path } = useT();
   const reduce = useReducedMotion();
   const [phase, setPhase] = useState<'idle' | 'starting' | 'started'>('idle');
   const [lit, setLit] = useState(-1);
@@ -84,7 +84,7 @@ export default function Download() {
             </p>
             <div className="flex flex-wrap gap-2.5">
               <button type="button" className="btn" disabled>{t('dl.macButton')}</button>
-              <Link className="btn" to="/signup">{t('home.acct.create')}</Link>
+              <Link className="btn" to={path('/signup')}>{t('home.acct.create')}</Link>
             </div>
           </Reveal>
         </section>
@@ -118,7 +118,9 @@ export default function Download() {
             {release.notes.map((n, i) => (
               <div key={i} className="note">
                 <span className="note-v">{n.version}</span>
-                <span className="note-t">{lang === 'th' ? n.th : n.en}</span>
+                <ul className="note-t m-0 pl-5 list-disc space-y-2">
+                  {(lang === 'th' ? n.th : n.en).split('\n').filter(Boolean).map((item, index) => <li key={index}>{item}</li>)}
+                </ul>
               </div>
             ))}
           </div>

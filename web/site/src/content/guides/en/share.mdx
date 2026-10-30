@@ -1,20 +1,23 @@
-export const meta = { title: 'Share a listen link', description: 'Let someone hear exactly what your viewers hear, in a browser, with no install.', order: 3 };
+import { GuideScreenshot } from '../../../components/GuideScreenshot';
+
+export const meta = { title: 'Share a listen link', description: 'Turn sharing on in the Hub and send a friend the link.', order: 3 };
 
 # Share a listen link
 
-Open **Share and friends** in the Hub and switch **Sharing** on. You get a **listen link**: anyone who opens it in a browser or on a phone hears exactly what your viewers hear, uncompressed.
+1. Open **Share and friends** in the Hub.
+2. Turn the **listen link** on and press **Copy**.
+3. Send the link to a friend. Keep your DAW open while they listen.
 
-- The audio goes straight from your Hub through a Cloudflare tunnel. It never passes through this website.
+<GuideScreenshot name="share" caption="The listen link is on the right of Share and friends" />
+
+- Your friend hears the viewers’ mix, sent directly from the Hub through a Cloudflare tunnel.
 - The first time, Windows may ask to let your DAW through the firewall.
 - Without cloudflared the link only works on the same Wi-Fi. The installer includes cloudflared.
 
 ## Links that stay the same
 
-A link belongs to its project: open the project again and you get the same link. The part that changes is the tunnel address, which is why a **permanent link** needs a small directory on the web:
-
-- **With an account** (coming soon): the Hub registers your links with hearaside’s directory. *Account › Links and friends* shows them and can revoke them.
-- **Without an account**: deploy `web/share-vercel` to your own Vercel account and enter its address in **Settings › Connection › Share web address**.
+The link belongs to its project. If you sign in to the Hub, view or revoke it in [Account › Links and friends](/account/links).
 
 ## A friend sings with you
 
-The **send-in link** lets one friend send their microphone in from a browser. In your DAW, add HEARASIDE App Audio to a track and choose the friend as its source. A room for up to eight friends, lined up on the beat, is on its way.
+Press **Add friend** and send each person their link to join with a microphone. To process a friend’s voice in your DAW, add **App Audio** and choose the friend as its source.

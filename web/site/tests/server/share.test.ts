@@ -61,4 +61,15 @@ describe('share directory on the account website', () => {
     expect(resPost.status).toBe(200);
     expect(Array.isArray(resPost.body.iceServers)).toBe(true);
   });
+
+  it('GET and POST share the same TURN request limit', async () => {
+    const ctx = await setup();
+    const { access } = await signInPlugin(ctx);
+    for (let i = 0; i < 30; i++) {
+      const response = i % 2 ? await ctx.api.post('/api/turn').set('Authorization', `Bearer ${access}`) : await ctx.api.get('/api/turn').set('Authorization', `Bearer ${access}`);
+      expect(response.status).toBe(200);
+    }
+    expect((await ctx.api.get('/api/turn').set('Authorization', `Bearer ${access}`)).status).toBe(429);
+    expect((await ctx.api.post('/api/turn').set('Authorization', `Bearer ${access}`)).status).toBe(429);
+  });
 });

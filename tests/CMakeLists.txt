@@ -12,6 +12,14 @@ add_executable(ss_unit_tests
 target_link_libraries(ss_unit_tests PRIVATE ssengine ssdsp ssbus ssnet)
 add_test(NAME unit COMMAND ss_unit_tests)
 
+# CPU of the Hub audio thread, C++ vs Rust core (PLAN-rust-migration R2.6); a tool, not a test
+add_executable(ss_hub_bench bench/hub_cpu_bench.cpp)
+target_link_libraries(ss_hub_bench PRIVATE ssengine ssdsp ssbus)
+
+# Writes compat/golden/net for hs-net (PLAN-rust-migration R3.1); a tool, not a test
+add_executable(ss_net_golden golden/net_golden.cpp)
+target_link_libraries(ss_net_golden PRIVATE ssnet)
+
 add_executable(ss_ipc_test integration/ipc_test.cpp)
 target_link_libraries(ss_ipc_test PRIVATE ssbus)
 add_test(NAME ipc COMMAND ss_ipc_test)

@@ -4,6 +4,8 @@ import { useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './lib/auth';
 import { ToastProvider } from './components/ui/Kit';
+import { ThemeProvider } from './lib/theme';
+import { ImageViewerProvider } from './components/ImageViewer';
 import '@fontsource/anuphan/400.css';
 import '@fontsource/anuphan/500.css';
 import '@fontsource/anuphan/600.css';
@@ -13,9 +15,9 @@ export function Providers({ children }: { children: ReactNode }) {
   const [qc] = useState(() => new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } }));
   return (
     <QueryClientProvider client={qc}>
-      <AuthProvider>
+      <ThemeProvider><ImageViewerProvider><AuthProvider>
         <ToastProvider>{children}</ToastProvider>
-      </AuthProvider>
+      </AuthProvider></ImageViewerProvider></ThemeProvider>
     </QueryClientProvider>
   );
 }

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "API unavailable",
+    "route": "/th/account/devices",
+    "body": "อุปกรณ์\n\nคอมพิวเตอร์ที่มีปลั๊กอิน HEARASIDE เข้าสู่ระบบอยู่ การออกจากระบบไม่กระทบเสียง\n\nไม่มีปลั๊กอินที่เข้าสู่ระบบอยู่",
+    "alerts": []
+  },
+  {
+    "name": "API unavailable",
+    "route": "/th/account/links",
+    "body": "ลิงก์และเพื่อน\n\nลิงก์คงเดิมทุกไลฟ์ เสียงวิ่งตรงจาก Hub ของคุณ ไม่ผ่านเว็บไซต์นี้\n\nลิงก์ฟังสด\nเปิดแชร์ใน Hub ตอนเข้าสู่ระบบอยู่ แล้วลิงก์จะขึ้นที่นี่\nเพื่อนที่บันทึกไว้\nชวนคนเดิมครั้งหน้าได้ในคลิกเดียวจาก Hub\nยังไม่มีเพื่อนที่บันทึกไว้",
+    "alerts": []
+  },
+  {
+    "name": "320px overflow elements",
+    "elements": [
+      {
+        "tag": "DIV",
+        "className": "nav-right",
+        "right": 333.59375
+      },
+      {
+        "tag": "BUTTON",
+        "className": "iconbtn nav-menu burger ",
+        "right": 333.59375
+      },
+      {
+        "tag": "I",
+        "className": "",
+        "right": 321.59375
+      },
+      {
+        "tag": "I",
+        "className": "",
+        "right": 321.59375
+      }
+    ]
+  },
+  {
+    "name": "signup sign-in targets",
+    "targets": [
+      {
+        "text": "เข้าสู่ระบบ",
+        "href": "/login"
+      },
+      {
+        "text": "เข้าสู่ระบบ",
+        "href": "/login?next=%2Fth%2Flink"
+      }
+    ]
+  }
+]

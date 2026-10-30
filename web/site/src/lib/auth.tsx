@@ -4,6 +4,7 @@
 // Pages only ever see `useAuth()`. The plug-ins never use any of this (they use device codes, A4).
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { authCallbackPath } from './navigation';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 
@@ -11,13 +12,13 @@ export interface AuthApi {
   configured: boolean;
   status: AuthStatus;
   token: string | null;
-  signUp(a: { email: string; password: string; displayName: string; locale: string; captchaToken?: string }): Promise<void>;
+  signUp(a: { email: string; password: string; displayName: string; locale: string; next?: string; captchaToken?: string }): Promise<void>;
   signIn(email: string, password: string, captchaToken?: string): Promise<void>;
   signInWithGoogle(idToken: string, nonce: string): Promise<void>;
   signInWithDiscord(next: string): Promise<void>;
   linkDiscord(): Promise<void>;
   unlinkProvider(provider: string): Promise<void>;
-  forgot(email: string, captchaToken?: string): Promise<void>;
+  forgot(email: string, captchaToken?: string, options?: { next: string; locale: string }): Promise<void>;
   setPassword(password: string): Promise<void>;
   changeEmail(email: string): Promise<void>;
   signOut(everywhere?: boolean): Promise<void>;
@@ -137,11 +138,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     return {
       configured: true, status, token,
-      async signUp({ email, password, displayName, locale, captchaToken }) {
+      async signUp({ email, password, displayName, locale, next, captchaToken }) {
         const sb = await supabase();
+        const redirect = origin() + authCallbackPath('verify', locale, next);
         const { error } = await sb.auth.signUp({
           email, password,
-          options: { emailRedirectTo: `${origin()}/verify`, data: { display_name: displayName, locale }, captchaToken },
+          options: { emailRedirectTo: redirect, data: { display_name: displayName, locale }, captchaToken },
         });
         if (error) mapSupabaseError(error);
       },
@@ -177,10 +179,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { error } = await sb.auth.unlinkIdentity(identity);
         if (error) mapSupabaseError(error);
       },
-      async forgot(email, captchaToken) {
+      async forgot(email, captchaToken, options) {
         const sb = await supabase();
         // the answer is the same whether or not the email has an account
-        await sb.auth.resetPasswordForEmail(email, { redirectTo: `${origin()}/reset`, captchaToken });
+        await sb.auth.resetPasswordForEmail(email, { redirectTo: origin() + authCallbackPath('reset', options?.locale ?? 'en', options?.next), captchaToken });
       },
       async setPassword(password) {
         const sb = await supabase();

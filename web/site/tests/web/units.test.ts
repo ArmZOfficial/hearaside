@@ -4,6 +4,7 @@ import th from '../../src/i18n/th.json';
 import { formatUserCode, maskEmail, normalizeUserCode, passwordScore } from '../../shared/schemas';
 import { localPath, otherLangPath, translate } from '../../src/i18n';
 import { safeNext } from '../../src/components/AuthBits';
+import { authCallbackPath } from '../../src/lib/navigation';
 
 describe('strings', () => {
   it('every English key has Thai and the same {placeholders}', () => {
@@ -62,11 +63,19 @@ describe('codes and passwords', () => {
 });
 
 describe('safe redirects', () => {
+  it('email verification preserves language and the device flow destination', () => {
+    expect(authCallbackPath('verify', 'th', '/th/link?code=KQ7M-2TXP')).toBe('/th/verify?next=%2Fth%2Flink%3Fcode%3DKQ7M-2TXP');
+    expect(authCallbackPath('verify', 'en')).toBe('/verify?next=%2Faccount');
+    expect(authCallbackPath('verify', 'th', '//evil.example')).toBe('/th/verify?next=%2Fth%2Faccount');
+    expect(authCallbackPath('reset', 'th', '/th/link')).toBe('/th/reset?next=%2Fth%2Flink');
+  });
   it('only same-site paths', () => {
     expect(safeNext('/link?code=KQ7M-2TXP')).toBe('/link?code=KQ7M-2TXP');
     expect(safeNext('//evil.example')).toBe('/account');
     expect(safeNext('https://evil.example')).toBe('/account');
     expect(safeNext('/\\evil.example')).toBe('/account');
+    expect(safeNext('/\n/evil.example')).toBe('/account');
+    expect(safeNext('/th/link?code=KQ7M-2TXP')).toBe('/th/link?code=KQ7M-2TXP');
     expect(safeNext(null, '')).toBe('');
   });
 });

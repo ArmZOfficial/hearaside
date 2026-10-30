@@ -9,9 +9,11 @@ export function Reveal({ as: Tag = 'div', delay = 0, className, style, children,
   'aria-labelledby'?: string; 'aria-label'?: string;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const reduce = useReducedMotion();
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === 'undefined') return;
+    if (reduce) { el.classList.remove('rv-hide'); return; }
     if (el.getBoundingClientRect().top < window.innerHeight * 0.95) return;   // already on screen
     el.classList.add('rv-hide');
     el.style.transitionDelay = `${delay}ms`;
@@ -23,7 +25,7 @@ export function Reveal({ as: Tag = 'div', delay = 0, className, style, children,
     }, { rootMargin: '0px 0px -8% 0px' });
     io.observe(el);
     return () => io.disconnect();
-  }, [delay]);
+  }, [delay, reduce]);
   return <Tag ref={ref} className={`rv ${className ?? ''}`} style={style} id={id} {...rest}>{children}</Tag>;
 }
 

@@ -60,6 +60,8 @@ export function useDevices() {
     queryKey: ['devices', token],
     queryFn: () => call<{ devices: Device[] }>(token, 'GET', '/me/devices'),
     enabled: status === 'signedIn' && !!token,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -69,6 +71,8 @@ export function useLinks() {
     queryKey: ['links', token],
     queryFn: () => call<{ links: ShareLink[] }>(token, 'GET', '/me/links'),
     enabled: status === 'signedIn' && !!token,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -78,6 +82,8 @@ export function useFriends() {
     queryKey: ['friends', token],
     queryFn: () => call<{ friends: SavedFriend[] }>(token, 'GET', '/me/friends'),
     enabled: status === 'signedIn' && !!token,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -94,19 +100,30 @@ export interface AdminUser {
   devices: number; links: number; deletedAt: string | null;
 }
 
-export function useIsAdmin() {
+export function useAdminAccess() {
   const { token, status } = useAuth();
   return useQuery({
     queryKey: ['admin-me', token],
-    queryFn: () => call<{ admin: true }>(token, 'GET', '/admin/me').then(() => true, () => false),
+    queryFn: async () => {
+      try { await call<{ admin: true }>(token, 'GET', '/admin/me'); return true; }
+      catch (e) {
+        if (e instanceof ApiError && [401, 403, 404].includes(e.status)) return false;
+        throw e;
+      }
+    },
     enabled: status === 'signedIn' && !!token,
     staleTime: 5 * 60_000,
-  }).data === true;
+    retry: false,
+  });
+}
+
+export function useIsAdmin() {
+  return useAdminAccess().data === true;
 }
 
 export function useAdminQuery<T>(key: string, path: string) {
   const { token, status } = useAuth();
-  return useQuery({ queryKey: ['admin', key, path, token], queryFn: () => call<T>(token, 'GET', path), enabled: status === 'signedIn' && !!token });
+  return useQuery({ queryKey: ['admin', key, path, token], queryFn: () => call<T>(token, 'GET', path), enabled: status === 'signedIn' && !!token, refetchInterval: 30000, refetchOnWindowFocus: true });
 }
 
 export type { PendingDevice };

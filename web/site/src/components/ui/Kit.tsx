@@ -3,6 +3,15 @@
 import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { BroadcastIcon, HeadphonesIcon } from './Icons';
+import { useT } from '../../i18n';
+import { useImageViewer } from '../ImageViewer';
+
+export function QueryFeedback({ query }: { query: { isLoading: boolean; isError: boolean; refetch(): unknown } }) {
+  const { t } = useT();
+  if (query.isLoading) return <p className="query-feedback" role="status"><span className="spin" aria-hidden="true" />{t('loading')}</p>;
+  if (query.isError) return <div className="query-feedback" role="alert"><span>{t('acct.offline')}</span><button type="button" className="btn" onClick={() => { void query.refetch(); }}>{t('retry')}</button></div>;
+  return null;
+}
 
 export function AudibleToggle({ kind, on, onChange, label, title }: {
   kind: 'you' | 'viewers'; on: boolean; onChange(v: boolean): void; label: string; title: string;
@@ -75,16 +84,23 @@ export function Avatar({ name, url, size = 40 }: { name: string; url?: string | 
 }
 
 /** A plug-in screenshot from ui-snapshot in the page's language, light and dark (CSS picks one). */
-export function Screenshot({ name, lang, alt, eager = false, className = 'shot', width, height }: {
-  name: string; lang: 'en' | 'th'; alt: string; eager?: boolean; className?: string; width: number; height: number;
+export function Screenshot({ name, lang, alt, eager = false, zoom = true, className = 'shot', width, height }: {
+  name: string; lang: 'en' | 'th'; alt: string; eager?: boolean; zoom?: boolean; className?: string; width: number; height: number;
 }) {
+  const { t } = useT();
+  const open = useImageViewer();
   const load = eager ? 'eager' : 'lazy';
+  const light = <img className={zoom ? 'screenshot-image' : `${className} only-light`} src={`/screens/${name}-${lang}-light.webp`} alt={alt} width={width} height={height}
+                     loading={load} decoding="async" {...(eager ? { fetchPriority: 'high' as const } : {})} />;
+  const dark = <img className={zoom ? 'screenshot-image' : `${className} only-dark`} src={`/screens/${name}-${lang}-dark.webp`} alt={alt} width={width} height={height}
+                    loading={load} decoding="async" />;
+  if (zoom) return <>{(['light', 'dark'] as const).map(theme => <button key={theme} type="button" className={`shot-link ${className} only-${theme}`} onClick={() => open({ src: `/screens/${name}-${lang}-${theme}.webp`, alt, width, height })} aria-label={`${alt} · ${t('guides.enlarge')}`}>
+    {theme === 'light' ? light : dark}<span className="shot-hint">{t('guides.enlarge')}</span>
+  </button>)}</>;
   return (
     <>
-      <img className={`${className} only-light`} src={`/screens/${name}-${lang}-light.webp`} alt={alt} width={width} height={height}
-           loading={load} decoding="async" {...(eager ? { fetchPriority: 'high' as const } : {})} />
-      <img className={`${className} only-dark`} src={`/screens/${name}-${lang}-dark.webp`} alt={alt} width={width} height={height}
-           loading="lazy" decoding="async" />
+      {light}
+      {dark}
     </>
   );
 }

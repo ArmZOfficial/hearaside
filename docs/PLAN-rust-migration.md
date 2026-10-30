@@ -48,10 +48,10 @@
 |---|---|---|---|---|
 | R0 | ลายนิ้วมือ 1.0.10 + spike | — | M | 🟨 R0.1, R0.2, R0.5 ✅; R0.3 / R0.4 ทำส่วน cloud แล้ว เหลือทดสอบใน DAW (`docs/spikes/`) |
 | G0 | ArmZ เลือก D1–D8 | R0 | — | ✅ 29 ต.ค. 2026 ตามคำแนะนำ (ดูหัวข้อ 5 "ผล G0") มีเงื่อนไขยืนยันใน DAW |
-| R1 | workspace + `hs-bus` | G0 | M | ⬜ |
-| R2 | `hs-dsp` + `hs-engine` + C ABI (hybrid) | R1 | L | ⬜ |
+| R1 | workspace + `hs-bus` | G0 | M | 🟨 R1.1, R1.2, R1.3 (Windows), R1.1–R1.7 ✅ ฝั่งโค้ดและทดสอบบน Windows (ข้ามภาษา C++↔Rust ทั้ง 2 ทิศผ่าน). ค้าง 3 ข้อที่ต้องมีคนทำ ไม่บล็อก R2: (1) รันเทสต์ POSIX จริง/ดู CI เขียวรอบแรกรวม job loom + miri, (2) R1.3 ทดสอบ DAW แบบ admin + OBS ปกติ, (3) ตัดสินใจแก้ `ring.h` ฝั่ง C++ (ดู handoff) |
+| R2 | `hs-dsp` + `hs-engine` + C ABI (hybrid) | R1 | L | ✅ R2.1 ✅ (`hs-dsp`); R2.2 แกน audio ✅ (`hs-engine`: TrackPublisher + HubEngine process, golden engine ตรง, sim 23 ตัว); R2.2b ✅ (`measure.rs`: measureLatencies/measureLag + test_autosync 5 ตัว); R2.3 ✅ (FriendReader + hub_friends + pairing/probe/echo-leak: test_jitter 16, test_friends 29, golden friend 2 + net-sim 3 ตรง C++); R2.4 ✅ (tests/rt_safety.rs: global allocator นับ 0 alloc ใน Hub+Track+เพื่อน/Line up, FriendReader, StreamConsumer หลังเชื่อมต่อ); R2.5 ✅ (hs-ffi + adapter C++ + option CMake: C++ unit tests 121 ผ่านทั้ง ON/OFF, ctest ชุดเต็ม ON 28/29 หลังแก้รีวิว ตกแค่ share_web_in_sync ซึ่งตกอยู่แล้วเพราะ web/share-vercel ไม่ได้ sync); R2.6 ✅ (CPU Rust ≈ C++ −0.6 %) |
 | G1 | รุ่นทดสอบแกน Rust: ไปต่อ / หยุดที่ hybrid | R2 | — | ⬜ |
-| R3 | `hs-net` + เซิร์ฟเวอร์ | R1 | L | ⬜ |
+| R3 | `hs-net` + เซิร์ฟเวอร์ | R1 | L | 🟨 R3.1 ✅ (wire HRA1/2/3 + Opus + FriendEcho: golden net ตรง C++ ระดับไบต์/บิต, ไม่ alloc บน audio thread); R3.2 ✅ ฝั่ง transport + Chrome (`send.html` / `listen.html` เดิม, UDP 47830–47999, test_net รวม RtcPeer ครบ, hs-net 31 tests ผ่าน); ยังไม่ตรวจ Safari มือถือ / Internet NAT / TURN จริง, Rust ยังไม่รองรับ TURN gathering; R3.3 ✅ (`hs_net::share::ShareServer`: HTTP + WebSocket + token + Origin + จำกัดการเชื่อมต่อ, listener / send-in / friend session, คิวส่งจำกัดขนาด + เธรดส่งแยก, WebRTC signaling, cloudflared + job object, LAN / Radmin; `tests/share.rs` 33 ตัวบน loopback จริง, รีวิวแล้ว, บั๊ก C++ แก้ใน Rust 24 ข้อ; ยังไม่ได้คอมไพล์ unix และยังไม่ลองกับเบราว์เซอร์ / cloudflared จริง ดู [handoff R3.3](handoff/2026-10-30-rust-R3.3.md)); R3.4–R3.7 ⬜ ดู [handoff R3.2](handoff/2026-10-30-rust-R3.2.md) |
 | R4 | OBS source (Rust) | R2 | S | ⬜ |
 | R5 | HAS Karaoke (Rust) + `hs-ui` | R2, R3, G0 | XL | ⬜ |
 | R6 | HEARASIDE Track (Rust) | R2, R5 (`hs-ui`) | L | ⬜ |
@@ -138,7 +138,7 @@
 3. **State**: ตอนนี้ `getStateInformation` เขียน `ValueTree` เป็น XML แล้ว `copyXmlToBinary` (หัว `VC2!` + ขนาด + XML) และ wrapper VST3 ของ JUCE อาจต่อข้อมูลของตัวเองท้าย blob Rust ต้อง
    1. อ่าน blob ของ 1.0.10 ได้ทุกแบบใน fixture (ค่าเริ่มต้น, เปลี่ยนทุกพารามิเตอร์, role friend, ชื่อ/สี/stem/chainMs)
    2. **เขียนกลับเป็นรูปแบบเดิม** (XML ชื่อ tag / property เดิม) เพื่อให้ downgrade เป็น 1.0.10 ได้ในช่วง beta
-4. **ชื่อปลั๊กอิน / หมวด / ผู้ผลิต** เหมือนเดิม (`HEARASIDE Track`, `Fx Tools`) เพื่อให้ DAW ไม่มองเป็นปลั๊กอินใหม่
+4. **ชื่อปลั๊กอิน / หมวด / ผู้ผลิต** เหมือนเดิม (`HEARASIDE Track`, `Fx Tools`, ผู้ผลิต / Vendor = `HEARASIDE` ตาม `compat/fixtures/plugins-1.0.10/*/vst3/moduleinfo.json`) เพื่อให้ DAW ไม่มองเป็นปลั๊กอินใหม่ ห้ามใช้ `ArmZ` เป็น Vendor (ชื่อ ArmZ อยู่ใน license / About เท่านั้น; spike R0.3 / R0.4 เคยใช้ `ArmZ` แก้แล้ว 30 ต.ค. 2026)
 5. **VST2**: unique ID 4 ตัวอักษรเดิม และ chunk รูปแบบเดิม (ขึ้นกับ D3)
 
 ### 3.3 พฤติกรรมของ host ที่เราเคย patch JUCE
@@ -462,7 +462,7 @@ macOS (Q4): Logic รับเฉพาะ AU ต้องตรวจใน R0.
 2. จองหน่วยความจำทั้งหมดตอน `initialize` / `prepare` ด้วยขนาดสูงสุด (เหมือน C++ ตอนนี้)
 3. รับ/ส่งข้อมูลกับเธรดอื่นผ่าน `rtrb` (SPSC), atomics หรือ `arc-swap`; ของที่ต้องทิ้งส่งกลับไปให้เธรดอื่น drop (เช่น `basedrop`)
 4. test ทุกตัวที่เรียก process ครอบด้วย `assert_no_alloc` (debug) ใน CI
-5. `unsafe` ทุกบล็อกต้องมี `// SAFETY:` อธิบายว่าทำไมถูก และรวมอยู่ใน module ไม่กี่ตัว (`hs-bus::shm`, `hs-win`, `hs-ffi`, `hs-obs`)
+5. `unsafe` ทุกบล็อกต้องมี `// SAFETY:` อธิบายว่าทำไมถูก และรวมอยู่ใน module ไม่กี่ตัว (`hs-bus` ทั้ง crate เพราะทุกส่วนแตะ shared memory ผ่าน raw pointer, `hs-win`, `hs-ffi`, `hs-obs`)
 6. ห้ามใช้ `async` ใน audio thread ใด ๆ ทั้งสิ้น
 
 ---

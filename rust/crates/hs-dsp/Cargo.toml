@@ -1,0 +1,16 @@
+[package]
+name = "hs-dsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hs-bus = { version = "0.1.0", path = "../hs-bus" }
+
+[build-dependencies]
+cc = "1"

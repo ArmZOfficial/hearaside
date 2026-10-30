@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hs-tools"]
+members = ["crates/hs-bus", "crates/hs-dsp", "crates/hs-engine", "crates/hs-ffi", "crates/hs-net", "crates/hs-tools"]
 exclude = ["spikes"]   # R0.3 / R0.4 throwaway spikes, each its own workspace
 resolver = "3"
 
@@ -12,6 +12,7 @@ publish = false
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"

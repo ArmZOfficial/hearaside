@@ -12,13 +12,14 @@
 //   --kbps <n>           cap, both directions            --kbps-down / --kbps-up   Hub to page / page to Hub
 //   --stall-every <s>    on average every s seconds the line freezes ...   --stall-ms <ms>   ... for this long
 //   --queue-kb <n>       what a capped line holds before it stops reading from the sender (default 16)
+//   --seed <n>           the same jitter and the same stall times every run (default 0: random). For comparing two Hubs on one line.
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 export function parseArgs(argv) {
-  const o = { target: 47810, host: '127.0.0.1', listen: 47900, delay: 0, jitter: 0, kbps: 0, kbpsDown: 0, kbpsUp: 0, stallEvery: 0, stallMs: 0, queueKb: 16 };
+  const o = { target: 47810, host: '127.0.0.1', listen: 47900, delay: 0, jitter: 0, kbps: 0, kbpsDown: 0, kbpsUp: 0, stallEvery: 0, stallMs: 0, queueKb: 16, seed: 0 };
   const key = { '--target': 'target', '--host': 'host', '--listen': 'listen', '--delay': 'delay', '--jitter': 'jitter', '--kbps': 'kbps', '--kbps-down': 'kbpsDown',
-                '--kbps-up': 'kbpsUp', '--stall-every': 'stallEvery', '--stall-ms': 'stallMs', '--queue-kb': 'queueKb' };
+                '--kbps-up': 'kbpsUp', '--stall-every': 'stallEvery', '--stall-ms': 'stallMs', '--queue-kb': 'queueKb', '--seed': 'seed' };
   for (let i = 0; i < argv.length; i += 2) {
     const k = key[argv[i]];
     if (!k || argv[i + 1] === undefined) throw new Error(`unknown or incomplete option ${argv[i]}`);
@@ -28,10 +29,17 @@ export function parseArgs(argv) {
   return o;
 }
 
+// a small seeded generator (mulberry32) so that a run can be repeated; seed 0 is Math.random
+export function rng(seed) {
+  if (!seed) return Math.random;
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
 // One direction of one connection: bytes go in, come out later, in the same order.
 class Pipe {
-  constructor(from, to, o, kbps, stalls, stats) {
-    Object.assign(this, { from, to, o, kbps, stalls, stats });
+  constructor(from, to, o, kbps, stalls, stats, rand = Math.random) {
+    Object.assign(this, { from, to, o, kbps, stalls, stats, rand });
     this.q = [];            // { at, buf }
     this.queued = 0;        // bytes waiting (what a real router would hold)
     this.lastDue = 0;       // order: nothing leaves before what came earlier
@@ -43,14 +51,19 @@ class Pipe {
     this.ended = false;
   }
   push(buf) {
+    // A TCP read can contain many packets; a capped link releases those bytes progressively, not as one giant burst.
+    if (this.kbps > 0 && buf.length > 1460) {
+      for (let i = 0; i < buf.length; i += 1460) this.push(buf.subarray(i, i + 1460));
+      return;
+    }
     const now = performance.now();
-    let due = now + this.o.delay + Math.random() * this.o.jitter;
+    let due = now + this.o.delay + this.rand() * this.o.jitter;
     if (this.kbps > 0) {   // serialisation: bytes * 8 / rate after the cap is free
       this.txEnd = Math.max(this.txEnd, due) + buf.length * 8 / this.kbps;
       due = this.txEnd;
     }
     due = Math.max(due, this.lastDue);
-    for (const [s, e] of this.stalls.windows(due)) if (due >= s && due < e) due = e + Math.random() * 2;   // held up, released together
+    for (const [s, e] of this.stalls.windows(due)) if (due >= s && due < e) due = e + this.rand() * 2;   // held up, released together
     this.lastDue = due;
     this.q.push({ due, buf, at: now });
     this.queued += buf.length;
@@ -76,12 +89,13 @@ class Pipe {
     this.arm();
   }
   finish() { this.ended = true; if (!this.q.length && !this.to.destroyed) this.to.end(); }
+  cancel() { clearTimeout(this.timer); this.timer = null; this.q = []; }
 }
 
 // freezes of the whole line, the same for every connection, planned ahead as needed
 class Stalls {
-  constructor(every, ms) { this.every = every; this.ms = ms; this.list = []; this.next = performance.now() + this.gap(); }
-  gap() { return -Math.log(1 - Math.random()) * this.every * 1000; }   // exponential: any time, on average every `every` s
+  constructor(every, ms, rand = Math.random) { this.every = every; this.ms = ms; this.rand = rand; this.list = []; this.next = performance.now() + this.gap(); }
+  gap() { return -Math.log(1 - this.rand()) * this.every * 1000; }   // exponential: any time, on average every `every` s
   windows(upTo) {
     if (!(this.every > 0 && this.ms > 0)) return [];
     while (this.next < upTo + this.ms) { this.list.push([this.next, this.next + this.ms]); this.next += this.ms + this.gap(); }
@@ -93,8 +107,9 @@ class Stalls {
 
 export function start(opts) {
   const o = { ...parseArgs([]), ...opts };
-  const stalls = new Stalls(o.stallEvery, o.stallMs);
+  const stalls = new Stalls(o.stallEvery, o.stallMs, rng(o.seed ? o.seed * 3 + 1 : 0));
   const stats = { down: { bytes: 0, maxDelayMs: 0 }, up: { bytes: 0, maxDelayMs: 0 }, connections: 0 };
+  const active = new Set();
   const server = net.createServer(client => {
     stats.connections++;
     const hub = net.connect(o.target, o.host);
@@ -102,10 +117,14 @@ export function start(opts) {
     client.on('error', kill); hub.on('error', kill);
     // no Nagle on our side: the line's timing is the simulated one
     client.setNoDelay(true); hub.setNoDelay(true);
-    new Pipe(client, hub, o, o.kbpsUp || o.kbps, stalls, stats.up);
-    new Pipe(hub, client, o, o.kbpsDown || o.kbps, stalls, stats.down);
+    const up = new Pipe(client, hub, o, o.kbpsUp || o.kbps, stalls, stats.up, rng(o.seed ? o.seed * 3 + 2 : 0));
+    const down = new Pipe(hub, client, o, o.kbpsDown || o.kbps, stalls, stats.down, rng(o.seed ? o.seed * 3 + 3 : 0));
+    const close = () => { up.cancel(); down.cancel(); client.destroy(); hub.destroy(); active.delete(close); };
+    active.add(close);
+    client.on('close', close);
+    hub.on('close', close);
   });
-  return new Promise(resolve => server.listen(o.listen, '127.0.0.1', () => resolve({ server, stats, port: server.address().port, close: () => server.close() })));
+  return new Promise(resolve => server.listen(o.listen, '127.0.0.1', () => resolve({ server, stats, port: server.address().port, close: () => { for (const close of active) close(); server.close(); } })));
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href || process.argv[1].replace(/\\/g, '/').endsWith('/tools/net-sim')) {

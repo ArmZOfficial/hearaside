@@ -21,7 +21,10 @@ const VOICE: u32 = 29;
 const RATE: i64 = 48000;
 
 fn unique_bus(tag: &str) -> String {
-    format!("frp_{tag}_{}_{}", current_pid(), now_ns() % 1_000_000)
+    // a counter, not the clock: two tests starting in the same tick shared a bus (the second Hub was not the owner)
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("frp_{tag}_{}_{n}", current_pid())
 }
 
 fn noise_at(t: i64, seed: u32) -> f32 {

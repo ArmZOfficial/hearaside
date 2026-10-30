@@ -1,0 +1,25 @@
+[package]
+name = "hs-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "hs_testkit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hs-testkit"
+path = "src/main.rs"
+
+[dependencies]
+hs-bus = { version = "0.1.0", path = "../hs-bus" }
+hs-engine = { version = "0.1.0", path = "../hs-engine" }
+hs-net = { version = "0.1.0", path = "../hs-net" }
+hs-app = { version = "0.1.0", path = "../hs-app" }
+serde_json = "=1.0.154"

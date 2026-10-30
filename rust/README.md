@@ -83,3 +83,49 @@ number formatting against output of a real juce_core build). `tests/rest.rs` run
 every check of `ui-snapshot --test-rest` against a fake Hub plus the fixed C++ bugs
 (`bug_*` tests); each test picks its own port (`ControlServer::with_ports(&[0])`), so
 they run side by side and need no free 47800.
+
+`hs-app` (R3.5) is what the plug-ins share outside the audio path, with no UI and no plug-in framework. `Settings`
+reads and writes the same `HEARASIDE/settings.xml` as the C++ `juce::PropertiesFile` (same keys, number text, `&#N;`
+escapes and XML-valued keys; a save merges with what another process wrote). `AccountManager` signs in with a code
+(`/api/v1/device/*`), keeps `account.dat` (DPAPI on Windows, owner-only JSON elsewhere, the same refresh lock as the C++),
+refreshes the token and edits the profile on a worker thread; it queues `AccountEvent`s and the caller hands them to its
+listeners with `dispatch_events()` on the thread it chooses (a UI timer). `ShareDirectory` is the Hub's
+`/api/register` + `/api/unregister` heartbeat for permanent links. `strings` is generated from
+`plugins/common/Strings.{h,cpp}` by `build.rs` at build time, so the C++ files stay the source of truth. HTTPS goes through
+`ureq` + rustls (aws-lc-rs) and the operating system's certificate store; a secret or token is never sent over plain HTTP
+except to this computer. `tests/directory.rs` also starts `web/share-vercel/scripts/dev-server.mjs` when `node` is on
+PATH. `HEARASIDE_TEST_LIVE=1 cargo test -p hs-app --test account live_server` asks the real account server for sign-in codes.
+
+`hs-app` hosts: call `Settings::tick()` from a timer (changes are written 500 ms after the first one; `flush()` and drop
+write at once) and `AccountManager::dispatch_events()` from the message thread. Drop `AccountManager` / `ShareDirectory`
+from a normal thread, never under the loader lock (`DllMain`, static destructors). A worker still inside a network call at the
+drop cannot be cancelled: it stops before its next call, writes nothing (except tokens the server has just rotated, which
+must not be lost) and the module is pinned in memory so the host unloading the plug-in cannot pull its code away. Proxy:
+`HTTPS_PROXY` / `NO_PROXY` and the Windows system proxy are used (not for this computer); known gap: no PAC / WPAD script, no
+per-protocol `http=..;https=..` list and no `ProxyOverride`. The Unix parts (`fcntl` lock, `dladdr` pin, `0600` files) are
+written but not compiled or run yet.
+
+`hs-testkit` (R3.6) runs the Rust stack the way the C++ `ui-snapshot` tool runs the plug-ins, so the Node tests of
+`tests/web-friend` and the ctest checks work against it unchanged. It is a library (`TestHub`: `HubEngine` + friends room +
+`ShareServer` + REST API + per-friend takes + the demo Tracks on an audio thread of its own; `TestTrack`; one module per
+flag in `checks/`) and the binary `hs-testkit` with the old flags:
+
+```powershell
+cargo build --release --locked -p hs-testkit
+cd ..
+node tests/web-friend/friend-wire.test.mjs rust/target/release/hs-testkit.exe
+node tests/web-friend/friend-opus.test.mjs rust/target/release/hs-testkit.exe
+node tests/web-friend/friend-page.test.mjs rust/target/release/hs-testkit.exe   # real Chrome via Playwright
+rust/target/release/hs-testkit.exe --test-rest | --test-friends | --test-directory | --test-ui | --test-account
+```
+
+`--serve-friend <seconds>` prints `FRIEND_URL=...` and, at the end, `RESULT live=.. delay=.. peak=.. playing=.. writePos=.. rtt=..
+up=.. down=.. micGap=.. lag=.. skips=..`; it exits 0 when the friend was seen live, 1 when not, 2 when the Hub could not start. A
+flag the Rust side cannot do yet prints `NOT IMPLEMENTED: ...` and exits 3, never 0: `--test-friend-app` (needs the App Audio
+plug-in, R7), `--test-account-flow`, `--audit`, `--test-sync`, `--test-app-audio` and the picture mode (need the Rust UI, R5).
+The tools use the bus "Snapshot", `settings-ui-snapshot` and `account-ui-snapshot` (never the user's files) and never start a
+tunnel. `TestHub` stands in for the Rust Hub plug-in (R8) where the checks need one: its `friend_room` (the room between the
+engine and the `ShareServer`) and `recorder` (`TakeRecorder`, 32-bit float WAV with the BWF time reference) are the pieces
+that plug-in will take over. Not in `TestHub`: auto sync, OBS hotkeys, Track requests / feeders, the virtual mic, the latency
+meter thread, the account's website as the share base. `hs-app::valuetext` and `hs-app::links` are the ports of `ValueText.h`
+and `Links.h`.

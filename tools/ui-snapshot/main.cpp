@@ -38,6 +38,8 @@ void save(juce::Component& c, const juce::File& file, float scale = 2.0f) {
 }
 
 std::function<void(int)> gAudio;   // runs n audio blocks (keeps heartbeats / meters alive)
+double gCompareAudioStartMs = 0;
+uint64_t gCompareAudioBlocks = 0;
 
 // Layout check: visible sibling components must not overlap and must stay inside their parent
 // (a Viewport's scrolled content is exempt). Returns the problems found, one per line.
@@ -141,8 +143,13 @@ std::pair<int, juce::String> httpGet(int port, const juce::String& path) {
 void pump(int ms) {
     const auto end = juce::Time::getMillisecondCounter() + juce::uint32(ms);
     while (juce::Time::getMillisecondCounter() < end) {
-        if (gAudio) gAudio(4);
-        juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
+        if (gAudio) {
+            if (gCompareAudioStartMs > 0) {
+                const auto due = uint64_t((juce::Time::getMillisecondCounterHiRes() - gCompareAudioStartMs) * 48000.0 / 256000.0);
+                while (gCompareAudioBlocks < due) { gAudio(1); ++gCompareAudioBlocks; }
+            } else gAudio(4);
+        }
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(gCompareAudioStartMs > 0 ? 1 : 20);
     }
 }
 
@@ -1204,6 +1211,8 @@ int main(int argc, char** argv) {
     // --serve-friend <seconds>: a Hub with one friend, serving that friend's page; prints FRIEND_URL=... and, at
     // the end, what the Hub saw of the friend (for the browser test in tests/web-friend)
     if (audit == false && argc > 2 && juce::String(argv[1]) == "--serve-friend") {
+        if (juce::SystemStats::getEnvironmentVariable("HEARASIDE_COMPARE_CLOCK", {}) == "1")
+            gCompareAudioStartMs = juce::Time::getMillisecondCounterHiRes();
         const int seconds = juce::String(argv[2]).getIntValue();
         const uint32_t id = hub.addFriend("Mint");
         for (int i = 0; i < 100 && !hub.share().running(); ++i) pump(50);

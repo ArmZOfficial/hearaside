@@ -1,0 +1,14 @@
+hs-testkit: the flags of the C++ ui-snapshot tool that the tests use, over the Rust stack
+
+  --serve-friend <seconds>   a Hub with one friend; prints FRIEND_URL=<link>, and at the end RESULT <what the Hub saw>
+  --test-rest                the REST API end to end (docs/rest-api.md)
+  --test-friends             the friends room over real sockets
+  --test-directory           permanent links against a mock share web site
+  --test-ui                  typed values, names, share links, account basics
+  --test-account             the account basics alone
+  --demo <seconds> [--share-base <url>] [--state <file>]
+                             the Hub and seven Tracks running on the bus "Snapshot" with the share links on
+
+Exit codes: 0 all passed, 1 a check failed, 2 wrong use or the Hub could not start,
+3 NOT IMPLEMENTED (needs the Rust UI, R5, or App Audio, R7): the flag prints one line and reports no pass.
+Not implemented: --test-friend-app --test-account-flow --test-sync --test-app-audio --audit and the picture mode.

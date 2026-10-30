@@ -2,7 +2,7 @@
 
 > เขียนโดย Opus 5.5 · 29 ต.ค. 2026 · จากโค้ดบน `main` ที่ `7f4eccc` (1.0.10, `kProtocolVersion = 14`)
 > แผนนี้ใช้คู่กับ [PLAN-v2-realtime-karaoke.md](PLAN-v2-realtime-karaoke.md) และ [PLAN-karaoke-exe.md](PLAN-karaoke-exe.md): เป้าคือ **ได้ของเดิมทุกอย่างใน Rust** ไม่ใช่เพิ่มฟีเจอร์ใหม่
-> ลำดับการทำงานเหมือนแผนหลัก: **Opus 5.5 high วางแผน → Sonnet 5.5 high ลงมือ → Opus 5.5 high รีวิว** (หัวข้อ 10) · โหมด ponytail full
+> ลำดับการทำงาน: **Planner วางแผน → Builder ลงมือ → Reviewer ตัวใหม่รีวิว** รองรับทั้ง Claude และ Codex / ChatGPT (หัวข้อ 10) · โหมด ponytail full
 > สถานะงานอยู่ในตารางหัวข้อ 0.4 ที่เดียว แก้ทุกครั้งที่ปิดงาน
 
 ---
@@ -51,7 +51,7 @@
 | R1 | workspace + `hs-bus` | G0 | M | 🟨 R1.1, R1.2, R1.3 (Windows), R1.1–R1.7 ✅ ฝั่งโค้ดและทดสอบบน Windows (ข้ามภาษา C++↔Rust ทั้ง 2 ทิศผ่าน). ค้าง 3 ข้อที่ต้องมีคนทำ ไม่บล็อก R2: (1) รันเทสต์ POSIX จริง/ดู CI เขียวรอบแรกรวม job loom + miri, (2) R1.3 ทดสอบ DAW แบบ admin + OBS ปกติ, (3) ตัดสินใจแก้ `ring.h` ฝั่ง C++ (ดู handoff) |
 | R2 | `hs-dsp` + `hs-engine` + C ABI (hybrid) | R1 | L | ✅ R2.1 ✅ (`hs-dsp`); R2.2 แกน audio ✅ (`hs-engine`: TrackPublisher + HubEngine process, golden engine ตรง, sim 23 ตัว); R2.2b ✅ (`measure.rs`: measureLatencies/measureLag + test_autosync 5 ตัว); R2.3 ✅ (FriendReader + hub_friends + pairing/probe/echo-leak: test_jitter 16, test_friends 29, golden friend 2 + net-sim 3 ตรง C++); R2.4 ✅ (tests/rt_safety.rs: global allocator นับ 0 alloc ใน Hub+Track+เพื่อน/Line up, FriendReader, StreamConsumer หลังเชื่อมต่อ); R2.5 ✅ (hs-ffi + adapter C++ + option CMake: C++ unit tests 121 ผ่านทั้ง ON/OFF, ctest ชุดเต็ม ON 28/29 หลังแก้รีวิว ตกแค่ share_web_in_sync ซึ่งตกอยู่แล้วเพราะ web/share-vercel ไม่ได้ sync); R2.6 ✅ (CPU Rust ≈ C++ −0.6 %) |
 | G1 | รุ่นทดสอบแกน Rust: ไปต่อ / หยุดที่ hybrid | R2 | — | ⬜ |
-| R3 | `hs-net` + เซิร์ฟเวอร์ | R1 | L | 🟨 R3.1 ✅ (wire HRA1/2/3 + Opus + FriendEcho: golden net ตรง C++ ระดับไบต์/บิต, ไม่ alloc บน audio thread); R3.2 ✅ ฝั่ง transport + Chrome (`send.html` / `listen.html` เดิม, UDP 47830–47999, test_net รวม RtcPeer ครบ, hs-net 31 tests ผ่าน); ยังไม่ตรวจ Safari มือถือ / Internet NAT / TURN จริง, Rust ยังไม่รองรับ TURN gathering; R3.3 ✅ (`hs_net::share::ShareServer`: HTTP + WebSocket + token + Origin + จำกัดการเชื่อมต่อ, listener / send-in / friend session, คิวส่งจำกัดขนาด + เธรดส่งแยก, WebRTC signaling, cloudflared + job object, LAN / Radmin; `tests/share.rs` 33 ตัวบน loopback จริง, รีวิวแล้ว, บั๊ก C++ แก้ใน Rust 24 ข้อ; ยังไม่ได้คอมไพล์ unix และยังไม่ลองกับเบราว์เซอร์ / cloudflared จริง ดู [handoff R3.3](handoff/2026-10-30-rust-R3.3.md)); R3.4–R3.7 ⬜ ดู [handoff R3.2](handoff/2026-10-30-rust-R3.2.md) |
+| R3 | `hs-net` + เซิร์ฟเวอร์ | R1 | L | ✅ (31 ต.ค. 2026; ค้างไม่บล็อก: Safari มือถือ / NAT อินเทอร์เน็ต / TURN, คอมไพล์ unix, cloudflared จริง, Links / FriendDirectory, ไม่มี baseline UDP ของ C++) R3.1 ✅ (wire HRA1/2/3 + Opus + FriendEcho: golden net ตรง C++ ระดับไบต์/บิต, ไม่ alloc บน audio thread); R3.2 ✅ ฝั่ง transport + Chrome (`send.html` / `listen.html` เดิม, UDP 47830–47999, test_net รวม RtcPeer ครบ, hs-net 31 tests ผ่าน); ยังไม่ตรวจ Safari มือถือ / Internet NAT / TURN จริง, Rust ยังไม่รองรับ TURN gathering; R3.3 ✅ (`hs_net::share::ShareServer`: HTTP + WebSocket + token + Origin + จำกัดการเชื่อมต่อ, listener / send-in / friend session, คิวส่งจำกัดขนาด + เธรดส่งแยก, WebRTC signaling, cloudflared + job object, LAN / Radmin; `tests/share.rs` 33 ตัวบน loopback จริง, รีวิวแล้ว, บั๊ก C++ แก้ใน Rust 24 ข้อ; ยังไม่ได้คอมไพล์ unix และยังไม่ลองกับเบราว์เซอร์ / cloudflared จริง ดู [handoff R3.3](handoff/2026-10-30-rust-R3.3.md)); R3.4 ✅ (`hs_net::control::ControlServer` + `hs_net::rest` บน trait `HubControl`: ทุก route ใน rest-api.md, JSON ตรง JUCE, `tests/rest.rs` port เช็กของ `--test-rest` ครบกับ Hub ปลอม, รีวิวแล้ว, บั๊ก C++ แก้ใน Rust 65–80; `ctest -R rest_api` กับ Rust รอ R3.6 + Hub Rust ดู [handoff R3.4](handoff/2026-10-30-rust-R3.4.md)); R3.5 ✅ (`hs-app`: Strings สร้างจาก Strings.cpp ตอน build, Settings อ่าน/เขียนไฟล์ JUCE เดิม, AccountManager, ShareDirectory; 81 test รวม port ของ `--test-directory` / `--test-account(-flow)` และ dev-server จริงของ share-vercel, รีวิวแล้ว, บั๊ก C++ แก้ใน Rust 81–105; ยังไม่ port Links / FriendDirectory ดู [handoff R3.5](handoff/2026-10-31-rust-R3.5.md)); R3.6 ✅ (`hs-testkit`: `friend_page` / `friend_wire` / `friend_opus` ผ่านกับ Rust ไม่แก้ test ทั้ง release / debug, `--test-rest/-friends/-directory/-ui/-account` ผ่าน, flag ที่ต้องมี App Audio / UI ตอบ NOT IMPLEMENTED exit 3, รีวิวแล้ว, บั๊ก C++ 106–111 ดู [handoff R3.6](handoff/2026-10-31-rust-R3.6.md)); R3.7 ✅ ทดสอบ TCP net-sim เทียบ C++/Rust ด้วยช่วงวัด 18 s × 2 ต่อ profile/codec และรีวิว harness แล้ว; mobile/PCM จำนวน gap เฉลี่ย Rust สูงกว่า (226.67 เทียบ 221.67 gaps/min) ยังหาสาเหตุไม่ชัด จึงยังไม่ผ่าน; UDP: C++ ต่อ WebRTC ตรงไม่ได้ (ICE closed) จึงไม่มี baseline, Rust ผ่าน stress loss/reorder จริง (drop ~357, reorder ~8000, ถอด Opus ได้; ArmZ ยอมรับเป็นหลักฐาน UDP แล้ว); mobile/PCM วิเคราะห์ trace แล้ว: ลิงก์อิ่มตัวทั้งคู่ (~24k จาก 48k frame/s) Rust ส่งเสียงได้มากกว่าเล็กน้อย ส่วนต่าง gap เป็น noise ไม่ใช่ regression (harness แบบ mean เข้มงวดยังขึ้น FAIL, ปิดด้วยการวิเคราะห์ seed คู่); รีวิวแล้ว ไม่มีจุดขวาง; ยังไม่มี baseline UDP ของ C++, ไม่ได้ทดสอบ Safari / มือถือ / อินเทอร์เน็ตจริง ดู [handoff R3.7](handoff/2026-10-31-rust-R3.7.md) |
 | R4 | OBS source (Rust) | R2 | S | ⬜ |
 | R5 | HAS Karaoke (Rust) + `hs-ui` | R2, R3, G0 | XL | ⬜ |
 | R6 | HEARASIDE Track (Rust) | R2, R5 (`hs-ui`) | L | ⬜ |
@@ -462,7 +462,7 @@ macOS (Q4): Logic รับเฉพาะ AU ต้องตรวจใน R0.
 2. จองหน่วยความจำทั้งหมดตอน `initialize` / `prepare` ด้วยขนาดสูงสุด (เหมือน C++ ตอนนี้)
 3. รับ/ส่งข้อมูลกับเธรดอื่นผ่าน `rtrb` (SPSC), atomics หรือ `arc-swap`; ของที่ต้องทิ้งส่งกลับไปให้เธรดอื่น drop (เช่น `basedrop`)
 4. test ทุกตัวที่เรียก process ครอบด้วย `assert_no_alloc` (debug) ใน CI
-5. `unsafe` ทุกบล็อกต้องมี `// SAFETY:` อธิบายว่าทำไมถูก และรวมอยู่ใน module ไม่กี่ตัว (`hs-bus` ทั้ง crate เพราะทุกส่วนแตะ shared memory ผ่าน raw pointer, `hs-win`, `hs-ffi`, `hs-obs`)
+5. `unsafe` ทุกบล็อกต้องมี `// SAFETY:` อธิบายว่าทำไมถูก และรวมอยู่ใน module ไม่กี่ตัว (`hs-bus` ทั้ง crate เพราะทุกส่วนแตะ shared memory ผ่าน raw pointer, `hs-win`, `hs-ffi`, `hs-obs`, และ FFI / OS ที่จำเป็น: `hs-dsp` (speex resampler), `hs-net` (`ffi.rs` opus / speex, `share/sock.rs`, `share/tunnel.rs`), `hs-app` (`vault.rs` DPAPI / lock, `paths.rs` known folder / local time, module pin) — เพิ่ม 31 ต.ค. 2026 ตามรีวิว R3.3–R3.6; crate อื่นห้ามมี `unsafe`)
 6. ห้ามใช้ `async` ใน audio thread ใด ๆ ทั้งสิ้น
 
 ---
@@ -483,7 +483,9 @@ macOS (Q4): Logic รับเฉพาะ AU ต้องตรวจใน R0.
 
 ---
 
-## 10. วิธีทำงาน: Opus วางแผน → Sonnet ทำ → Opus รีวิว
+## 10. วิธีทำงาน: Claude หรือ Codex / ChatGPT แจกงาน → ลงมือ → รีวิว
+
+เลือกวิธีตามเครื่องมือที่ใช้: **Claude: Opus วางแผน → Sonnet ทำ → Opus ตัวใหม่รีวิว** (10.1–10.2) หรือ **Codex / ChatGPT: แชตหลักวางแผน → Builder subagent ทำ → Reviewer subagent ตัวใหม่รีวิว** (10.6) ทั้งสองวิธีใช้ prompt 10.3 และ checklist 10.4 เดียวกัน
 
 ### 10.1 บทบาท
 
@@ -498,7 +500,7 @@ macOS (Q4): Logic รับเฉพาะ AU ต้องตรวจใน R0.
 3. Opus ตัวใหม่รีวิว → แก้ → merge → อัปเดต 0.4
 4. **กฎแก้บั๊กสองฝั่ง**: ระหว่างย้าย ถ้าแก้บั๊กในโค้ด C++ ที่ port ไปแล้ว ต้องเปิดงาน `rs/fix-<ID>` แก้ฝั่ง Rust ด้วยในรอบเดียวกัน และเพิ่ม test ที่จับบั๊กนั้นทั้งสองฝั่ง
 
-### 10.3 Prompt แม่แบบสำหรับ Builder (Sonnet)
+### 10.3 Prompt แม่แบบสำหรับ Builder (Sonnet หรือ Codex / ChatGPT)
 
 ```
 งาน: <ID> <ชื่อ> จาก docs/PLAN-rust-migration.md หัวข้อ 6
@@ -516,7 +518,7 @@ branch: rs/<ID>-<slug>
 7. จบด้วย: สิ่งที่ทำ, test ที่รัน + ผล, สิ่งที่ข้าม / ยังไม่ได้ตรวจ
 ```
 
-### 10.4 Checklist ของ Reviewer (Opus)
+### 10.4 Checklist ของ Reviewer (Opus หรือ Codex / ChatGPT ตัวใหม่)
 
 1. ตรงกับ C++ ต้นทาง: เทียบทีละฟังก์ชัน ไม่มีพฤติกรรมหาย (โดยเฉพาะ edge case: seek, stop, sample rate change, slot reclaim, stall)
 2. test ที่ port มาครบทุกกรณีของไฟล์เดิม และ golden / fixture ผ่าน ถ้าแก้ golden ต้องมีเหตุผลเขียนไว้
@@ -530,6 +532,28 @@ branch: rs/<ID>-<slug>
 ### 10.5 ใกล้หมด context / usage
 
 หยุดแล้วเขียน `docs/handoff/<YYYY-MM-DD>-rust-<ID>.md`: สถานะ, ไฟล์ที่แตะ, branch, test ที่ผ่าน / ไม่ผ่าน, ขั้นต่อไป
+
+### 10.6 วิธีแจกงานสำหรับ Codex / ChatGPT
+
+1. **แชตหลักเป็น Planner**: อ่านสถานะ 0.4 เลือกงานจากหัวข้อ 6 ที่ dependency พร้อม แล้วเขียนขอบเขต / เกณฑ์ผ่านตาม 10.3 ไม่เขียนโค้ด production เองในรอบที่แจกงาน
+2. **Builder เป็น subagent แยก: GPT-6.1 Terra · high** (`model: gpt-6.1-terra`, `reasoning_effort: high`): ทำ 1 งานต่อ branch `rs/<ID>-<slug>` พร้อม test ตาม 10.2
+3. **Reviewer เป็น subagent ตัวใหม่: GPT-6.1 Sol · medium** (`model: gpt-6.1-sol`, `reasoning_effort: medium`): เพิ่มเป็น **high** เมื่องานแตะ audio thread, `unsafe`, atomics / memory ordering, FFI, shared memory, wire / state / parameter ID หรือการยืนยันตัวตน / ข้อมูลลับ ให้โจทย์ ต้นทาง C++ และ diff / ผล test โดยไม่รับบทสนทนาระหว่างลงมือ ตรวจตาม 10.4 ส่งข้อพบกลับให้ Builder แก้ แล้วตรวจซ้ำก่อนรายงานว่าจบ
+4. **แชตหลักปิดงาน**: ตรวจผลและสิ่งที่ยังไม่ได้ทดสอบ อัปเดตตาราง 0.4 หลังผ่านรีวิว การ merge / push / release ต้องเป็นไปตามคำสั่งของ ArmZ และกฎ workspace
+5. **เครื่องมือแจกงาน**: ถ้าเซสชันมี `spawn_agent` ให้ใช้สร้าง Builder และ Reviewer แยกกัน โดยใช้ `fork_turns: none` เมื่อต้องระบุโมเดล / reasoning effort และส่งโจทย์พร้อมบริบทที่จำเป็นให้ครบ หากโมเดลหรือระดับที่กำหนดใช้ไม่ได้ ให้แจ้ง ArmZ ก่อนเปลี่ยน งานที่ไม่ขึ้นต่อกันทำขนานได้เมื่อแยก worktree และไฟล์ที่รับผิดชอบชัดเจน ห้ามให้หลาย agent สลับ branch ใน working directory เดียวกัน
+6. **ถ้าไม่มี subagent**: แชตหลักเตรียม prompt ให้ ArmZ เปิดแชต Builder และแชต Reviewer ใหม่เอง พร้อม branch / commit / diff / ผล test ห้ามอ้างว่าเรียก agent หรือรีวิวแยกแล้วถ้ายังไม่ได้ทำ
+
+**คำสั่งเรียกใช้ (คัดลอกไปส่งใน Codex / ChatGPT):**
+
+```text
+ใช้วิธีแจกงาน Codex / ChatGPT ตาม docs/PLAN-rust-migration.md หัวข้อ 10.6
+งาน: <ID จากหัวข้อ 6 หรือให้เลือกงานถัดไปที่ dependency พร้อมจาก 0.4>
+ให้แชตหลักเป็น Planner แจกงานให้ Builder subagent GPT-6.1 Terra high ตามแม่แบบ 10.3
+เมื่อทำเสร็จ ให้ Reviewer subagent ตัวใหม่ GPT-6.1 Sol medium ตรวจ diff ตาม 10.4
+ถ้างานมีความเสี่ยงสูงตาม 10.6 ข้อ 3 ให้ใช้ Reviewer GPT-6.1 Sol high
+แก้ข้อพบและตรวจซ้ำก่อนปิดงาน แล้วอัปเดตสถานะ 0.4
+ถ้าโมเดลที่กำหนดใช้ไม่ได้ ให้แจ้งก่อนเปลี่ยน ถ้าไม่มี subagent ให้เตรียม prompt สำหรับเปิดแชตแยก
+รายงานสิ่งที่ทำ ผล test และสิ่งที่ยังไม่ได้ตรวจ ห้าม push หรือ release
+```
 
 ---
 

@@ -1,10 +1,16 @@
 // net-sim itself: delay, jitter with the order kept, the kbps cap and the stalls do what they say.
 //   node tools/net-sim/net-sim.test.mjs
 import net from 'node:net';
-import { start } from './net-sim.mjs';
+import { rng, start } from './net-sim.mjs';
 
 let failures = 0;
 const expect = (what, ok, extra = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}${extra ? ' ' + extra : ''}`); if (!ok) failures++; };
+{
+  const a = rng(7), b = rng(7), c = rng(8);
+  const aa = Array.from({ length: 10 }, a), bb = Array.from({ length: 10 }, b), cc = Array.from({ length: 10 }, c);
+  expect('seed repeats the random sequence', aa.every((v, i) => v === bb[i]) && aa.some((v, i) => v !== cc[i]));
+  expect('zero seed uses unseeded randomness', rng(0) === Math.random);
+}
 
 // the "Hub": answers every byte it gets with the same byte, and can also just send what it is told to
 const hub = net.createServer(s => { s.on('data', d => s.write(d)); s.on('error', () => {}); });
@@ -37,7 +43,7 @@ const open = async sim => {
   expect('jitter 60 ms: all 100 bytes arrive in order', got.length === 100 && got.every((v, i) => v === i));
   c.destroy(); sim.close();
 }
-{   // cap: 400 kbps = 50 KB/s, so 50 KB one way takes about a second (the echo comes back at the same speed, so ~2 s in all)
+{   // 50 KB takes about a second at 400 kbps; echoing overlaps both directions as bytes stream through.
   const sim = await start({ target, listen: 0, kbps: 400 });
   const c = await open(sim);
   let got = 0, firstAt = 0;
@@ -46,8 +52,26 @@ const open = async sim => {
   c.write(Buffer.alloc(50 * 1024));
   while (got < 50 * 1024 && performance.now() - t0 < 6000) await new Promise(r => setTimeout(r, 20));
   const secs = (performance.now() - t0) / 1000;
-  expect('cap 400 kbps: 50 KB out and back takes 1.6..3 s', got === 50 * 1024 && secs > 1.6 && secs < 3, `(${secs.toFixed(2)} s)`);
+  expect('cap 400 kbps: streamed echo takes 0.95..1.5 s', got === 50 * 1024 && secs > 0.95 && secs < 1.5, `(${secs.toFixed(2)} s)`);
   c.destroy(); sim.close();
+}
+{
+  const measure = async chunked => {
+    const sim = await start({ target, listen: 0, kbpsDown: 800 });
+    const c = await open(sim);
+    const t0 = performance.now(), data = Buffer.alloc(24000);
+    let got = 0, first = 0, last = 0;
+    c.on('data', d => { if (!got) first = performance.now() - t0; got += d.length; last = performance.now() - t0; });
+    if (chunked) for (let i = 0; i < data.length; i += 1000) c.write(data.subarray(i, i + 1000));
+    else c.write(data);
+    while (got < data.length && performance.now() - t0 < 2000) await new Promise(r => setTimeout(r, 5));
+    c.destroy(); sim.close();
+    return { got, first, last };
+  };
+  const a = await measure(false), b = await measure(true);
+  expect('capped line releases large and small TCP writes progressively',
+    [a, b].every(x => x.got === 24000 && x.first < 120 && x.last - x.first > 150) && Math.abs(a.last - b.last) < 150,
+    JSON.stringify({ a, b }));
 }
 {   // stalls: the line freezes for 300 ms every ~0.3 s on average, so some wait is at least that long
   const sim = await start({ target, listen: 0, stallEvery: 0.3, stallMs: 300 });

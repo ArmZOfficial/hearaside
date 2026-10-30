@@ -5,7 +5,7 @@
 use hs_bus::bus::bits_float;
 use hs_bus::protocol::*;
 use hs_bus::ring::ring_read_at;
-use hs_bus::shm::{current_pid, now_ns};
+use hs_bus::shm::current_pid;
 use hs_dsp::consumer::StreamConsumer;
 use hs_dsp::dsp::db_to_gain;
 use hs_engine::hub_engine::{HubEngine, HubParams, Role};
@@ -13,7 +13,10 @@ use hs_engine::track_publisher::{Mirror, NO_TIME, PublisherStatus, TrackPublishe
 use std::sync::atomic::Ordering::SeqCst;
 
 fn unique_bus(tag: &str) -> String {
-    format!("sim_{tag}_{}_{}", current_pid(), now_ns() % 1_000_000)
+    // a counter, not the clock: two tests starting in the same tick shared a bus (the second Hub was not the owner)
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("sim_{tag}_{}_{n}", current_pid())
 }
 
 /// Deterministic programme material as a function of the timeline sample.

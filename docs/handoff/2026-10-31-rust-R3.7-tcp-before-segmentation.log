@@ -1,0 +1,237 @@
+netsim-compare: 20 s x 2 runs, seed 7, client buffer 60 ms
+  cpp  E:\CandyCore\Hearaside\Hearaside plugin\build\Release\plugins\hearaside_ui_snapshot_artefacts\Release\hearaside_ui_snapshot.exe
+  rust E:\CandyCore\Hearaside\Hearaside plugin\rust\target\release\hs-testkit.exe
+SAMPLE {"label":"clean/pcm/cpp#1","profile":"clean","codec":"pcm","packets":3778,"pcmPackets":3778,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":13.478299999998853,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":65.75826666667263,"downKbps":1576.7290640394087,"upGapsMin":0,"upDelivered":100.10010010010011,"upRelayedPct":99.9,"micGap":26,"skips":0,"lag":21,"rtt":25,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=960000 rtt=25.0 up=789 down=1582 micGap=26 lag=21 skips=0"}
+  clean/pcm/cpp#1          down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 26 | skips 0 lag 21 rtt 25
+SAMPLE {"label":"clean/pcm/rust#1","profile":"clean","codec":"pcm","packets":3802,"pcmPackets":3802,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":7.420200000000477,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":71.92170000000019,"downKbps":1578.6537931034482,"upGapsMin":0,"upDelivered":100,"upRelayedPct":99.95,"micGap":22,"skips":0,"lag":20,"rtt":25,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959520 rtt=25.0 up=780 down=1572 micGap=22 lag=20 skips=0"}
+  clean/pcm/rust#1         down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.0% micGap 22 | skips 0 lag 20 rtt 25
+SAMPLE {"label":"clean/pcm/rust#2","profile":"clean","codec":"pcm","packets":3801,"pcmPackets":3801,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":7.627899999999499,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":69.54896666666305,"downKbps":1578.23921182266,"upGapsMin":0,"upDelivered":100,"upRelayedPct":99.95,"micGap":18,"skips":0,"lag":20,"rtt":24,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959520 rtt=24.0 up=781 down=1582 micGap=18 lag=20 skips=0"}
+  clean/pcm/rust#2         down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.0% micGap 18 | skips 0 lag 20 rtt 24
+SAMPLE {"label":"clean/pcm/cpp#2","profile":"clean","codec":"pcm","packets":3784,"pcmPackets":3784,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":10.343600000007427,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":69.63573333333291,"downKbps":1577.19881773399,"upGapsMin":0,"upDelivered":100.10010010010011,"upRelayedPct":99.9,"micGap":26,"skips":0,"lag":21,"rtt":25,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=960000 rtt=25.0 up=780 down=1581 micGap=26 lag=21 skips=0"}
+  clean/pcm/cpp#2          down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 26 | skips 0 lag 21 rtt 25
+SAMPLE {"label":"clean/opus/cpp#1","profile":"clean","codec":"opus","packets":4051,"pcmPackets":5,"opusPackets":4046,"bad":0,"seqGaps":0,"maxSendLate":13.07730000000447,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":63.4850333333355,"downKbps":171.4616748768473,"upGapsMin":0,"upDelivered":100.10010010010011,"upRelayedPct":99.9,"micGap":22,"skips":0,"lag":20,"rtt":25,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=960000 rtt=25.0 up=772 down=167 micGap=22 lag=20 skips=0"}
+  clean/opus/cpp#1         down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 22 | skips 0 lag 20 rtt 25
+SAMPLE {"label":"clean/opus/rust#1","profile":"clean","codec":"opus","packets":4054,"pcmPackets":6,"opusPackets":4048,"bad":0,"seqGaps":0,"maxSendLate":7.6864000000059605,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":64.65446666666928,"downKbps":172.41182266009852,"upGapsMin":0,"upDelivered":100,"upRelayedPct":99.95,"micGap":18,"skips":0,"lag":20,"rtt":26,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959520 rtt=26.0 up=781 down=168 micGap=18 lag=20 skips=0"}
+  clean/opus/rust#1        down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.0% micGap 18 | skips 0 lag 20 rtt 26
+SAMPLE {"label":"clean/opus/rust#2","profile":"clean","codec":"opus","packets":4054,"pcmPackets":6,"opusPackets":4048,"bad":0,"seqGaps":0,"maxSendLate":7.6124000000127126,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0,"staleMax":0,"holesPct":0,"delivered":100,"clientBufMax":65.22446666664716,"downKbps":172.41182266009852,"upGapsMin":0,"upDelivered":100.05002501250625,"upRelayedPct":99.95,"micGap":20,"skips":0,"lag":20,"rtt":25,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=960000 rtt=25.0 up=780 down=168 micGap=20 lag=20 skips=0"}
+  clean/opus/rust#2        down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 20 | skips 0 lag 20 rtt 25
+SAMPLE {"label":"clean/opus/cpp#2","profile":"clean","codec":"opus","packets":4052,"pcmPackets":6,"opusPackets":4046,"bad":0,"seqGaps":0,"maxSendLate":15.091899999999441,"gaps":0,"windowMs":18000,"downGapsMin":0,"downStarvesMin":0,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":0.00032609259259111745,"staleMax":1.1739333333280229,"holesPct":0,"delivered":100,"clientBufMax":68.50236666666267,"downKbps":171.87625615763548,"upGapsMin":0,"upDelivered":100,"upRelayedPct":99.95,"micGap":22,"skips":0,"lag":23,"rtt":30,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959520 rtt=30.0 up=779 down=168 micGap=22 lag=23 skips=0"}
+  clean/opus/cpp#2         down gaps/min 0.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.0% micGap 22 | skips 0 lag 23 rtt 30
+SAMPLE {"label":"home/pcm/cpp#1","profile":"home","codec":"pcm","packets":3778,"pcmPackets":3778,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":11.25989999997546,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":10.717949226191454,"staleMax":275.87083333333976,"holesPct":1.3807522222223472,"delivered":100,"clientBufMax":313.2983666666759,"downKbps":1574.3077832512315,"upGapsMin":3.3333333333333335,"upDelivered":100,"upRelayedPct":99.85,"micGap":315,"skips":0,"lag":20,"rtt":64,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958560 rtt=64.0 up=780 down=1581 micGap=315 lag=20 skips=0"}
+  home/pcm/cpp#1           down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.0% micGap 315 | skips 0 lag 20 rtt 64
+SAMPLE {"label":"home/pcm/rust#1","profile":"home","codec":"pcm","packets":3795,"pcmPackets":3795,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":8.480099999986123,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":10.245315980247002,"staleMax":273.89223333333575,"holesPct":1.3076612962962826,"delivered":100,"clientBufMax":315.13589999999044,"downKbps":1575.751724137931,"upGapsMin":3.3333333333333335,"upDelivered":100.050075112669,"upRelayedPct":99.85,"micGap":313,"skips":0,"lag":20,"rtt":66,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959040 rtt=66.0 up=789 down=1574 micGap=313 lag=20 skips=0"}
+  home/pcm/rust#1          down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.1% micGap 313 | skips 0 lag 20 rtt 66
+SAMPLE {"label":"home/pcm/rust#2","profile":"home","codec":"pcm","packets":3795,"pcmPackets":3795,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":7.526700000016717,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":2.248793402469498,"staleMax":281.8681333333561,"holesPct":1.3390209259259993,"delivered":100,"clientBufMax":312.7302666666822,"downKbps":1575.751724137931,"upGapsMin":3.3333333333333335,"upDelivered":100.050075112669,"upRelayedPct":99.85,"micGap":306,"skips":0,"lag":20,"rtt":66,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959040 rtt=66.0 up=781 down=1582 micGap=306 lag=20 skips=0"}
+  home/pcm/rust#2          down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.1% micGap 306 | skips 0 lag 20 rtt 66
+SAMPLE {"label":"home/pcm/cpp#2","profile":"home","codec":"pcm","packets":3774,"pcmPackets":3774,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":13.95209999999497,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":2.3400503871346725,"staleMax":286.8497999999672,"holesPct":1.3953562962961668,"delivered":100,"clientBufMax":318.942199999947,"downKbps":1573.4565517241379,"upGapsMin":3.3333333333333335,"upDelivered":100.1002004008016,"upRelayedPct":99.8,"micGap":305,"skips":0,"lag":20,"rtt":65,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959040 rtt=65.0 up=773 down=1582 micGap=305 lag=20 skips=0"}
+  home/pcm/cpp#2           down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.1% micGap 305 | skips 0 lag 20 rtt 65
+SAMPLE {"label":"home/opus/cpp#1","profile":"home","codec":"opus","packets":4046,"pcmPackets":14,"opusPackets":4032,"bad":0,"seqGaps":0,"maxSendLate":13.394900000013877,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":10.834921234843232,"staleMax":280.1567666666633,"holesPct":1.3869142592593562,"delivered":100,"clientBufMax":317.6142000000109,"downKbps":174.6135960591133,"upGapsMin":3.3333333333333335,"upDelivered":100,"upRelayedPct":99.85,"micGap":306,"skips":0,"lag":21,"rtt":63,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958560 rtt=63.0 up=772 down=169 micGap=306 lag=21 skips=0"}
+  home/opus/cpp#1          down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.0% micGap 306 | skips 0 lag 21 rtt 63
+SAMPLE {"label":"home/opus/rust#1","profile":"home","codec":"opus","packets":4046,"pcmPackets":13,"opusPackets":4033,"bad":0,"seqGaps":0,"maxSendLate":7.556900000025053,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":10.694428480132132,"staleMax":282.3460999999661,"holesPct":1.3553938888889712,"delivered":100,"clientBufMax":318.39509999996517,"downKbps":174.70147783251232,"upGapsMin":3.3333333333333335,"upDelivered":100.1002004008016,"upRelayedPct":99.8,"micGap":316,"skips":0,"lag":20,"rtt":66,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959040 rtt=66.0 up=780 down=169 micGap=316 lag=20 skips=0"}
+  home/opus/rust#1         down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.1% micGap 316 | skips 0 lag 20 rtt 66
+SAMPLE {"label":"home/opus/rust#2","profile":"home","codec":"opus","packets":4042,"pcmPackets":14,"opusPackets":4028,"bad":0,"seqGaps":0,"maxSendLate":7.533999999985099,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":2.1350200462966225,"staleMax":274.746766666688,"holesPct":1.3307470370371852,"delivered":100,"clientBufMax":307.78080000000773,"downKbps":174.90679802955665,"upGapsMin":3.3333333333333335,"upDelivered":100.0501002004008,"upRelayedPct":99.8,"micGap":318,"skips":0,"lag":20,"rtt":69,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958560 rtt=69.0 up=779 down=169 micGap=318 lag=20 skips=0"}
+  home/opus/rust#2         down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.1% micGap 318 | skips 0 lag 20 rtt 69
+SAMPLE {"label":"home/opus/cpp#2","profile":"home","codec":"opus","packets":4042,"pcmPackets":13,"opusPackets":4029,"bad":0,"seqGaps":0,"maxSendLate":11.430200000002515,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":2.23953110925788,"staleMax":281.32620000001043,"holesPct":1.3626561111110884,"delivered":100,"clientBufMax":314.03549999999814,"downKbps":174.07487684729062,"upGapsMin":3.3333333333333335,"upDelivered":100.050075112669,"upRelayedPct":99.85,"micGap":304,"skips":0,"lag":20,"rtt":64,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=959040 rtt=64.0 up=779 down=169 micGap=304 lag=20 skips=0"}
+  home/opus/cpp#2          down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 3.3 hub 100.1% micGap 304 | skips 0 lag 20 rtt 64
+SAMPLE {"label":"mobile/pcm/cpp#1","profile":"mobile","codec":"pcm","packets":1550,"pcmPackets":1550,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.520299999974668,"gaps":24,"windowMs":18000,"downGapsMin":80,"downStarvesMin":80,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":5788.427452604903,"staleMax":9325.61633333333,"holesPct":68.64389055555426,"delivered":78.16588173731,"clientBufMax":341.3333333333332,"downKbps":691.1802955665024,"upGapsMin":40,"upDelivered":102.82279142707789,"upRelayedPct":95.65,"micGap":544,"skips":62,"lag":149,"rtt":9313,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=944160 rtt=9313.0 up=1027 down=519 micGap=544 lag=149 skips=62"}
+  mobile/pcm/cpp#1         down gaps/min 80.0 (jumps 0.0) delivered 78.2% | up gaps/min 40.0 hub 102.8% micGap 544 | skips 62 lag 149 rtt 9313
+SAMPLE {"label":"mobile/pcm/rust#1","profile":"mobile","codec":"pcm","packets":1559,"pcmPackets":1559,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.553099999960978,"gaps":24,"windowMs":18000,"downGapsMin":80,"downStarvesMin":80,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":5810.6592922855025,"staleMax":8893.609666666636,"holesPct":69.8848001851837,"delivered":76.00560081466362,"clientBufMax":344.6666666666665,"downKbps":693.3225615763547,"upGapsMin":43.333333333333336,"upDelivered":103.41386554621849,"upRelayedPct":95.2,"micGap":622,"skips":60,"lag":149,"rtt":8556,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=945120 rtt=8556.0 up=789 down=679 micGap=622 lag=149 skips=60"}
+  mobile/pcm/rust#1        down gaps/min 80.0 (jumps 0.0) delivered 76.0% | up gaps/min 43.3 hub 103.4% micGap 622 | skips 60 lag 149 rtt 8556
+SAMPLE {"label":"mobile/pcm/rust#2","profile":"mobile","codec":"pcm","packets":1549,"pcmPackets":1549,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.554199999955017,"gaps":32,"windowMs":18000,"downGapsMin":106.66666666666667,"downStarvesMin":83.33333333333334,"downJumpsMin":23.333333333333336,"trimsMin":0,"clock":1,"staleMean":5564.987125024011,"staleMax":8666.571833333312,"holesPct":70.94074074073946,"delivered":74.3483118172787,"clientBufMax":336.00000000000006,"downKbps":688.7621674876847,"upGapsMin":63.333333333333336,"upDelivered":101.94634402945817,"upRelayedPct":95.05,"micGap":545,"skips":60,"lag":149,"rtt":7779,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=930240 rtt=7779.0 up=720 down=594 micGap=545 lag=149 skips=60"}
+  mobile/pcm/rust#2        down gaps/min 106.7 (jumps 23.3) delivered 74.3% | up gaps/min 63.3 hub 101.9% micGap 545 | skips 60 lag 149 rtt 7779
+SAMPLE {"label":"mobile/pcm/cpp#2","profile":"mobile","codec":"pcm","packets":1565,"pcmPackets":1565,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.5002000000095,"gaps":28,"windowMs":18000,"downGapsMin":93.33333333333334,"downStarvesMin":83.33333333333334,"downJumpsMin":10,"trimsMin":0,"clock":1,"staleMean":5966.712664872493,"staleMax":9817.866800000018,"holesPct":67.26666666666516,"delivered":79.24166225516115,"clientBufMax":378.66666666666646,"downKbps":684.9611822660098,"upGapsMin":66.66666666666667,"upDelivered":100,"upRelayedPct":96.55,"micGap":668,"skips":59,"lag":149,"rtt":8400,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=926880 rtt=8400.0 up=983 down=759 micGap=668 lag=149 skips=59"}
+  mobile/pcm/cpp#2         down gaps/min 93.3 (jumps 10.0) delivered 79.2% | up gaps/min 66.7 hub 100.0% micGap 668 | skips 59 lag 149 rtt 8400
+SAMPLE {"label":"mobile/opus/cpp#1","profile":"mobile","codec":"opus","packets":4035,"pcmPackets":21,"opusPackets":4014,"bad":0,"seqGaps":0,"maxSendLate":13.178699999989476,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":14.603717291494005,"staleMax":331.8084333333154,"holesPct":1.208669999999822,"delivered":100,"clientBufMax":427.80199999996694,"downKbps":176.7704433497537,"upGapsMin":36.66666666666667,"upDelivered":100,"upRelayedPct":96.25,"micGap":591,"skips":0,"lag":20,"rtt":880,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=924000 rtt=880.0 up=758 down=168 micGap=591 lag=20 skips=0"}
+  mobile/opus/cpp#1        down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 36.7 hub 100.0% micGap 591 | skips 0 lag 20 rtt 880
+SAMPLE {"label":"mobile/opus/rust#1","profile":"mobile","codec":"opus","packets":4036,"pcmPackets":22,"opusPackets":4014,"bad":0,"seqGaps":0,"maxSendLate":7.50269999995362,"gaps":2,"windowMs":18000,"downGapsMin":6.666666666666667,"downStarvesMin":6.666666666666667,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":15.631154737426257,"staleMax":342.7588000000105,"holesPct":1.1499240740739172,"delivered":100,"clientBufMax":427.4491000000271,"downKbps":177.64019704433497,"upGapsMin":50,"upDelivered":100,"upRelayedPct":96.1,"micGap":818,"skips":0,"lag":20,"rtt":1114,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=922560 rtt=1114.0 up=843 down=167 micGap=818 lag=20 skips=0"}
+  mobile/opus/rust#1       down gaps/min 6.7 (jumps 0.0) delivered 100.0% | up gaps/min 50.0 hub 100.0% micGap 818 | skips 0 lag 20 rtt 1114
+SAMPLE {"label":"mobile/opus/rust#2","profile":"mobile","codec":"opus","packets":4032,"pcmPackets":23,"opusPackets":4009,"bad":0,"seqGaps":0,"maxSendLate":7.493900000001304,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":6.987237018515413,"staleMax":358.5964666665923,"holesPct":1.1697248148143342,"delivered":100,"clientBufMax":431.7082999999402,"downKbps":177.84906403940886,"upGapsMin":60,"upDelivered":100,"upRelayedPct":96.5,"micGap":443,"skips":0,"lag":20,"rtt":837,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=926400 rtt=837.0 up=750 down=167 micGap=443 lag=20 skips=0"}
+  mobile/opus/rust#2       down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 60.0 hub 100.0% micGap 443 | skips 0 lag 20 rtt 837
+SAMPLE {"label":"mobile/opus/cpp#2","profile":"mobile","codec":"opus","packets":4033,"pcmPackets":22,"opusPackets":4011,"bad":0,"seqGaps":0,"maxSendLate":14.477100000018254,"gaps":1,"windowMs":18000,"downGapsMin":3.3333333333333335,"downStarvesMin":3.3333333333333335,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":6.266154527776849,"staleMax":334.4168999999529,"holesPct":1.268296296296305,"delivered":100,"clientBufMax":417.796800000011,"downKbps":177.06128078817733,"upGapsMin":43.333333333333336,"upDelivered":100,"upRelayedPct":96.75,"micGap":490,"skips":0,"lag":24,"rtt":798,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=928800 rtt=798.0 up=749 down=167 micGap=490 lag=24 skips=0"}
+  mobile/opus/cpp#2        down gaps/min 3.3 (jumps 0.0) delivered 100.0% | up gaps/min 43.3 hub 100.0% micGap 490 | skips 0 lag 24 rtt 798
+SAMPLE {"label":"starved/pcm/cpp#1","profile":"starved","codec":"pcm","packets":214,"pcmPackets":214,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.522299999953248,"gaps":4,"windowMs":18000,"downGapsMin":13.333333333333334,"downStarvesMin":13.333333333333334,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":11835.169397395804,"staleMax":17275.590133333306,"holesPct":94.28148148148192,"delivered":100,"clientBufMax":367.9999999999998,"downKbps":90.77201970443349,"upGapsMin":0,"upDelivered":100.0501002004008,"upRelayedPct":99.8,"micGap":32,"skips":123,"lag":149,"rtt":-1,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958560 rtt=-1.0 up=762 down=0 micGap=32 lag=149 skips=123"}
+  starved/pcm/cpp#1        down gaps/min 13.3 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 32 | skips 123 lag 149 rtt -1
+SAMPLE {"label":"starved/pcm/rust#1","profile":"starved","codec":"pcm","packets":213,"pcmPackets":213,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.586699999985285,"gaps":4,"windowMs":18000,"downGapsMin":13.333333333333334,"downStarvesMin":13.333333333333334,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":11934.786938020845,"staleMax":17371.90676666672,"holesPct":93.98622777777814,"delivered":100,"clientBufMax":362.66666666666646,"downKbps":90.84137931034482,"upGapsMin":0,"upDelivered":100.15052684395384,"upRelayedPct":99.65,"micGap":32,"skips":120,"lag":149,"rtt":-1,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958080 rtt=-1.0 up=779 down=0 micGap=32 lag=149 skips=120"}
+  starved/pcm/rust#1       down gaps/min 13.3 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.2% micGap 32 | skips 120 lag 149 rtt -1
+SAMPLE {"label":"starved/pcm/rust#2","profile":"starved","codec":"pcm","packets":213,"pcmPackets":213,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.823199999984354,"gaps":4,"windowMs":18000,"downGapsMin":13.333333333333334,"downStarvesMin":13.333333333333334,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":11947.349869270789,"staleMax":17389.32596666661,"holesPct":94.01601000000115,"delivered":100,"clientBufMax":362.66666666666646,"downKbps":90.84137931034482,"upGapsMin":0,"upDelivered":100.15052684395384,"upRelayedPct":99.65,"micGap":32,"skips":120,"lag":149,"rtt":-1,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958080 rtt=-1.0 up=779 down=0 micGap=32 lag=149 skips=120"}
+  starved/pcm/rust#2       down gaps/min 13.3 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.2% micGap 32 | skips 120 lag 149 rtt -1
+SAMPLE {"label":"starved/pcm/cpp#2","profile":"starved","codec":"pcm","packets":214,"pcmPackets":214,"opusPackets":0,"bad":0,"seqGaps":0,"maxSendLate":15.802900000009686,"gaps":4,"windowMs":18000,"downGapsMin":13.333333333333334,"downStarvesMin":13.333333333333334,"downJumpsMin":0,"trimsMin":0,"clock":1,"staleMean":11831.734876562457,"staleMax":17262.79403333327,"holesPct":94.28148148148192,"delivered":100,"clientBufMax":367.9999999999998,"downKbps":90.77162561576354,"upGapsMin":0,"upDelivered":100.15052684395384,"upRelayedPct":99.65,"micGap":32,"skips":123,"lag":149,"rtt":-1,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958080 rtt=-1.0 up=788 down=0 micGap=32 lag=149 skips=123"}
+  starved/pcm/cpp#2        down gaps/min 13.3 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.2% micGap 32 | skips 123 lag 149 rtt -1
+SAMPLE {"label":"starved/opus/cpp#1","profile":"starved","codec":"opus","packets":1740,"pcmPackets":17,"opusPackets":1723,"bad":0,"seqGaps":0,"maxSendLate":15.147999999928288,"gaps":9,"windowMs":18000,"downGapsMin":30,"downStarvesMin":30,"downJumpsMin":0,"trimsMin":33.333333333333336,"clock":1,"staleMean":5973.955854331468,"staleMax":10372.220266666769,"holesPct":87.11111111111111,"delivered":100,"clientBufMax":660,"downKbps":80.15014778325123,"upGapsMin":0,"upDelivered":100,"upRelayedPct":99.8,"micGap":33,"skips":0,"lag":20,"rtt":6256,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958080 rtt=6256.0 up=780 down=169 micGap=33 lag=20 skips=0"}
+  starved/opus/cpp#1       down gaps/min 30.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.0% micGap 33 | skips 0 lag 20 rtt 6256
+SAMPLE {"label":"starved/opus/rust#1","profile":"starved","codec":"opus","packets":1797,"pcmPackets":17,"opusPackets":1780,"bad":0,"seqGaps":0,"maxSendLate":7.581800000043586,"gaps":9,"windowMs":18000,"downGapsMin":30,"downStarvesMin":30,"downJumpsMin":0,"trimsMin":33.333333333333336,"clock":1,"staleMean":6255.87245091047,"staleMax":10772.654266666661,"holesPct":85.11447277777802,"delivered":100,"clientBufMax":660,"downKbps":82.98916256157635,"upGapsMin":0,"upDelivered":100,"upRelayedPct":99.8,"micGap":23,"skips":0,"lag":20,"rtt":6032,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958080 rtt=6032.0 up=772 down=169 micGap=23 lag=20 skips=0"}
+  starved/opus/rust#1      down gaps/min 30.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.0% micGap 23 | skips 0 lag 20 rtt 6032
+SAMPLE {"label":"starved/opus/rust#2","profile":"starved","codec":"opus","packets":1878,"pcmPackets":19,"opusPackets":1859,"bad":0,"seqGaps":0,"maxSendLate":7.501200000056997,"gaps":9,"windowMs":18000,"downGapsMin":30,"downStarvesMin":30,"downJumpsMin":0,"trimsMin":33.333333333333336,"clock":1,"staleMean":6530.888289940152,"staleMax":11182.707399999956,"holesPct":82.52777777777777,"delivered":100,"clientBufMax":660,"downKbps":87.08059113300493,"upGapsMin":0,"upDelivered":100.0501253132832,"upRelayedPct":99.75,"micGap":22,"skips":0,"lag":20,"rtt":7604,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958080 rtt=7604.0 up=781 down=168 micGap=22 lag=20 skips=0"}
+  starved/opus/rust#2      down gaps/min 30.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 22 | skips 0 lag 20 rtt 7604
+SAMPLE {"label":"starved/opus/cpp#2","profile":"starved","codec":"opus","packets":2087,"pcmPackets":16,"opusPackets":2071,"bad":0,"seqGaps":0,"maxSendLate":14.270600000047125,"gaps":9,"windowMs":18000,"downGapsMin":30,"downStarvesMin":30,"downJumpsMin":0,"trimsMin":43.333333333333336,"clock":1,"staleMean":6516.379215779131,"staleMax":11498.533600000083,"holesPct":87.57977888888887,"delivered":100,"clientBufMax":660,"downKbps":94.167881773399,"upGapsMin":0,"upDelivered":100.10025062656642,"upRelayedPct":99.75,"micGap":22,"skips":0,"lag":21,"rtt":7051,"live":1,"delay":-1,"raw":"live=1 delay=-1.0 peak=0.244 playing=0 writePos=958560 rtt=7051.0 up=781 down=169 micGap=22 lag=21 skips=0"}
+  starved/opus/cpp#2       down gaps/min 30.0 (jumps 0.0) delivered 100.0% | up gaps/min 0.0 hub 100.1% micGap 22 | skips 0 lag 21 rtt 7051
+
+### clean/pcm  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 0.0 ±0.0 | 0.0 ±0.0 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 0 ±0 | 0 ±0 |
+| audio age max ms | 0 ±0 | 0 ±0 |
+| holes % | 0.00 ±0.00 | 0.00 ±0.00 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 68 ±3 | 71 ±2 |
+| gaps/min up (line) | 0.0 ±0.0 | 0.0 ±0.0 |
+| delivered % up (Hub) | 100.10 ±0.00 | 100.00 ±0.00 |
+| micGap ms | 26 ±0 | 20 ±3 |
+| skips | 0.0 ±0.0 | 0.0 ±0.0 |
+| lag ms | 21 ±0 | 20 ±0 |
+| rtt ms | 25.0 ±0.0 | 24.5 ±0.7 |
+| kbps down | 1577 ±0 | 1578 ±0 |
+RESULT clean/pcm: pass
+
+### clean/opus  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 0.0 ±0.0 | 0.0 ±0.0 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 0 ±0 | 0 ±0 |
+| audio age max ms | 1 ±1 | 0 ±0 |
+| holes % | 0.00 ±0.00 | 0.00 ±0.00 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 66 ±4 | 65 ±0 |
+| gaps/min up (line) | 0.0 ±0.0 | 0.0 ±0.0 |
+| delivered % up (Hub) | 100.05 ±0.07 | 100.03 ±0.04 |
+| micGap ms | 22 ±0 | 19 ±1 |
+| skips | 0.0 ±0.0 | 0.0 ±0.0 |
+| lag ms | 22 ±2 | 20 ±0 |
+| rtt ms | 27.5 ±3.5 | 25.5 ±0.7 |
+| kbps down | 172 ±0 | 172 ±0 |
+RESULT clean/opus: pass
+
+### home/pcm  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 3.3 ±0.0 | 3.3 ±0.0 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 7 ±6 | 6 ±6 |
+| audio age max ms | 281 ±8 | 278 ±6 |
+| holes % | 1.39 ±0.01 | 1.32 ±0.02 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 316 ±4 | 314 ±2 |
+| gaps/min up (line) | 3.3 ±0.0 | 3.3 ±0.0 |
+| delivered % up (Hub) | 100.05 ±0.07 | 100.05 ±0.00 |
+| micGap ms | 310 ±7 | 310 ±5 |
+| skips | 0.0 ±0.0 | 0.0 ±0.0 |
+| lag ms | 20 ±0 | 20 ±0 |
+| rtt ms | 64.5 ±0.7 | 66.0 ±0.0 |
+| kbps down | 1574 ±1 | 1576 ±0 |
+RESULT home/pcm: pass
+
+### home/opus  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 3.3 ±0.0 | 3.3 ±0.0 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 7 ±6 | 6 ±6 |
+| audio age max ms | 281 ±1 | 279 ±5 |
+| holes % | 1.37 ±0.02 | 1.34 ±0.02 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 316 ±3 | 313 ±8 |
+| gaps/min up (line) | 3.3 ±0.0 | 3.3 ±0.0 |
+| delivered % up (Hub) | 100.03 ±0.04 | 100.08 ±0.04 |
+| micGap ms | 305 ±1 | 317 ±1 |
+| skips | 0.0 ±0.0 | 0.0 ±0.0 |
+| lag ms | 21 ±1 | 20 ±0 |
+| rtt ms | 63.5 ±0.7 | 67.5 ±2.1 |
+| kbps down | 174 ±0 | 175 ±0 |
+RESULT home/opus: pass
+
+### mobile/pcm  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 86.7 ±9.4 | 93.3 ±18.9 |
+| (jumps/min) | 5.0 ±7.1 | 11.7 ±16.5 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 5878 ±126 | 5688 ±174 |
+| audio age max ms | 9572 ±348 | 8780 ±161 |
+| holes % | 67.96 ±0.97 | 70.41 ±0.75 |
+| delivered % down | 78.70 ±0.76 | 75.18 ±1.17 |
+| client buf max ms | 360 ±26 | 340 ±6 |
+| gaps/min up (line) | 53.3 ±18.9 | 53.3 ±14.1 |
+| delivered % up (Hub) | 101.41 ±2.00 | 102.68 ±1.04 |
+| micGap ms | 606 ±88 | 584 ±54 |
+| skips | 60.5 ±2.1 | 60.0 ±0.0 |
+| lag ms | 149 ±0 | 149 ±0 |
+| rtt ms | 8856.5 ±645.6 | 8167.5 ±549.4 |
+| kbps down | 688 ±4 | 691 ±3 |
+RESULT mobile/pcm: FAIL (down gaps/min)
+
+### mobile/opus  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 3.3 ±0.0 | 5.0 ±2.4 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 10 ±6 | 11 ±6 |
+| audio age max ms | 333 ±2 | 351 ±11 |
+| holes % | 1.24 ±0.04 | 1.16 ±0.01 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 423 ±7 | 430 ±3 |
+| gaps/min up (line) | 40.0 ±4.7 | 55.0 ±7.1 |
+| delivered % up (Hub) | 100.00 ±0.00 | 100.00 ±0.00 |
+| micGap ms | 541 ±71 | 631 ±265 |
+| skips | 0.0 ±0.0 | 0.0 ±0.0 |
+| lag ms | 22 ±3 | 20 ±0 |
+| rtt ms | 839.0 ±58.0 | 975.5 ±195.9 |
+| kbps down | 177 ±0 | 178 ±0 |
+RESULT mobile/opus: FAIL (down gaps/min)
+
+### starved/pcm  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 13.3 ±0.0 | 13.3 ±0.0 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 0.0 ±0.0 | 0.0 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 11833 ±2 | 11941 ±9 |
+| audio age max ms | 17269 ±9 | 17381 ±12 |
+| holes % | 94.28 ±0.00 | 94.00 ±0.02 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 368 ±0 | 363 ±0 |
+| gaps/min up (line) | 0.0 ±0.0 | 0.0 ±0.0 |
+| delivered % up (Hub) | 100.10 ±0.07 | 100.15 ±0.00 |
+| micGap ms | 32 ±0 | 32 ±0 |
+| skips | 123.0 ±0.0 | 120.0 ±0.0 |
+| lag ms | 149 ±0 | 149 ±0 |
+| rtt ms | -1.0 ±0.0 | -1.0 ±0.0 |
+| kbps down | 91 ±0 | 91 ±0 |
+RESULT starved/pcm: pass
+
+### starved/opus  (mean ±sd of 2 runs of 20 s)
+| metric | C++ | Rust |
+|---|---|---|
+| gaps/min down | 30.0 ±0.0 | 30.0 ±0.0 |
+| (jumps/min) | 0.0 ±0.0 | 0.0 ±0.0 |
+| trims/min | 38.3 ±7.1 | 33.3 ±0.0 |
+| hub clock x | 1.000 ±0.000 | 1.000 ±0.000 |
+| audio age mean ms | 6245 ±384 | 6393 ±194 |
+| audio age max ms | 10935 ±796 | 10978 ±290 |
+| holes % | 87.35 ±0.33 | 83.82 ±1.83 |
+| delivered % down | 100.00 ±0.00 | 100.00 ±0.00 |
+| client buf max ms | 660 ±0 | 660 ±0 |
+| gaps/min up (line) | 0.0 ±0.0 | 0.0 ±0.0 |
+| delivered % up (Hub) | 100.05 ±0.07 | 100.03 ±0.04 |
+| micGap ms | 28 ±8 | 23 ±1 |
+| skips | 0.0 ±0.0 | 0.0 ±0.0 |
+| lag ms | 21 ±1 | 20 ±0 |
+| rtt ms | 6653.5 ±562.1 | 6818.0 ±1111.6 |
+| kbps down | 87 ±10 | 85 ±3 |
+RESULT starved/opus: pass
+
+netsim-compare: observed Rust mean gaps/min is higher on at least one TCP line

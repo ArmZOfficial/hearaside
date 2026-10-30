@@ -1,0 +1,6 @@
+SAMPLE {"label":"clean/cpp/1","seed":7,"gaps":0,"windowMs":18000,"gapsMin":0,"packets":4000,"proxy":{"received":8609,"forwarded":8601,"dropped":0,"reordered":0,"unknown":1},"result":"live=1 delay=155.6 peak=1.193 playing=0 writePos=1006080 rtt=0.0 up=33 down=166 micGap=691 lag=20 skips=0"}
+SAMPLE {"label":"clean/rust/1","seed":7,"gaps":0,"windowMs":18000,"gapsMin":0,"packets":4000,"proxy":{"received":8687,"forwarded":8675,"dropped":0,"reordered":0,"unknown":1},"result":"live=1 delay=97.2 peak=1.222 playing=0 writePos=975360 rtt=0.0 up=33 down=166 micGap=83 lag=20 skips=0"}
+RESULT clean: PASS C++ 0 Rust 0 gaps/min
+SAMPLE {"label":"bad/cpp/1","seed":7,"gaps":283,"windowMs":18000,"gapsMin":943.3333333333334,"packets":3878,"proxy":{"received":12232,"forwarded":11864,"dropped":357,"reordered":7964,"unknown":0},"result":"live=1 delay=294.6 peak=1.168 playing=0 writePos=969600 rtt=0.0 up=32 down=166 micGap=56 lag=20 skips=0"}
+SAMPLE {"label":"bad/rust/1","seed":7,"gaps":272,"windowMs":18000,"gapsMin":906.6666666666666,"packets":3877,"proxy":{"received":12315,"forwarded":11943,"dropped":360,"reordered":8019,"unknown":0},"result":"live=1 delay=296.0 peak=1.168 playing=0 writePos=966720 rtt=0.0 up=40 down=166 micGap=69 lag=20 skips=0"}
+RESULT bad: PASS C++ 943.3333333333334 Rust 906.6666666666666 gaps/min

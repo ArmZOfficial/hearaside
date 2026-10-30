@@ -1,5 +1,6 @@
 [licenses]
-allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "Unicode-3.0"]
+allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "Unicode-3.0", "CDLA-Permissive-2.0"]
+# CDLA-Permissive-2.0: the Mozilla root certificate list (webpki-root-certs, a fallback of rustls-platform-verifier). Permissive data licence.
 
 [bans]
 multiple-versions = "warn"

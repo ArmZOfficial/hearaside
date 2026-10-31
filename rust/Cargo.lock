@@ -534,6 +534,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hs-streamlabs-setup"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "hs-testkit"
 version = "0.1.0"
 dependencies = [

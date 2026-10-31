@@ -134,6 +134,9 @@ struct AudioState {
 
 struct Inner {
     open: AtomicBool,
+    /// the audio state is complete and the driver's buffers exist: true from just before `drv.start()` until `close`
+    /// has waited out the last callback. Between `ready` and `open` a buffer switch only silences the outputs.
+    ready: AtomicBool,
     /// the driver asked for a reset (`kAsioResetRequest` etc.); `Device::poll_restart` acts on it
     restart: AtomicBool,
     /// the callback panicked: silence from then on
@@ -149,6 +152,7 @@ impl Inner {
     fn new() -> Self {
         Self {
             open: AtomicBool::new(false),
+            ready: AtomicBool::new(false),
             restart: AtomicBool::new(false),
             faulted: AtomicBool::new(false),
             playing: AtomicBool::new(false),
@@ -175,15 +179,16 @@ impl Inner {
 
     /// Driver thread, one buffer switch: driver buffers to float, the callback, float back to the driver buffers.
     fn process(&self, index: i32) {
-        if !self.open.load(Acquire) {
+        let open = self.open.load(Acquire);
+        if !open && !self.ready.load(Acquire) {
             return;
         }
         let Some(index) = usize::try_from(index).ok().filter(|i| *i < 2) else {
             return;
         };
-        // SAFETY: `open` is only true between a successful `open` and the start of `close`, and the audio state is
-        // only written outside that window (the driver is stopped then); the driver never runs two buffer switches
-        // at once, so this is the only reference.
+        // SAFETY: `ready` is only true between the moment `open` has finished writing the audio state and the end of
+        // `close` (after the last callback is out), and the state is only written outside that window; the driver never
+        // runs two buffer switches at once, so this is the only reference.
         let a = unsafe { &mut *self.audio.get() };
         let AudioState {
             drv,
@@ -197,6 +202,25 @@ impl Inner {
             post_output,
         } = a;
         let frames = *frames;
+
+        if !open {
+            // between `drv.start()` and `open` becoming true: no callback yet, but the driver may play this buffer
+            // before the next switch, and it does not have to clear it
+            for (info, &ty) in infos.iter().zip(types.iter()) {
+                let p = info.buffers[index];
+                if info.is_input == 0 && !p.is_null() {
+                    // SAFETY: as for the outputs below: `frames` samples of type `ty`; all-zero bytes are silence in every type.
+                    unsafe {
+                        std::slice::from_raw_parts_mut(
+                            p.cast::<u8>(),
+                            bytes_per_sample(ty) * frames,
+                        )
+                    }
+                    .fill(0);
+                }
+            }
+            return;
+        }
 
         let mut ii = 0;
         for (info, &ty) in infos.iter().zip(types.iter()) {
@@ -556,13 +580,16 @@ impl Device {
             num_outputs,
             post_output: drv.output_ready(),
         };
-        // SAFETY: `open` is still false, so a buffer switch that the driver already delivers returns before it touches the
-        // audio state; this is the only access until `open` goes true. (Through the cell, not `&mut Inner`: callbacks
+        // SAFETY: `ready` is still false (`close` and every failed `open` reset it, and no callback is in flight then), so a
+        // buffer switch that the driver already delivers returns before it touches the audio state; this is the only
+        // access until `ready` goes true on the next line. (Through the cell, not `&mut Inner`: callbacks
         // may hold `&Inner` for the atomics.)
         unsafe { *self.inner.audio.get() = state };
+        self.inner.ready.store(true, Release);
         if !drv.start() {
-            drv.dispose_buffers();
             release_active(me);
+            self.inner.ready.store(false, Release);
+            drv.dispose_buffers();
             return self.fail(OpenError::NotStarted);
         }
         self.inner.open.store(true, Release);
@@ -579,6 +606,7 @@ impl Device {
             d.stop();
             // no callback may still be reading the buffers when they go
             release_active(self.inner_ptr());
+            self.inner.ready.store(false, Release);
             d.dispose_buffers();
         }
     }
@@ -667,6 +695,9 @@ impl Device {
     /// The driver changed its buffer size, rate or channels and asked for a reset: call this from the thread that owns
     /// the device (a timer on the UI thread; the C++ used `MessageManager::callAsync`). If a reset was asked for it
     /// opens again with the same choice, starts the same callback again, and returns true.
+    ///
+    /// If the re-open fails the callback is dropped (its `stopped()` already ran), the device stays closed, the error is
+    /// left in [`Device::last_error`], and the result is still true: a reset was asked for and handled.
     pub fn poll_restart(&mut self) -> bool {
         if !self.inner.restart.swap(false, Relaxed) || !self.is_open() {
             return false;

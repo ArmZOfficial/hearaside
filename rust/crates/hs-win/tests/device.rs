@@ -574,3 +574,51 @@ fn drop_stops_the_callback_and_releases_the_driver_once() {
     assert_eq!(probe.count("disposeBuffers"), 1);
     assert_eq!(probe.released.load(SeqCst), 1);
 }
+
+#[test]
+fn a_switch_before_open_finishes_plays_silence() {
+    // some drivers switch buffers from inside start(); the output buffers may hold junk and nobody has a callback yet
+    let _s = serial();
+    let (mut d, probe, ctl) = device(Cfg {
+        switch_in_start: true,
+        ..Cfg::default()
+    });
+    d.open(&[true, false], &[true, true, true], 0.0, 0).unwrap();
+    assert_eq!(probe.count("start"), 1);
+    for ch in 0..3 {
+        for half in 0..2 {
+            assert!(
+                ctl.output(ch, half).iter().all(|b| *b == 0),
+                "output {ch} half {half} was left with junk"
+            );
+        }
+    }
+    // and the same junk is not silenced by accident once open: a normal switch still goes through the callback
+    let (cb, _, blocks) = Gain::new(1.0);
+    assert!(d.start(cb));
+    ctl.switch(0);
+    assert_eq!(blocks.load(SeqCst), 1);
+}
+
+#[test]
+fn a_failed_reopen_after_a_reset_drops_the_callback_and_keeps_the_error() {
+    let _s = serial();
+    let (mut d, probe, ctl) = device(Cfg::default());
+    d.open(&[true], &[true], 0.0, 0).unwrap();
+    let (cb, events, _) = Gain::new(1.0);
+    assert!(d.start(cb));
+    // the driver resets, and then can't make its buffers any more
+    probe.fail_next_create.store(true, SeqCst);
+    assert_eq!(ctl.message(K_RESET_REQUEST, 0), 1);
+    assert!(
+        d.poll_restart(),
+        "a reset was asked for and handled, even if the re-open failed"
+    );
+    assert!(!d.is_open() && !d.is_playing());
+    assert_eq!(d.last_error(), Some(&OpenError::Buffers(128)));
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        ["start 44100 128 1/1", "stopped"]
+    );
+    assert!(!d.poll_restart());
+}

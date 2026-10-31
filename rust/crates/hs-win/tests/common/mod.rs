@@ -29,6 +29,8 @@ pub struct Cfg {
     pub create_ok: bool,
     pub start_ok: bool,
     pub wants_output_ready: bool,
+    /// the driver delivers buffer switches from inside `start()`, after leaving junk in the output buffers
+    pub switch_in_start: bool,
 }
 
 impl Default for Cfg {
@@ -45,6 +47,7 @@ impl Default for Cfg {
             create_ok: true,
             start_ok: true,
             wants_output_ready: true,
+            switch_in_start: false,
         }
     }
 }
@@ -60,6 +63,8 @@ pub struct Probe {
     pub calls: Mutex<Vec<String>>,
     pub output_ready_calls: AtomicU32,
     pub released: AtomicU32,
+    /// the next createBuffers fails (then the flag clears)
+    pub fail_next_create: std::sync::atomic::AtomicBool,
 }
 
 impl Probe {
@@ -149,7 +154,23 @@ unsafe extern "system" fn get_error_message(this: *mut Driver, text: *mut u8) {
 }
 unsafe extern "system" fn start(this: *mut Driver) -> i32 {
     note(this, "start");
-    code(fake(this).cfg.start_ok)
+    let f = fake(this);
+    if f.cfg.switch_in_start {
+        let cb = {
+            let mut s = f.state.lock().unwrap();
+            for (key, halves) in s.bufs.iter_mut() {
+                if key.0 == 0 {
+                    halves.iter_mut().for_each(|h| h.fill(0x55));
+                }
+            }
+            s.callbacks as *const Callbacks
+        };
+        // SAFETY: the device's boxed Callbacks, alive while it is open.
+        let cb = unsafe { &*cb };
+        (cb.buffer_switch)(0, 1);
+        (cb.buffer_switch)(1, 1);
+    }
+    code(f.cfg.start_ok)
 }
 unsafe extern "system" fn stop(this: *mut Driver) -> i32 {
     note(this, "stop");
@@ -247,7 +268,7 @@ unsafe extern "system" fn create_buffers(
 ) -> i32 {
     note(this, &format!("createBuffers {count} {size}"));
     let f = fake(this);
-    if !f.cfg.create_ok {
+    if !f.cfg.create_ok || f.probe.fail_next_create.swap(false, SeqCst) {
         return -1;
     }
     let mut s = f.state.lock().unwrap();

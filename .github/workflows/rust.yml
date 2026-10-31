@@ -13,6 +13,7 @@ permissions:
 jobs:
   check:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
@@ -25,6 +26,9 @@ jobs:
         shell: pwsh
         working-directory: .
         run: ./scripts/fetch-deps.ps1
+      - name: System libraries (hs-ui's slint links fontconfig on Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - name: Install pinned toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check

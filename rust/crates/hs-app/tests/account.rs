@@ -337,8 +337,9 @@ fn device_flow_signs_in_and_out() {
 
     // the session is stored, protected, and a new manager (another plug-in) picks it up without any network
     let raw = std::fs::read(d.file("account.dat")).unwrap();
+    // DPAPI on Windows only; elsewhere the file is plain JSON readable by its owner (see `vault`)
     assert!(
-        !String::from_utf8_lossy(&raw).contains("access-1"),
+        !cfg!(windows) || !String::from_utf8_lossy(&raw).contains("access-1"),
         "tokens are not in the file as plain text"
     );
     let other = AccountManager::new(config(&d, "http://127.0.0.1:9"));

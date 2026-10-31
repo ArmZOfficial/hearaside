@@ -1,0 +1,97 @@
+// The one scrolling area of every screen (plugins/common/ui/ScrollArea.{h,cpp}): no rail, a 5 px pill in the card's
+// padding (~9 px from the card edge), darker on hover, 7 px while dragged, at least 36 px long; the top / bottom edge
+// fades out only while there is more content that way. The wheel and the keys scroll as in a Flickable.
+import { Palette } from "base.slint";
+
+export component ScrollArea inherits Rectangle {
+    // gutter: room on the right for the bar (the area reaches into the card's padding by this much)
+    in property <length> gutter: 14px;
+    // the colour the content fades into at the edges (the card's surface)
+    in property <color> fade: Palette.menu-bg;
+    in property <length> fade-top: 20px;
+    in property <length> fade-bottom: 28px;
+    out property <length> content-width: root.width - root.gutter;
+    out property <length> scroll-y: -flick.content-y;
+    callback scrolled();
+    property <length> content-h: flick.content-height;
+    property <bool> scrollable: content-h > root.height + 1px;
+    property <length> track-y: 8px;
+    property <length> track-h: max(0px, root.height - 16px);
+    property <length> thumb-len: max(36px, track-h * root.height / max(1px, content-h));
+    property <length> thumb-top: (track-h - thumb-len) * scroll-y / max(1px, content-h - root.height);
+    property <bool> dragging;
+    property <length> drag-start-y;
+    property <length> drag-start-mouse;
+    // the smallest scroll that shows [y, y + h) of the content
+    public function scroll-to-show(y: length, h: length) {
+        if (y < scroll-y) {
+            flick.content-y = -y;
+        } else if (y + h > scroll-y + root.height) {
+            flick.content-y = -(y + h - root.height);
+        }
+    }
+    clip: true;
+    flick := Flickable {
+        width: root.width;
+        height: root.height;
+        interactive: false;
+        VerticalLayout {
+            width: root.content-width;
+            @children
+        }
+        changed content-y => {
+            root.scrolled();
+        }
+    }
+    Rectangle {
+        height: root.fade-top;
+        width: root.content-width;
+        visible: root.scrollable && root.scroll-y > 2px && root.fade-top > 0px;
+        background: @linear-gradient(180deg, root.fade 0%, root.fade.with-alpha(0.0) 100%);
+    }
+    Rectangle {
+        height: root.fade-bottom;
+        width: root.content-width;
+        y: root.height - self.height;
+        visible: root.scrollable && root.scroll-y + root.height < root.content-h - 2px && root.fade-bottom > 0px;
+        background: @linear-gradient(180deg, root.fade.with-alpha(0.0) 0%, root.fade 100%);
+    }
+    // the bar: a 12 px strip at the right edge, the pill inside it
+    Rectangle {
+        x: root.width - 12px;
+        y: root.track-y;
+        width: 12px;
+        height: root.track-h;
+        visible: root.scrollable;
+        property <bool> over: bar.has-hover && bar.mouse-y >= root.thumb-top && bar.mouse-y <= root.thumb-top + root.thumb-len;
+        Rectangle {
+            property <bool> big: root.dragging || over;
+            width: big ? 7px : 5px;
+            x: parent.width - (big ? 2px : 3px) - self.width;
+            y: root.thumb-top;
+            height: root.thumb-len;
+            border-radius: self.width / 2;
+            background: big ? Palette.scroll-thumb-active : Palette.scroll-thumb;
+        }
+        bar := TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down && self.mouse-y >= root.thumb-top && self.mouse-y <= root.thumb-top + root.thumb-len) {
+                    root.dragging = true;
+                    root.drag-start-y = root.scroll-y;
+                    root.drag-start-mouse = self.mouse-y;
+                } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.dragging = false;
+                }
+            }
+            moved => {
+                if (root.dragging) {
+                    root.thumb-drag(self.mouse-y);
+                }
+            }
+        }
+    }
+    function thumb-drag(mouse-y: length) {
+        // the thumb travels track-h - thumb-len while the content travels content-h - height
+        flick.content-y = -max(0px, min(content-h - root.height, drag-start-y + (mouse-y - drag-start-mouse) * (content-h - root.height) / max(1px, track-h - thumb-len)));
+    }
+}

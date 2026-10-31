@@ -1,0 +1,107 @@
+// Shared pieces of the "Frosted Studio" look (plugins/common/ui/LookAndFeel.cpp, Components.cpp, Focus.cpp).
+// Every number comes from theme.slint (generated from design/tokens.json) or from the C++ file named next to it.
+import "../../../../external/fonts/Anuphan-400.ttf";
+import "../../../../external/fonts/Anuphan-500.ttf";
+import "../../../../external/fonts/Anuphan-600.ttf";
+import { Palette, Tokens } from "theme.slint";
+
+export { Palette, Tokens, Motion } from "theme.slint";
+
+// Set by the contrast check only: every HsText turns transparent, so a second render shows what is behind the text.
+export global TextProbe {
+    in property <bool> hide;
+}
+
+// Anuphan (400 / 500 / 600 are imported above), colour by tone. Use font-weight 500 or 600 for Medium / SemiBold.
+export component HsText inherits Text {
+    in property <color> tone: Palette.ink;
+    color: TextProbe.hide ? transparent : tone;
+    font-family: "Anuphan";
+    font-size: 13px;
+}
+
+export global Mix {
+    // CSS "source-over" of a translucent colour on an opaque one (juce::Colour::overlaidWith).
+    public pure function over(top: color, bottom: color) -> color {
+        return top.with-alpha(1.0).mix(bottom, top.alpha / 255);
+    }
+    // text fields, dropdowns, ghost buttons on hover: offBg over paper
+    out property <color> field: over(Palette.off-bg, Palette.paper);
+    // hover / press tint of a filled shape (Components.cpp pressed())
+    public pure function pressed(base: color, highlighted: bool, down: bool) -> color {
+        if (base == Palette.ink) {
+            return down ? base.mix(Palette.paper, 0.78) : highlighted ? base.mix(Palette.paper, 0.88) : base;
+        }
+        return down ? over(Palette.ink.with-alpha(0.08), base) : highlighted ? over(Palette.ink.with-alpha(0.04), base) : base;
+    }
+}
+
+// The soft 3 px keyboard focus ring (Focus.cpp): outside the control, only after Tab (or always in a text field).
+export component FocusRing inherits Rectangle {
+    in property <bool> shown;
+    in property <length> radius: 10px;
+    visible: shown;
+    Rectangle {
+        x: -3px;
+        y: -3px;
+        width: root.width + 6px;
+        height: root.height + 6px;
+        border-width: 3px;
+        border-color: Palette.focus-ring;
+        border-radius: root.radius + 3px;
+    }
+}
+
+// Keyboard focus for a control: the ring shows after Tab, not after a click. Put it over the control's visuals, under its TouchArea.
+export component KeyFocus inherits FocusScope {
+    in property <length> radius: 10px;
+    in property <bool> always;
+    out property <bool> ring: self.has-focus && (keyboard || always);
+    property <bool> keyboard;
+    callback activate();
+    focus-gained(reason) => {
+        keyboard = reason == FocusReason.tab-navigation;
+    }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            activate();
+            return accept;
+        }
+        return reject;
+    }
+    FocusRing {
+        width: root.width;
+        height: root.height;
+        shown: root.ring;
+        radius: root.radius;
+    }
+}
+
+export enum DotKind { none, muted, ok, warn, rec, rec-ring }
+
+// A status dot (drawStatusDot); `size` 7 by default.
+export component StatusDot inherits Rectangle {
+    in property <DotKind> kind: DotKind.ok;
+    in property <length> size: 7px;
+    width: size;
+    height: size;
+    visible: kind != DotKind.none;
+    border-radius: size / 2;
+    background: kind == DotKind.rec-ring ? transparent
+        : kind == DotKind.ok ? Palette.ok
+        : kind == DotKind.warn ? Palette.warn
+        : kind == DotKind.rec ? Palette.danger
+        : Palette.graphite;
+    border-width: kind == DotKind.rec-ring ? 1.5px : 0px;
+    border-color: Palette.danger;
+}
+
+// The rounded well used for rows, info boxes and summaries (drawInset).
+export component Inset inherits Rectangle {
+    in property <length> radius: Tokens.radius-row;
+    in property <bool> strong-edge;
+    background: Palette.inset;
+    border-radius: radius;
+    border-width: 1px;
+    border-color: strong-edge ? Palette.row-on-edge : Palette.hairline1;
+}

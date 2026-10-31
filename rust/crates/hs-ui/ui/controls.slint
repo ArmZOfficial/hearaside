@@ -1,0 +1,735 @@
+// Inputs and buttons of the design system: plugins/common/ui/Controls.{h,cpp} and the parts of Components.cpp they
+// stand on (Switch, GhostButton, status dots). Sizes, radii, fonts and colours are the C++ ones; values travel through
+// callbacks (the Rust glue parses typed text with hs_ui::controls).
+import { Palette, Tokens, Motion, HsText, Mix, KeyFocus, FocusRing, StatusDot, DotKind } from "base.slint";
+import { Icon, IconId } from "icons.slint";
+
+// Where a control sits in the window, so the Overlay can open a menu next to it.
+export struct Anchor {
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+}
+
+// ---- Switch: 36 x 20, or 44 x 26 when `large` (Components.cpp Switch::paintAt) ----------------
+export component Switch inherits Rectangle {
+    in-out property <bool> on;
+    in property <bool> large;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: large ? 44px : 36px;
+    height: large ? 26px : 20px;
+    border-radius: self.height / 2;
+    opacity: enabled ? 1.0 : 0.45;
+    property <float> k: on ? 1.0 : 0.0;
+    animate k {
+        duration: Motion.switch-ms;
+        easing: linear;
+    }
+    background: Palette.ink.mix(Palette.switch-off, k);
+    function flip() {
+        if (enabled) {
+            on = !on;
+            toggled(on);
+        }
+    }
+    Rectangle {
+        visible: area.has-hover && root.enabled;
+        background: Palette.ink.with-alpha(0.05);
+        border-radius: parent.border-radius;
+    }
+    Rectangle {
+        width: root.height - 4px;
+        height: self.width;
+        y: 2px;
+        x: 2px + (root.width - 4px - self.width) * k;
+        border-radius: self.width / 2;
+        background: Palette.on-ink.mix(#ffffff, k);
+    }
+    KeyFocus {
+        radius: root.height / 2;
+        activate => {
+            root.flip();
+        }
+    }
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.flip();
+        }
+    }
+}
+
+// ---- GhostButton: frame (ghost), solid ink, danger frame, danger solid; 36 high (30 small) -----
+export enum ButtonStyle { ghost, solid, danger, danger-solid }
+
+export component GhostButton inherits Rectangle {
+    in property <string> text;
+    in property <ButtonStyle> style: ButtonStyle.ghost;
+    in property <bool> small;
+    in property <bool> has-icon;
+    in property <IconId> icon: IconId.check;
+    in property <bool> enabled: true;
+    callback clicked();
+    property <bool> solid: style == ButtonStyle.solid || style == ButtonStyle.danger-solid;
+    property <bool> danger: style == ButtonStyle.danger || style == ButtonStyle.danger-solid;
+    property <bool> hot: area.has-hover && enabled;
+    // the width the text and icon ask for (a button not in a layout is that wide)
+    out property <length> ideal-width: row.preferred-width;
+    property <color> fg: (solid ? (style == ButtonStyle.danger-solid ? #ffffff : Palette.on-ink) : (danger ? Palette.danger : Palette.ink)).with-alpha(enabled ? 1.0 : 0.4);
+    height: small ? 30px : 36px;
+    border-radius: small ? 9px : 12px;
+    border-width: solid ? 0px : 1px;
+    border-color: style == ButtonStyle.danger ? Palette.danger : hot ? Palette.slider-rail : Palette.hairline3;
+    background: solid ? Mix.pressed(danger ? Palette.danger-bg : Palette.ink, hot, area.pressed)
+        : (hot || area.pressed) ? Mix.over(Palette.ink.with-alpha(area.pressed ? 0.06 : 0.0), Mix.field)
+        : Palette.chip-bg;
+    row := HorizontalLayout {
+        padding-left: small ? 10px : 14px;
+        padding-right: small ? 10px : 14px;
+        spacing: root.text == "" ? 0px : 8px;
+        alignment: center;
+        if root.has-icon: Icon {
+            id: root.icon;
+            ink: root.fg;
+            size: small ? 14px : 16px;
+            y: (parent.height - self.height) / 2;
+        }
+        HsText {
+            text: root.text;
+            tone: root.fg;
+            font-size: small ? 12px : 13px;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    Rectangle {
+        visible: root.solid && !root.enabled;
+        background: Palette.paper.with-alpha(0.5);
+        border-radius: parent.border-radius;
+    }
+    KeyFocus {
+        radius: root.border-radius;
+        activate => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// ---- TextField: 38 high, radius 10, offBg over paper; typing = graphite edge + soft ring -------
+// `inline` is the 26-high field of EditableValue / InlineName (menuBg, radius 7). Names are limited to 63 bytes:
+// call hs_ui::controls::limit_utf8 from `edited`.
+export component TextField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+    in property <bool> inline;
+    in property <TextHorizontalAlignment> align: left;
+    in property <length> font-size: 13px;
+    in property <int> font-weight: 400;
+    out property <bool> has-focus: input.has-focus;
+    callback accepted(string);
+    callback edited(string);
+    callback escaped();
+    height: inline ? 26px : 38px;
+    border-radius: inline ? 7px : 10px;
+    background: inline ? Palette.menu-bg : Mix.field;
+    border-width: 1px;
+    border-color: input.has-focus ? Palette.graphite : Palette.hairline3;
+    // focus the field with its text selected (what a double-click on a value does)
+    public function grab() {
+        input.focus();
+        input.select-all();
+    }
+    FocusRing {
+        shown: input.has-focus;
+        radius: root.border-radius;
+    }
+    input := TextInput {
+        x: inline ? 6px : 12px;
+        width: root.width - 2 * self.x;
+        height: root.height;
+        vertical-alignment: center;
+        horizontal-alignment: root.align;
+        single-line: true;
+        color: Palette.ink;
+        font-family: "Anuphan";
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        selection-background-color: Palette.ink.with-alpha(0.16);
+        selection-foreground-color: Palette.ink;
+        accepted => {
+            root.accepted(self.text);
+        }
+        edited => {
+            root.edited(self.text);
+        }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.escaped();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HsText {
+        x: input.x;
+        width: input.width;
+        height: root.height;
+        visible: input.text == "" && input.preedit-text == "";
+        text: root.placeholder;
+        tone: Palette.graphite;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        horizontal-alignment: root.align;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// ---- EditableValue: "-3.0 dB" / "40 ms" / "L40" right aligned; double-click (or Enter / F2) = type -------
+// Enter or clicking elsewhere = commit(typed), Esc = cancel. The owner turns the typed text into a value
+// (hs_ui::controls::commit_value) and sets `text` again.
+export component EditableValue inherits Rectangle {
+    in property <string> text;
+    in property <string> edit-text;
+    in property <bool> dim;
+    in property <bool> enabled: true;
+    in property <length> font-size: 12.5px;
+    in property <TextHorizontalAlignment> align: right;
+    out property <bool> editing;
+    callback commit(string);
+    height: 26px;
+    function start() {
+        if (enabled && !editing) {
+            editor.text = edit-text;
+            editing = true;
+            editor.grab();
+        }
+    }
+    function finish(save: bool) {
+        if (editing) {
+            editing = false;
+            if (save) {
+                commit(editor.text);
+            }
+        }
+    }
+    Rectangle {
+        visible: area.has-hover && root.enabled && !root.editing;
+        background: Palette.hairline1;
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: Palette.hairline2;
+    }
+    HsText {
+        x: 6px;
+        width: root.width - 12px;
+        height: root.height;
+        visible: !root.editing;
+        text: root.text;
+        tone: area.has-hover && root.enabled ? Palette.ink : root.dim ? Palette.graphite : Palette.ink2;
+        font-size: root.font-size;
+        horizontal-alignment: root.align;
+        vertical-alignment: center;
+    }
+    KeyFocus {
+        visible: !root.editing;
+        radius: 7px;
+        activate => {
+            root.start();
+        }
+    }
+    area := TouchArea {
+        enabled: root.enabled && !root.editing;
+        mouse-cursor: MouseCursor.text;
+        double-clicked => {
+            root.start();
+        }
+    }
+    editor := TextField {
+        inline: true;
+        visible: root.editing;
+        width: parent.width;
+        align: root.align;
+        font-size: root.font-size;
+        accepted => {
+            root.finish(true);
+        }
+        escaped => {
+            root.finish(false);
+        }
+        changed has-focus => {
+            if (!self.has-focus) {
+                root.finish(true);
+            }
+        }
+    }
+}
+
+// ---- InlineName: double-click to rename in place; empty + Enter = back to the DAW's name ---------
+export component InlineName inherits Rectangle {
+    in property <string> name;
+    in property <string> daw-name;
+    in property <length> font-size: 14px;
+    in property <int> font-weight: 500;
+    in property <bool> enabled: true;
+    out property <bool> editing;
+    // width of the name plus its hover pill (InlineName::idealWidth)
+    out property <length> ideal-width: label.preferred-width + 14px;
+    callback rename(string);
+    height: 26px;
+    function start() {
+        if (enabled && !editing) {
+            editor.text = name;
+            editing = true;
+            editor.grab();
+        }
+    }
+    function finish(save: bool) {
+        if (editing) {
+            editing = false;
+            if (save) {
+                rename(editor.text);
+            }
+        }
+    }
+    Rectangle {
+        width: min(root.width, label.preferred-width + 13px);
+        visible: area.has-hover && root.enabled && !root.editing;
+        background: Palette.hairline1;
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: Palette.hairline2;
+    }
+    label := HsText {
+        x: 6px;
+        width: min(self.preferred-width, root.width - 12px);
+        height: root.height;
+        visible: !root.editing;
+        text: root.name;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    KeyFocus {
+        visible: !root.editing;
+        radius: 7px;
+        activate => {
+            root.start();
+        }
+    }
+    area := TouchArea {
+        enabled: root.enabled && !root.editing;
+        mouse-cursor: MouseCursor.text;
+        double-clicked => {
+            root.start();
+        }
+    }
+    editor := TextField {
+        inline: true;
+        visible: root.editing;
+        width: parent.width;
+        placeholder: root.daw-name;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        accepted => {
+            root.finish(true);
+        }
+        escaped => {
+            root.finish(false);
+        }
+        changed has-focus => {
+            if (!self.has-focus) {
+                root.finish(true);
+            }
+        }
+    }
+}
+
+// ---- SegmentedControl: [Headphones | Viewers], [All 7 | You hear 4 ...] ----------------------------------
+export struct SegmentData {
+    text: string,
+    has-icon: bool,
+    icon: IconId,
+}
+
+export component SegmentedControl inherits Rectangle {
+    in property <[SegmentData]> segments;
+    in-out property <int> selected;
+    in property <bool> tall;   // 32-high segments (Settings, Compact tabs)
+    callback changed(int);
+    property <length> radius: tall ? 11px : 10px;
+    property <int> hot: -1;
+    height: tall ? 38px : 34px;
+    background: Palette.inset;
+    border-radius: radius;
+    border-width: 1px;
+    border-color: Palette.hairline1;
+    function select(i: int) {
+        if (i >= 0 && i < segments.length && i != selected) {
+            selected = i;
+            changed(i);
+        }
+    }
+    FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow) {
+                root.select(root.selected - 1);
+                return accept;
+            }
+            if (event.text == Key.RightArrow) {
+                root.select(root.selected + 1);
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding: 4px;
+        spacing: 2px;
+        for seg[i] in root.segments: Rectangle {
+            property <bool> on: i == root.selected;
+            property <color> c: on || i == root.hot ? Palette.ink : Palette.graphite;
+            border-radius: root.radius - 2px;
+            background: on ? Palette.menu-bg : i == root.hot ? Palette.hairline1 : transparent;
+            border-width: on ? 1px : 0px;
+            border-color: Palette.hairline2;
+            drop-shadow-color: on ? Palette.shadow.with-alpha(0.12) : transparent;
+            drop-shadow-blur: on ? 3px : 0px;
+            drop-shadow-offset-y: 1px;
+            HorizontalLayout {
+                padding-left: 9px;
+                padding-right: 9px;
+                spacing: 5px;
+                alignment: center;
+                if seg.has-icon: Icon {
+                    id: seg.icon;
+                    ink: c;
+                    size: 13px;
+                    y: (parent.height - self.height) / 2;
+                }
+                HsText {
+                    text: seg.text;
+                    tone: c;
+                    font-size: root.tall ? 12.5px : 12px;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+            }
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                changed has-hover => {
+                    root.hot = self.has-hover ? i : (root.hot == i ? -1 : root.hot);
+                }
+                clicked => {
+                    root.select(i);
+                }
+            }
+        }
+    }
+}
+
+// ---- TextLine: one line of text with an optional status dot; ellipsis when too long ---------------
+export enum Tone { ink, ink2, graphite, danger }
+
+export component TextLine inherits Rectangle {
+    in property <string> text;
+    in property <Tone> tone: Tone.graphite;
+    in property <length> size: 12px;
+    in property <int> weight: 400;
+    in property <DotKind> dot: DotKind.none;
+    in property <bool> right;
+    property <length> lead: dot != DotKind.none ? 13px : 0px;
+    height: 20px;
+    label := HsText {
+        width: min(self.preferred-width, root.width - lead);
+        height: root.height;
+        x: right ? root.width - self.width : lead;
+        text: root.text;
+        tone: root.tone == Tone.ink ? Palette.ink : root.tone == Tone.ink2 ? Palette.ink2 : root.tone == Tone.danger ? Palette.danger : Palette.graphite;
+        font-size: root.size;
+        font-weight: root.weight;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    StatusDot {
+        kind: root.dot;
+        x: label.x - lead;
+        y: (root.height - self.height) / 2;
+    }
+}
+
+// ---- NumberedSteps: 1 2 3 in ink circles, wrapped text (setup steps) -----------------------------
+export component NumberedSteps inherits VerticalLayout {
+    in property <[string]> steps;
+    spacing: 8px;
+    for step[i] in root.steps: HorizontalLayout {
+        spacing: 10px;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            background: Palette.ink;
+            HsText {
+                text: i + 1;
+                tone: Palette.on-ink;
+                font-size: 11px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+        HsText {
+            text: step;
+            tone: Palette.ink2;
+            font-size: 12.5px;
+            wrap: word-wrap;
+            vertical-alignment: top;
+        }
+    }
+}
+
+// ---- Disclosure: "Other DAWs v" that opens a section below -----------------------------------------
+export component Disclosure inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> open;
+    callback toggled(bool);
+    height: 36px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Palette.hairline2;
+    background: area.has-hover ? Palette.hairline1 : transparent;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 8px;
+        HsText {
+            text: root.text;
+            font-size: 12.5px;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Icon {
+            id: IconId.chevron-down;
+            ink: Palette.graphite;
+            size: 16px;
+            weight: 2;
+            y: (parent.height - self.height) / 2;
+            rotation: root.open ? 180deg : 0deg;
+        }
+    }
+    KeyFocus {
+        radius: 10px;
+        activate => {
+            root.open = !root.open;
+            root.toggled(root.open);
+        }
+    }
+    area := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.open = !root.open;
+            root.toggled(root.open);
+        }
+    }
+}
+
+// ---- Stepper: - 2 block + -----------------------------------------------------------------------------
+export component Stepper inherits Rectangle {
+    in-out property <int> value;
+    in property <int> lo: 0;
+    in property <int> hi: 10;
+    in property <string> unit;
+    callback changed(int);
+    height: 30px;
+    function step(d: int) {
+        value = max(root.lo, min(root.hi, value + d));
+        changed(value);
+    }
+    GhostButton {
+        x: 0;
+        width: 32px;
+        height: 30px;
+        small: true;
+        text: "−";
+        enabled: root.value > root.lo;
+        clicked => {
+            root.step(-1);
+        }
+    }
+    HsText {
+        x: 34px;
+        width: root.width - 68px;
+        height: root.height;
+        text: root.value + (root.unit != "" ? " " + root.unit : "");
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    GhostButton {
+        x: root.width - 32px;
+        width: 32px;
+        height: 30px;
+        small: true;
+        text: "+";
+        enabled: root.value < root.hi;
+        clicked => {
+            root.step(1);
+        }
+    }
+}
+
+// ---- Dropdown: a button that opens a list in the Overlay (38 high, radius 10) -------------------------------
+// The owner opens the list at `open-requested` (hs_ui::overlay) and keeps `open` true while it is shown.
+export component Dropdown inherits Rectangle {
+    in property <[string]> items;
+    in property <int> selected;
+    in property <bool> open;
+    in property <bool> small;
+    in property <bool> has-dot;
+    in property <color> dot: Palette.ink;   // the track colour before the text
+    in property <bool> enabled: true;
+    callback open-requested(Anchor);
+    height: 38px;
+    border-radius: small ? 9px : 10px;
+    background: Mix.field;
+    border-width: 1px;
+    border-color: open ? Palette.ink : area.has-hover ? Palette.slider-rail : Palette.hairline3;
+    opacity: enabled ? 1.0 : 0.45;
+    function request() {
+        open-requested({ x: self.absolute-position.x, y: self.absolute-position.y, width: self.width, height: self.height });
+    }
+    HorizontalLayout {
+        padding-left: small ? 10px : 12px;
+        padding-right: 10px;
+        spacing: 8px;
+        if root.has-dot: Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            background: root.dot;
+        }
+        HsText {
+            text: root.selected >= 0 && root.selected < root.items.length ? root.items[root.selected] : "";
+            font-size: small ? 12.5px : 13px;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Icon {
+            id: IconId.chevron-down;
+            ink: Palette.graphite;
+            size: 16px;
+            weight: 2;
+            y: (parent.height - self.height) / 2;
+            rotation: root.open ? 180deg : 0deg;
+        }
+    }
+    FocusRing {
+        shown: root.open;
+        radius: root.border-radius;
+        x: 2.5px - 3px;
+        y: 2.5px - 3px;
+        width: parent.width - 5px + 6px;
+        height: parent.height - 5px + 6px;
+    }
+    KeyFocus {
+        radius: root.border-radius;
+        activate => {
+            root.request();
+        }
+    }
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.request();
+        }
+    }
+}
+
+// ---- SourcePicker: big button with an icon tile that opens a list of sources; `small` = the row version ---------------
+export component SourcePicker inherits Rectangle {
+    in property <IconId> icon: IconId.window;
+    in property <string> text;
+    in property <bool> small;
+    in property <bool> open;
+    callback open-requested(Anchor);
+    height: small ? 26px : 48px;
+    border-radius: small ? 8px : 12px;
+    background: small ? ((area.has-hover || open) ? Palette.hairline2 : transparent) : Mix.field;
+    border-width: small ? 0px : 1px;
+    border-color: open ? Palette.ink : area.has-hover ? Palette.slider-rail : Palette.hairline3;
+    function request() {
+        open-requested({ x: self.absolute-position.x, y: self.absolute-position.y, width: self.width, height: self.height });
+    }
+    HorizontalLayout {
+        padding-left: small ? 6px : 9px;
+        padding-right: small ? 6px : 14px;
+        spacing: small ? 6px : 12px;
+        if !root.small: Rectangle {
+            width: 30px;
+            height: 30px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 8px;
+            background: Palette.ink;
+            Icon {
+                id: root.icon;
+                ink: Palette.on-ink;
+                size: 16px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+        if root.small: Icon {
+            id: root.icon;
+            ink: Palette.ink2;
+            size: 16px;
+            y: (parent.height - self.height) / 2;
+        }
+        HsText {
+            text: root.text;
+            font-size: small ? 14px : 15px;
+            font-weight: small ? 500 : 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Icon {
+            id: IconId.chevron-down;
+            ink: Palette.graphite;
+            size: small ? 14px : 16px;
+            weight: 2;
+            y: (parent.height - self.height) / 2;
+            rotation: root.open && !root.small ? 180deg : 0deg;
+        }
+    }
+    KeyFocus {
+        radius: small ? 8px : 12px;
+        activate => {
+            root.request();
+        }
+    }
+    area := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.request();
+        }
+    }
+}

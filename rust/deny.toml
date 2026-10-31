@@ -1,6 +1,9 @@
 [licenses]
-allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "Unicode-3.0", "CDLA-Permissive-2.0"]
+allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "BSD-2-Clause", "Zlib", "Unicode-3.0", "CDLA-Permissive-2.0", "LicenseRef-Slint-Royalty-free-2.0"]
 # CDLA-Permissive-2.0: the Mozilla root certificate list (webpki-root-certs, a fallback of rustls-platform-verifier). Permissive data licence.
+# BSD-2-Clause (arrayref), Zlib (foldhash, slotmap): permissive.
+# LicenseRef-Slint-Royalty-free-2.0: the Slint crates (hs-ui) are "GPL-3.0-only OR Royalty-free-2.0 OR Software-3.0"; we take the royalty-free terms (Q7), which
+# require the credit "Made with Slint" in the About screen of every product that ships hs-ui (docs/handoff/2026-10-31-rust-R5.1.md). GPL-3.0 stays off the list.
 # hs-obs is GPL-2.0-or-later like obs/hearaside-obs: it links libobs. Its own dependencies still have to fit the list above.
 exceptions = [{ allow = ["GPL-2.0-or-later"], crate = "hs-obs" }]
 

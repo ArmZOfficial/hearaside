@@ -1,0 +1,27 @@
+// A clean vector QR code on a white card (plugins/common/ui/QrView.h): quiet zone of 2 modules, whole-pixel modules.
+// `commands` and `modules` come from hs_ui::qr::path (the dark modules as one SVG path in module units).
+export component QrView inherits Rectangle {
+    in property <string> commands;
+    in property <int> modules;   // matrix size + 2 * quiet zone
+    background: #ffffff;   // white for the phone camera, in both themes
+    border-radius: 12px;
+    property <length> box: min(root.width, root.height) - 16px;
+    property <length> module: modules > 0 ? Math.floor(box / (modules * 1px)) * 1px : 0px;
+    property <length> side: module * modules;
+    Path {
+        visible: root.module >= 1px;
+        x: Math.floor((root.width - root.side) / 2px) * 1px;
+        y: Math.floor((root.height - root.side) / 2px) * 1px;
+        width: root.side;
+        height: root.side;
+        viewbox-width: root.modules;
+        viewbox-height: root.modules;
+        fill: #111418;
+        commands: root.commands;
+    }
+}
+
+// The painted backdrop (hs_ui::backdrop): paper, grid, soft blobs and the frosted-glass cards, rendered once per size and scale.
+export component Backdrop inherits Image {
+    image-fit: fill;
+}

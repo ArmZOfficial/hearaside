@@ -1,0 +1,287 @@
+// Menus, dropdown lists, popovers and toasts drawn inside the editor (plugins/common/ui/Overlay.{h,cpp}).
+// The rows of a menu are laid out by hs_ui::overlay (heights, hit testing, keyboard stepping, placement next to the
+// anchor); this file only draws them. One OverlayLayer sits on top of the editor content.
+import { Palette, Motion, HsText, StatusDot, DotKind, Mix } from "base.slint";
+import { Icon, IconId } from "icons.slint";
+import { Switch } from "controls.slint";
+
+export enum MenuKind { action, switch, check, header, separator }
+
+export struct MenuRow {
+    kind: MenuKind,
+    text: string,
+    value: string,   // right-hand grey text ("Center", "40 ms")
+    sub: string,     // second line (grey)
+    arrow: bool,     // "›": opens another screen
+    on: bool,        // Switch / Check state
+    danger: bool,
+    enabled: bool,
+    dot: DotKind,
+    has-icon: bool,
+    icon: IconId,
+    y: length,       // from hs_ui::overlay::layout
+    h: length,
+}
+
+// The list of a menu: rows painted here, hover / click / keyboard events go back to the owner.
+export component MenuList inherits Rectangle {
+    in property <[MenuRow]> rows;
+    in property <int> hot: -1;
+    in property <bool> keyboard;
+    callback hovered(int);
+    callback activated(int);
+    callback step(int);
+    callback escaped();
+    public function take-focus() {
+        keys.focus();
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.DownArrow || (event.text == Key.Tab && !event.modifiers.shift)) {
+                root.step(1);
+                return accept;
+            }
+            if (event.text == Key.UpArrow || (event.text == Key.Tab && event.modifiers.shift) || event.text == Key.Backtab) {
+                root.step(-1);
+                return accept;
+            }
+            if (event.text == Key.Return || event.text == " ") {
+                root.activated(root.hot);
+                return accept;
+            }
+            if (event.text == Key.Escape) {
+                root.escaped();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    for r[i] in root.rows: Rectangle {
+        x: 6px;
+        y: r.y;
+        width: root.width - 12px;
+        height: r.h;
+        if r.kind == MenuKind.separator: Rectangle {
+            y: (parent.height - 1px) / 2;
+            height: 1px;
+            background: Palette.hairline2;
+        }
+        if r.kind == MenuKind.header: HsText {
+            x: 10px;
+            width: parent.width - 20px;
+            height: parent.height - 4px;
+            text: r.text;
+            tone: Palette.graphite;
+            font-size: 11.5px;
+            vertical-alignment: bottom;
+            overflow: elide;
+        }
+        if r.kind != MenuKind.header && r.kind != MenuKind.separator: Rectangle {
+            property <color> fg: !r.enabled ? Palette.muted : r.danger ? Palette.danger : Palette.ink;
+            Rectangle {
+                visible: i == root.hot && r.enabled;
+                background: Palette.inset.with-alpha(min(1.0, Palette.inset.alpha / 255 * (root.keyboard ? 1.6 : 1.0)));
+                border-radius: 9px;
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                if r.has-icon: Rectangle {
+                    width: 22px;
+                    Icon {
+                        id: r.icon;
+                        ink: r.enabled ? Palette.ink2 : Palette.muted;
+                        size: 16px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    HsText {
+                        text: r.text;
+                        tone: fg;
+                        font-size: 13px;
+                        font-weight: r.kind == MenuKind.check && r.on ? 600 : 400;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        height: r.sub != "" ? 18px : parent.height;
+                    }
+                    if r.sub != "": HsText {
+                        text: r.sub;
+                        tone: Palette.graphite;
+                        font-size: 11.5px;
+                        overflow: elide;
+                        height: 16px;
+                    }
+                }
+                if r.dot != DotKind.none: StatusDot {
+                    kind: r.dot;
+                    y: (parent.height - self.height) / 2;
+                }
+                if r.value != "": HsText {
+                    text: r.value;
+                    tone: Palette.graphite;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    max-width: root.width * 0.35;
+                }
+                if r.arrow: Icon {
+                    id: IconId.chevron-right;
+                    ink: Palette.graphite;
+                    size: 14px;
+                    weight: 2;
+                    y: (parent.height - self.height) / 2;
+                }
+                if r.kind == MenuKind.switch: Switch {
+                    on: r.on;
+                    enabled: false;   // the row is the button: a click on it toggles
+                    opacity: 1.0;
+                    y: (parent.height - self.height) / 2;
+                }
+                if r.kind == MenuKind.check: Rectangle {
+                    width: 16px;
+                    if r.on: Icon {
+                        id: IconId.check;
+                        ink: Palette.ink;
+                        size: 16px;
+                        weight: 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+            }
+            TouchArea {
+                enabled: r.enabled;
+                mouse-cursor: MouseCursor.pointer;
+                changed has-hover => {
+                    if (self.has-hover) {
+                        root.hovered(i);
+                    }
+                }
+                clicked => {
+                    root.activated(i);
+                }
+            }
+        }
+    }
+}
+
+// Covers the editor while a menu or popover is open: a click outside the card calls `dismissed`.
+// The card (menuBg, hairline, two soft shadows) is placed by the owner (hs_ui::overlay::place); the children fill it.
+export component OverlayLayer inherits Rectangle {
+    in property <bool> open;
+    in property <length> card-x;
+    in property <length> card-y;
+    in property <length> card-w;
+    in property <length> card-h;
+    in property <length> radius: 14px;   // 16 for a popover
+    in property <length> card-pad: 0px;   // 16 for a popover
+    callback dismissed();
+    visible: open || alpha > 0.0;
+    // fades in when it opens, closes at once (Overlay::timerCallback)
+    property <float> alpha: 0.0;
+    states [
+        shown when root.open: {
+            alpha: 1.0;
+            in {
+                animate alpha {
+                    duration: Motion.fade-ms;
+                    easing: linear;
+                }
+            }
+        }
+    ]
+    TouchArea {
+        enabled: root.open;
+        clicked => {
+            root.dismissed();
+        }
+    }
+    Rectangle {
+        x: root.card-x;
+        y: root.card-y;
+        width: root.card-w;
+        height: root.card-h;
+        opacity: root.alpha;
+        border-radius: root.radius;
+        drop-shadow-color: #00000024;
+        drop-shadow-blur: 28px;
+        drop-shadow-offset-y: 14px;
+        Rectangle {
+            border-radius: root.radius;
+            drop-shadow-color: #0000000f;
+            drop-shadow-blur: 6px;
+            drop-shadow-offset-y: 2px;
+            background: Palette.menu-bg;
+            border-width: 1px;
+            border-color: Palette.hairline2;
+        }
+        // swallows clicks on the card itself
+        TouchArea { }
+        Rectangle {
+            x: root.card-pad;
+            y: root.card-pad;
+            width: parent.width - 2 * root.card-pad;
+            height: parent.height - 2 * root.card-pad;
+            @children
+        }
+    }
+}
+
+// Ink card at the bottom centre ("Copied"): `show` for `ms` milliseconds (2400; rename 2600).
+export component Toast inherits Rectangle {
+    in-out property <string> text;
+    in-out property <bool> shown;
+    in-out property <duration> lasts: 2400ms;
+    public function show(message: string, ms: duration) {
+        text = message;
+        lasts = ms;
+        shown = true;
+        timer.running = false;
+        timer.running = true;
+    }
+    visible: shown;
+    timer := Timer {
+        interval: root.lasts;
+        running: false;
+        triggered => {
+            root.shown = false;
+            self.running = false;
+        }
+    }
+    Rectangle {
+        width: min(row.preferred-width, root.width * 0.8);
+        height: row.preferred-height;
+        x: (root.width - self.width) / 2;
+        y: root.height - 26px - self.height;
+        border-radius: 12px;
+        background: Palette.ink;
+        drop-shadow-color: #00000038;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-y: 10px;
+        row := HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            spacing: 8px;
+            Icon {
+                id: IconId.check;
+                ink: Palette.on-ink;
+                size: 16px;
+                weight: 2;
+                y: (parent.height - self.height) / 2;
+            }
+            HsText {
+                text: root.text;
+                tone: Palette.on-ink;
+                font-weight: 500;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

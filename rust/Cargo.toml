@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hs-bus", "crates/hs-dsp", "crates/hs-engine", "crates/hs-ffi", "crates/hs-app", "crates/hs-net", "crates/hs-tools", "crates/hs-testkit", "crates/hs-obs", "crates/hs-streamlabs-setup"]
+members = ["crates/hs-bus", "crates/hs-dsp", "crates/hs-engine", "crates/hs-ffi", "crates/hs-app", "crates/hs-net", "crates/hs-tools", "crates/hs-testkit", "crates/hs-obs", "crates/hs-streamlabs-setup", "crates/hs-ui"]
 exclude = ["spikes"]   # R0.3 / R0.4 throwaway spikes, each its own workspace
 resolver = "3"
 
@@ -19,3 +19,11 @@ undocumented_unsafe_blocks = "deny"
 
 [profile.release]
 panic = "unwind"
+
+# hs-ui's tests render whole pages (backdrop pixels, Slint's software renderer); unoptimised that takes minutes
+[profile.dev.package.hs-ui]
+opt-level = 3
+[profile.dev.package.i-slint-core]
+opt-level = 3
+[profile.dev.package.i-slint-renderer-software]
+opt-level = 3

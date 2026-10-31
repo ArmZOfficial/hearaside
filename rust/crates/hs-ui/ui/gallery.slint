@@ -1,0 +1,349 @@
+// The sample page of hs-ui: every component in a glass card, over the painted backdrop. Rendered headless to PNG
+// (hs-ui-gallery) and checked by the design_contrast test. Geometry of the cards comes from Rust (they are also
+// the glass cards of the backdrop image); texts come from hs-app strings, in Thai or English.
+import { Palette, Tokens, Motion, HsText, Inset, StatusDot, DotKind, TextProbe, Mix } from "base.slint";
+import { Icon, IconId } from "icons.slint";
+import { Switch, GhostButton, ButtonStyle, TextField, EditableValue, InlineName, SegmentedControl, SegmentData, TextLine, Tone, NumberedSteps, Disclosure, Stepper, Dropdown, SourcePicker, Anchor } from "controls.slint";
+import { MenuList, MenuRow, MenuKind, OverlayLayer, Toast } from "overlay.slint";
+import { ScrollArea } from "scroll.slint";
+import { QrView, Backdrop } from "qr.slint";
+
+export { Palette, Tokens, Motion, TextProbe, Anchor, MenuRow, MenuKind, IconId, DotKind, SegmentData }
+
+export struct CardRect {
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+}
+
+export struct GalleryTexts {
+    heading: string,
+    more: string,
+    you-hear: string,
+    viewers-hear: string,
+    theme-auto: string,
+    theme-light: string,
+    theme-dark: string,
+    ok: string,
+    cancel: string,
+    copy: string,
+    mute: string,
+    placeholder: string,
+    on: string,
+    off: string,
+    value-db: string,
+    value-ms: string,
+    value-pan: string,
+    track-name: string,
+    tracks-tab: string,
+    other-daws: string,
+    program: string,
+    line-ok: string,
+    line-warn: string,
+    line-danger: string,
+    line-muted: string,
+    copied: string,
+    icons-heading: string,
+    steps-heading: string,
+    scroll-heading: string,
+    qr-heading: string,
+}
+
+export component Gallery inherits Window {
+    in property <image> backdrop;
+    // the contrast check's page: nothing disabled and no fading, so every text shows in its own colour (disabled text is exempt)
+    in property <bool> contrast;
+    in property <[CardRect]> cards;
+    in property <GalleryTexts> t;
+    in property <[string]> steps;
+    in property <[string]> lines;
+    in property <string> qr-commands;
+    in property <int> qr-modules;
+    // the open menu (hs_ui::overlay lays out its rows and places the card)
+    in property <bool> menu-open;
+    in property <[MenuRow]> menu-rows;
+    in property <int> menu-hot: -1;
+    in property <bool> menu-keyboard;
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <length> menu-w: 236px;
+    in property <length> menu-h;
+    in property <bool> dropdown-open;
+    in property <string> toast-text;
+    in property <bool> toast-shown;
+    out property <Anchor> dropdown-anchor: { x: dropdown.absolute-position.x, y: dropdown.absolute-position.y, width: dropdown.width, height: dropdown.height };
+    out property <Anchor> menu-anchor: { x: more.absolute-position.x, y: more.absolute-position.y, width: more.width, height: more.height };
+    callback menu-requested(Anchor);
+    callback dropdown-requested(Anchor);
+    callback menu-hovered(int);
+    callback menu-activated(int);
+    callback menu-step(int);
+    callback menu-dismissed();
+    default-font-family: "Anuphan";
+    width: 1240px;
+    height: 720px;
+    background: Palette.paper;
+
+    property <[SegmentData]> hear-segments: [
+        { text: t.you-hear, has-icon: true, icon: IconId.headphones },
+        { text: t.viewers-hear, has-icon: true, icon: IconId.broadcast },
+    ];
+    property <[SegmentData]> theme-segments: [
+        { text: t.theme-auto }, { text: t.theme-light }, { text: t.theme-dark },
+    ];
+    property <[string]> dropdown-items: [t.you-hear, t.viewers-hear];
+    property <[IconId]> all-icons: [IconId.headphones, IconId.broadcast, IconId.speaker-off, IconId.speaker-on, IconId.sliders, IconId.warning, IconId.more, IconId.solo, IconId.power, IconId.record, IconId.drag, IconId.folder, IconId.link, IconId.check, IconId.info, IconId.close, IconId.window, IconId.monitor, IconId.person, IconId.plus, IconId.waveform, IconId.grip, IconId.appearance, IconId.audio-bars, IconId.connection, IconId.spread, IconId.play, IconId.chevron-left, IconId.chevron-right, IconId.chevron-down, IconId.refresh];
+
+    Backdrop {
+        source: root.backdrop;
+        width: root.width;
+        height: root.height;
+    }
+
+    // ---- card 1: inputs ----
+    VerticalLayout {
+        x: cards[0].x + 18px;
+        y: cards[0].y + 16px;
+        width: cards[0].width - 36px;
+        spacing: 11px;
+        alignment: start;
+        HsText {
+            text: t.heading;
+            font-size: Tokens.type-h2;
+            font-weight: 600;
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Switch { }
+            Switch { on: true; }
+            Switch { large: true; }
+            Switch { large: true; on: true; }
+            Switch { enabled: false; }
+            HsText {
+                text: t.on + " / " + t.off;
+                tone: Palette.graphite;
+                font-size: Tokens.type-caption;
+                vertical-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            GhostButton { text: t.ok; style: ButtonStyle.solid; }
+            GhostButton { text: t.cancel; }
+            GhostButton { text: t.mute; style: ButtonStyle.danger; has-icon: true; icon: IconId.speaker-off; }
+            GhostButton { text: t.cancel; style: ButtonStyle.danger-solid; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            GhostButton { text: t.copy; small: true; has-icon: true; icon: IconId.link; }
+            GhostButton { text: t.ok; small: true; enabled: root.contrast; }
+            GhostButton { text: t.ok; small: true; style: ButtonStyle.solid; enabled: root.contrast; }
+            GhostButton { small: true; has-icon: true; icon: IconId.refresh; width: 36px; }
+        }
+        SegmentedControl {
+            segments: root.hear-segments;
+            selected: 1;
+        }
+        SegmentedControl {
+            segments: root.theme-segments;
+            tall: true;
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            TextField { text: t.track-name; }
+            TextField { placeholder: t.placeholder; }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            EditableValue { text: t.value-db; width: 84px; }
+            EditableValue { text: t.value-ms; dim: true; width: 70px; }
+            EditableValue { text: t.value-pan; width: 50px; }
+            InlineName { name: t.track-name; daw-name: t.heading; width: 110px; }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Stepper {
+                width: 150px;
+                value: 2;
+                lo: 0;
+                hi: 10;
+                unit: "ms";
+            }
+            Disclosure {
+                text: t.other-daws;
+            }
+        }
+        dropdown := Dropdown {
+            items: root.dropdown-items;
+            selected: 0;
+            open: root.dropdown-open;
+            has-dot: true;
+            dot: Palette.track-shade3;
+            open-requested(a) => {
+                root.dropdown-requested(a);
+            }
+        }
+        SourcePicker {
+            icon: IconId.window;
+            text: t.program;
+        }
+        SourcePicker {
+            small: true;
+            icon: IconId.monitor;
+            text: t.program;
+            width: 200px;
+        }
+        TextLine { text: t.line-ok; tone: Tone.ink; dot: DotKind.ok; }
+        TextLine { text: t.line-warn; tone: Tone.ink2; dot: DotKind.warn; }
+        TextLine { text: t.line-danger; tone: Tone.danger; dot: DotKind.rec; }
+        TextLine { text: t.line-muted; dot: DotKind.muted; right: true; }
+    }
+
+    // ---- card 2: icons, steps, scrolling ----
+    VerticalLayout {
+        x: cards[1].x + 18px;
+        y: cards[1].y + 16px;
+        width: cards[1].width - 36px;
+        spacing: 12px;
+        alignment: start;
+        HsText {
+            text: t.icons-heading;
+            font-size: Tokens.type-h2;
+            font-weight: 600;
+        }
+        for row in [0, 1, 2, 3]: HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            for col in [0, 1, 2, 3, 4, 5, 6, 7]: Rectangle {
+                width: 38px;
+                height: 34px;
+                border-radius: 10px;
+                background: Palette.chip-bg;
+                border-width: 1px;
+                border-color: Palette.hairline2;
+                visible: row * 8 + col < root.all-icons.length;
+                Icon {
+                    id: root.all-icons[row * 8 + col];
+                    ink: Palette.ink2;
+                    size: 18px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 14px;
+            alignment: start;
+            for k in [DotKind.muted, DotKind.ok, DotKind.warn, DotKind.rec, DotKind.rec-ring]: StatusDot {
+                kind: k;
+                y: 4px;
+            }
+        }
+        HsText {
+            text: t.steps-heading;
+            font-weight: 600;
+        }
+        NumberedSteps {
+            steps: root.steps;
+        }
+    }
+
+    // ---- card 3: scrolling and QR ----
+    HsText {
+        x: cards[2].x + 18px;
+        y: cards[2].y + 16px;
+        text: t.scroll-heading;
+        font-size: Tokens.type-h2;
+        font-weight: 600;
+    }
+    more := GhostButton {
+        x: cards[2].x + 18px + 150px + 16px;
+        y: cards[2].y + 244px;
+        width: self.ideal-width;
+        text: t.more;
+        has-icon: true;
+        icon: IconId.more;
+        small: true;
+        clicked => {
+            root.menu-requested(root.menu-anchor);
+        }
+    }
+    ScrollArea {
+        x: cards[2].x + 18px;
+        y: cards[2].y + 50px;
+        width: cards[2].width - 36px + 14px;
+        height: 150px;
+        fade: Mix.over(Palette.glass, Palette.paper);
+        fade-top: root.contrast ? 0px : 20px;
+        fade-bottom: root.contrast ? 0px : 28px;
+        for line[i] in root.lines: Rectangle {
+            height: 30px;
+            HsText {
+                x: 0;
+                width: parent.width;
+                text: line;
+                tone: Math.mod(i, 2) == 0 ? Palette.ink : Palette.ink2;
+                font-size: Tokens.type-caption;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+    HsText {
+        x: cards[2].x + 18px;
+        y: cards[2].y + 218px;
+        text: t.qr-heading;
+        font-weight: 600;
+    }
+    QrView {
+        x: cards[2].x + 18px;
+        y: cards[2].y + 244px;
+        width: 150px;
+        height: 150px;
+        commands: root.qr-commands;
+        modules: root.qr-modules;
+    }
+
+    // ---- on top: the menu and the toast ----
+    OverlayLayer {
+        width: root.width;
+        height: root.height;
+        open: root.menu-open;
+        card-x: root.menu-x;
+        card-y: root.menu-y;
+        card-w: root.menu-w;
+        card-h: root.menu-h;
+        dismissed => {
+            root.menu-dismissed();
+        }
+        MenuList {
+            width: root.menu-w;
+            height: root.menu-h;
+            rows: root.menu-rows;
+            hot: root.menu-hot;
+            keyboard: root.menu-keyboard;
+            hovered(i) => {
+                root.menu-hovered(i);
+            }
+            activated(i) => {
+                root.menu-activated(i);
+            }
+            step(d) => {
+                root.menu-step(d);
+            }
+            escaped => {
+                root.menu-dismissed();
+            }
+        }
+    }
+    Toast {
+        width: root.width;
+        height: root.height;
+        text: root.toast-text;
+        shown: root.toast-shown;
+    }
+}

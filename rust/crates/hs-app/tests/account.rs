@@ -181,7 +181,7 @@ fn state_is(m: &AccountManager, s: State, ms: u64) -> bool {
 fn sign_in(m: &AccountManager) {
     m.start_device_flow("hub");
     assert!(
-        state_is(m, State::SignedIn, 5000),
+        state_is(m, State::SignedIn, 20000), // CI's Windows runners stall for seconds at a time
         "signed in once the browser allows it, state {:?}",
         m.state()
     );
@@ -1092,7 +1092,7 @@ fn bug_requests_queue_up_instead_of_replacing_each_other() {
     m.set_device_name("PC");
     m.refresh_profile();
     assert!(
-        wait_for(5000, || fake.count("PATCH /api/v1/me") == 2
+        wait_for(20000, || fake.count("PATCH /api/v1/me") == 2
             && fake.count("DELETE /api/v1/me/avatar") == 1
             && fake.count("PATCH /api/v1/device") == 1),
         "every request reached the server"

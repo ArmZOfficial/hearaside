@@ -24,6 +24,11 @@ add_executable(ss_ipc_test integration/ipc_test.cpp)
 target_link_libraries(ss_ipc_test PRIVATE ssbus)
 add_test(NAME ipc COMMAND ss_ipc_test)
 
+# OBS hotkey remote commands, the C++ side of the Rust hs-obs cross-language tests (SS_REMOTE_CPP); a tool, not a test
+add_executable(ss_remote_probe integration/remote_probe.cpp ../obs/hearaside-obs/src/remote.cpp)
+target_include_directories(ss_remote_probe PRIVATE ${CMAKE_SOURCE_DIR}/obs/hearaside-obs/src)
+target_link_libraries(ss_remote_probe PRIVATE ssbus)
+
 add_executable(hs-layout-dump ../tools/compat-dump/layout.cpp)
 target_include_directories(hs-layout-dump PRIVATE ${CMAKE_SOURCE_DIR}/libs/ssbus/include)
 add_test(NAME shm_v14_layout COMMAND hs-layout-dump --check

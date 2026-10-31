@@ -441,6 +441,7 @@ macOS (Q4): Logic รับเฉพาะ AU ต้องตรวจใน R0.
 | R9.3 | beta กับผู้ใช้จริง 2 รอบ (ลิงก์ดาวน์เกรดเป็น 1.0.10 ไว้ใน release notes) | ไม่มีบั๊กระดับ "โปรเจกต์เปิดไม่ได้ / ไม่มีเสียง" |
 | R9.4 | ลบ `libs/`, `plugins/`, `apps/`, `obs/` C++, JUCE, Corrosion, `hs-ffi` (หลัง stable 2 รุ่น) | CMake เหลือเฉพาะ plugin-host-test (+ VST2 shim ถ้ามี) |
 | R9.5 | อัปเดต CLAUDE.md (build / test / กฎ audio thread แบบ Rust), README, CONTRIBUTING | |
+| R9.6 | (ArmZ ขอ 31 ต.ค. 2026) ตรวจทั้ง repo หลังย้ายเสร็จ: ลบไฟล์ / โฟลเดอร์ / script / doc / log / spike / fixture ที่ไม่ใช้แล้ว (เก็บแค่ที่ build, test, ติดตั้ง, เว็บ และ compat contract ต้องใช้), จัดโครงโฟลเดอร์ใหม่ให้หาง่าย อ่านง่าย มี README สั้นในแต่ละโฟลเดอร์หลัก, ย้าย handoff เก่าเข้า `docs/archive/` | รายการลบ / ย้ายให้ ArmZ อนุมัติก่อนลบ, build + test ทั้งหมดยังผ่าน, compat หัวข้อ 3 ไม่ถูกแตะ |
 
 ---
 

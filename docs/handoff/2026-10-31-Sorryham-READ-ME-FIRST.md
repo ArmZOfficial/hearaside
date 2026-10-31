@@ -61,6 +61,13 @@ cargo deny --locked check licenses bans sources
 4. ข้อความไทยของ Preflight ยังไม่อยู่ใน `Strings` (เหมือน C++) ควรย้ายตอน R5.5
 5. UpdateChecker: `installer` ใน `release.json` เป็น path สัมพัทธ์ แอปจึงพาไปหน้า download เสมอ (เหมือน C++) จะเปลี่ยนไหม
 6. `hs-net` golden Opus 2 ตัวล้มบนเครื่องผม **ทั้งที่มีและไม่มีงานนี้** (ลองบน `rs/R3.3-share-server` สะอาดแล้ว) น่าจะเป็น SIMD ของ libopus ตาม CPU ฝากดูครับ
+7. **CI Windows ยังแดง 1 test (ของ `hs-testkit` ไม่ใช่งานนี้):** `serve_friend_prints_the_link_and_what_the_hub_saw` ล้มบน `windows-latest` 2 รอบติด เสียงไมค์ถึง bus แค่ 480 / 960 sample (ต้อง ≥ 57,600) บนเครื่องผมผ่าน 7/7 รอบ (รวมรันทั้งไฟล์พร้อมกัน 4 รอบ) ไม่ได้เพิ่มเวลาให้ เพราะเสียงแทบไม่ถึงเลย อาจเป็นบั๊กจริงของ friend path ตอนเครื่องช้า ฝากพี่ดูครับ (ก่อนหน้านี้ test Windows ไม่เคยรันถึงตรงนี้ เพราะ Linux ล้มแล้ว fail-fast ยกเลิก Windows)
+
+### CI ที่แก้ใน PR นี้ (ของเดิมบน `rs/R3.3-share-server` ล้มบน Linux อยู่แล้ว)
+
+1. `rust.yml`: ติดตั้ง `libfontconfig1-dev` บน Linux (slint ของ `hs-ui` ต้องใช้) และ `fail-fast: false` ให้ Windows รันจบแม้ Linux ล้ม
+2. `hs-obs`: `Host::{Streamlabs, UnknownFork}` ไม่ถูกใช้บน Linux, clippy `-D warnings` ล้ม → `allow(dead_code)` เฉพาะนอก Windows
+3. `hs-app` test account: เช็ก "token ไม่อยู่ในไฟล์แบบ plain text" เฉพาะ Windows (นอก Windows เป็น JSON อ่านได้แค่เจ้าของ ตามที่ `vault.rs` ออกแบบไว้) และเพิ่มเวลารอ sign-in 5 → 20 s (CI Windows ค้างหลายวินาที 7 test ล้มพร้อมกัน)
 
 ## 6. Commit
 
@@ -68,6 +75,7 @@ cargo deny --locked check licenses bans sources
 |---|---|
 | merge `origin/main` | ไม่มีไฟล์เปลี่ยน (main ตามหลัง R3.3) |
 | `d8d08a0` | R5.3 |
-| ถัดไป | R5.4 + เอกสารนี้ |
+| `0c45da5` | R5.4 + เอกสารนี้ |
+| `a949682` `58db48f` `cbd34c2` `8885e27` | แก้ CI (ดูหัวข้อ "CI ที่แก้ใน PR นี้") |
 
-push / เปิด PR เมื่อเจ้าของ branch สั่งเท่านั้น
+PR: https://github.com/ArmZOfficial/hearaside/pull/26 (draft, base `rs/R3.3-share-server`)

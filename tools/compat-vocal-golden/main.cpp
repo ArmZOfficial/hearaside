@@ -2,6 +2,8 @@
 #include "VocalChain.h"
 #include "rt_audit.h"
 
+#include <juce_audio_formats/juce_audio_formats.h> // --render (already linked through juce_dsp)
+
 #include <bit>
 #include <cmath>
 #include <cstdint>
@@ -228,9 +230,49 @@ void run(const juce::File& directory, bool check, bool compare) {
     std::printf("%s20 VocalChain cases and 4 input references\n", check ? "Checked " : "Wrote ");
     if (compare) std::printf("Maximum absolute sample error: %.9g (limit 1e-6)\n", maximumError);
 }
+// A/B listening (R5.3): runs a recording's first channel through VocalChain with the app's default settings and
+// writes the headphone mix as 32-bit float stereo WAV. `cargo run -p hs-karaoke --example vocal_render` is the Rust twin.
+int render(const juce::File& in, const juce::File& out) {
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(in));
+    require(reader != nullptr, "Cannot read " + in.getFullPathName());
+    const int length = int(reader->lengthInSamples);
+    juce::AudioBuffer<float> mic(int(reader->numChannels), length);
+    reader->read(&mic, 0, length, 0, true, true);
+
+    hearaside::karaoke::VocalChain chain;
+    chain.prepare(reader->sampleRate, blockSize);
+    juce::AudioBuffer<float> mix(2, length);
+    std::vector<float> network(blockSize);
+    for (int offset = 0; offset < length; offset += blockSize) {
+        const int n = std::min(blockSize, length - offset);
+        chain.process(mic.getReadPointer(0, offset), mix.getWritePointer(0, offset), mix.getWritePointer(1, offset), network.data(), n);
+    }
+
+    out.deleteFile();
+    std::unique_ptr<juce::OutputStream> stream = out.createOutputStream();
+    require(stream != nullptr, "Cannot write " + out.getFullPathName());
+    juce::WavAudioFormat wav;
+    auto writer = wav.createWriterFor(stream, juce::AudioFormatWriterOptions{}
+        .withSampleRate(reader->sampleRate).withNumChannels(2).withBitsPerSample(32)
+        .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
+    require(writer != nullptr && writer->writeFromAudioSampleBuffer(mix, 0, length), "Cannot write " + out.getFullPathName());
+    std::printf("Rendered %d frames at %.0f Hz\n", length, reader->sampleRate);
+    return 0;
+}
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 4 && juce::String(argv[1]) == "--render") {
+        try {
+            const auto cwd = juce::File::getCurrentWorkingDirectory();
+            return render(cwd.getChildFile(argv[2]), cwd.getChildFile(argv[3]));
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "%s\n", error.what());
+            return 1;
+        }
+    }
     const juce::String mode = argc == 3 ? argv[1] : "";
     if (mode != "--output" && mode != "--check" && mode != "--compare" && mode != "--rt-audit") {
         std::fprintf(stderr, "Usage: hs-vocal-golden --output <empty-directory> | --check <fixture-directory> | --compare <fixture-directory> | --rt-audit <fixture-directory>\n");

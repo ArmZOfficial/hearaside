@@ -106,6 +106,7 @@ fn cstring(s: &str) -> CString {
 /// mismatch crashes the host).
 static STREAMLABS: AtomicBool = AtomicBool::new(false);
 
+#[cfg_attr(not(windows), allow(dead_code))] // Streamlabs Desktop is Windows only
 enum Host {
     Obs,
     Streamlabs,

@@ -21,7 +21,7 @@ pub use account::{
     ProfileError, ProfilePatch, State, Timings,
 };
 pub use directory::{DirectoryState, Resolved, ShareDirectory};
-pub use http::origin_of;
+pub use http::{get_json, origin_of};
 #[doc(hidden)]
 pub use pin::detached_workers;
 pub use properties::PropertiesFile;

@@ -423,6 +423,23 @@ abi_struct!(
     }
 );
 
+impl ChannelRing {
+    /// A zeroed ring on the heap (512 KiB: too big for the stack), for a ring that is not in shared memory
+    /// (HAS Karaoke's network rings, like the C++ `std::make_unique<ChannelRing>()`).
+    pub fn boxed() -> Box<Self> {
+        let layout = std::alloc::Layout::new::<Self>();
+        // SAFETY: the layout is not zero-sized; zero bits are a valid `ChannelRing` (plain f32 samples). A null result
+        // goes to `handle_alloc_error` before the pointer is used, and `Box` frees it with this same layout.
+        unsafe {
+            let p = std::alloc::alloc_zeroed(layout);
+            if p.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
+            Box::from_raw(p.cast())
+        }
+    }
+}
+
 const _: () = {
     assert!(size_of::<RemoteCommand>() == 16);
     assert!(size_of::<BusHeader>() == 4096);

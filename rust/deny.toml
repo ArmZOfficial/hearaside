@@ -1,5 +1,6 @@
 [licenses]
-allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "BSD-2-Clause", "Zlib", "Unicode-3.0", "CDLA-Permissive-2.0", "LicenseRef-Slint-Royalty-free-2.0"]
+allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "BSD-2-Clause", "Zlib", "Unicode-3.0", "CDLA-Permissive-2.0", "LicenseRef-Slint-Royalty-free-2.0", "MPL-2.0"]
+# MPL-2.0: symphonia (hs-karaoke's music decoder, PLAN appendix A). File-level copyleft: linking is fine; changes to its own files would have to be shared.
 # CDLA-Permissive-2.0: the Mozilla root certificate list (webpki-root-certs, a fallback of rustls-platform-verifier). Permissive data licence.
 # BSD-2-Clause (arrayref), Zlib (foldhash, slotmap): permissive.
 # LicenseRef-Slint-Royalty-free-2.0: the Slint crates (hs-ui) are "GPL-3.0-only OR Royalty-free-2.0 OR Software-3.0"; we take the royalty-free terms (Q7), which

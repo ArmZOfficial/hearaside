@@ -164,6 +164,14 @@ impl Client {
     }
 }
 
+/// A plain `GET` of a JSON object (no secret, redirects followed), for HAS Karaoke's update check. Blocks: worker
+/// threads only. `None` on no answer, a non-2xx status or a body that is not a JSON object.
+pub fn get_json(url: &str, connect: Duration, total: Duration) -> Option<serde_json::Value> {
+    let r = Client::new(connect, total, 1 << 20).json("GET", url, None, "", 3);
+    let v = r.json();
+    (r.ok() && v.is_object()).then_some(v)
+}
+
 /// A redirect may be followed when the target may carry what the request carries, and an https request is never sent on
 /// to plain http (not even to this computer: that is a downgrade).
 fn redirect_ok(from: &str, to: &str) -> bool {

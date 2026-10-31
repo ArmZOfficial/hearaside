@@ -1,0 +1,17 @@
+[package]
+name = "hs-karaoke"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hs-app = { version = "0.1.0", path = "../hs-app" }
+hs-dsp = { version = "0.1.0", path = "../hs-dsp" }
+serde_json = "=1.0.154"
+# the C++ MusicPlayer reads WAV, AIFF, FLAC, Ogg Vorbis, MP3 and (Media Foundation) M4A / AAC
+symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "aiff", "flac", "ogg", "vorbis", "mp3", "isomp4", "aac"] }

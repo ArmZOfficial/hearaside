@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hs-bus", "crates/hs-dsp", "crates/hs-engine", "crates/hs-ffi", "crates/hs-app", "crates/hs-net", "crates/hs-tools", "crates/hs-testkit", "crates/hs-obs", "crates/hs-streamlabs-setup", "crates/hs-win", "crates/hs-ui"]
+members = ["crates/hs-bus", "crates/hs-dsp", "crates/hs-engine", "crates/hs-ffi", "crates/hs-app", "crates/hs-net", "crates/hs-tools", "crates/hs-testkit", "crates/hs-obs", "crates/hs-streamlabs-setup", "crates/hs-win", "crates/hs-ui", "crates/hs-karaoke"]
 exclude = ["spikes"]   # R0.3 / R0.4 throwaway spikes, each its own workspace
 resolver = "3"
 

@@ -1,11 +1,13 @@
 //! `hs-karaoke`: HAS Karaoke in Rust (R5). R5.3 brings the parts under the UI: the vocal chain, the music player, the
 //! pre-flight leak check and the update check (ports of `apps/karaoke/{VocalChain,MusicPlayer,PreflightChecker,
-//! UpdateChecker}`). The window and the room / join code come in R5.4 / R5.5.
+//! UpdateChecker}`). R5.4 adds hosting a room (`room`) and joining one (`join`). The window comes in R5.5.
 //!
 //! JUCE delivered work to the message thread with `MessageManager::callAsync`; here each part whose work finishes on
 //! another thread has a `poll()` for the owner's UI timer (the convention of `hs_win::asio::Device::poll_restart`).
+pub mod join;
 pub mod player;
 pub mod preflight;
+pub mod room;
 pub mod update;
 pub mod vocal;
 

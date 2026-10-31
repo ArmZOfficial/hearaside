@@ -11,7 +11,14 @@ workspace = true
 
 [dependencies]
 hs-app = { version = "0.1.0", path = "../hs-app" }
+hs-bus = { version = "0.1.0", path = "../hs-bus" }
 hs-dsp = { version = "0.1.0", path = "../hs-dsp" }
+hs-engine = { version = "0.1.0", path = "../hs-engine" }
+hs-net = { version = "0.1.0", path = "../hs-net" }
 serde_json = "=1.0.154"
+# joining a room: WebSocket client (handshake only; TLS is ours, the same rustls + OS certificate store as hs-app)
+tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+rustls-platform-verifier = "=0.7.1"
 # the C++ MusicPlayer reads WAV, AIFF, FLAC, Ogg Vorbis, MP3 and (Media Foundation) M4A / AAC
 symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "aiff", "flac", "ogg", "vorbis", "mp3", "isomp4", "aac"] }

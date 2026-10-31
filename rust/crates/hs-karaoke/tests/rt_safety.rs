@@ -1,66 +1,13 @@
 //! Real-time safety of the audio-thread calls (PLAN section 8): `VocalChain::process`, `PreflightAudio::process` and
 //! `MusicOutput::pull_audio` make no heap allocation once prepared. Same counting-allocator pattern as hs-engine's and
-//! hs-win's `tests/rt_safety.rs`.
+//! hs-win's `tests/rt_safety.rs` (in `common`). `RoomAudio::process` is checked in `room.rs`, which owns the environment.
 mod common;
 
-use common::{Temp, write_wav};
+use common::{Temp, allocations, write_wav};
 use hs_karaoke::player::music_player;
 use hs_karaoke::preflight::preflight;
 use hs_karaoke::vocal::VocalChain;
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::cell::Cell;
 use std::time::{Duration, Instant};
-
-struct Counting;
-
-thread_local! {
-    static ARMED: Cell<bool> = const { Cell::new(false) };
-    static COUNT: Cell<usize> = const { Cell::new(0) };
-}
-
-fn note() {
-    // `try_with`: the allocator also runs while thread locals are being torn down
-    let _ = ARMED.try_with(|a| {
-        if a.get() {
-            let _ = COUNT.try_with(|c| c.set(c.get() + 1));
-        }
-    });
-}
-
-// SAFETY: forwards to the system allocator; the bookkeeping touches only thread-local Cells.
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        note();
-        // SAFETY: same contract as the caller's.
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        note();
-        // SAFETY: same contract as the caller's.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        note();
-        // SAFETY: same contract as the caller's.
-        unsafe { System.realloc(ptr, layout, new_size) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: same contract as the caller's.
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-
-#[global_allocator]
-static ALLOC: Counting = Counting;
-
-/// Runs `f` with the counter armed on this thread; returns the allocations it made.
-fn allocations(f: impl FnOnce()) -> usize {
-    COUNT.with(|c| c.set(0));
-    ARMED.with(|a| a.set(true));
-    f();
-    ARMED.with(|a| a.set(false));
-    COUNT.with(Cell::get)
-}
 
 #[test]
 fn vocal_chain_process_does_not_allocate() {
@@ -128,5 +75,19 @@ fn music_pull_does_not_allocate() {
     player.stop();
     n += allocations(|| out.pull_audio(None, Some(&mut r), 256));
     assert!(heard);
+    assert_eq!(n, 0);
+}
+
+#[test]
+fn join_audio_does_not_allocate() {
+    let (_client, mut audio) = hs_karaoke::join::join_client(48000.0, 256);
+    let mic = vec![0.1f32; 256];
+    let (mut l, mut r) = (vec![0.0f32; 256], vec![0.0f32; 256]);
+    let n = allocations(|| {
+        for i in 0..200 {
+            audio.push_upstream(&mic, 256, i * 256);
+            audio.pull_downstream(&mut l, &mut r, 256);
+        }
+    });
     assert_eq!(n, 0);
 }

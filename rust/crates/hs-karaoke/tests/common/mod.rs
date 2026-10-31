@@ -1,3 +1,8 @@
+// shared by several test binaries: each uses part of it
+#![allow(dead_code)]
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 /// A 16-bit stereo WAV of `frames` frames of `f(i)` on both channels.
@@ -37,4 +42,57 @@ impl Drop for Temp {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
+}
+
+// ---- counting allocator (PLAN section 8: no allocation on the audio thread) ----
+
+struct Counting;
+
+thread_local! {
+    static ARMED: Cell<bool> = const { Cell::new(false) };
+    static COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+fn note() {
+    // `try_with`: the allocator also runs while thread locals are being torn down
+    let _ = ARMED.try_with(|a| {
+        if a.get() {
+            let _ = COUNT.try_with(|c| c.set(c.get() + 1));
+        }
+    });
+}
+
+// SAFETY: forwards to the system allocator; the bookkeeping touches only thread-local Cells.
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        note();
+        // SAFETY: same contract as the caller's.
+        unsafe { System.alloc(layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        note();
+        // SAFETY: same contract as the caller's.
+        unsafe { System.alloc_zeroed(layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        note();
+        // SAFETY: same contract as the caller's.
+        unsafe { System.realloc(ptr, layout, new_size) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: same contract as the caller's.
+        unsafe { System.dealloc(ptr, layout) }
+    }
+}
+
+#[global_allocator]
+static ALLOC: Counting = Counting;
+
+/// Runs `f` with the counter armed on this thread; returns the allocations it made.
+pub fn allocations(f: impl FnOnce()) -> usize {
+    COUNT.with(|c| c.set(0));
+    ARMED.with(|a| a.set(true));
+    f();
+    ARMED.with(|a| a.set(false));
+    COUNT.with(Cell::get)
 }
